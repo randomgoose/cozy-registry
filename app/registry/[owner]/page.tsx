@@ -6,20 +6,21 @@ import { getRegistryItemByName } from "@/lib/registry";
 export const dynamic = "force-dynamic";
 
 /**
- * Backward compat: /registry/[name] redirects to /registry/[owner]/[name]
+ * Backward compat: /registry/[owner] (single segment) treats segment as component name,
+ * looks up and redirects to /registry/[owner]/[name].
  */
 export default async function RegistryItemPageLegacy({
   params,
 }: {
-  params: Promise<{ name: string }>;
+  params: Promise<{ owner: string }>;
 }) {
-  const { name } = await params;
+  const { owner: nameFromPath } = await params;
   const session = await auth.api.getSession({ headers: await headers() });
   const userId = session?.user?.id ?? null;
 
-  const item = await getRegistryItemByName(name, userId);
+  const item = await getRegistryItemByName(nameFromPath, userId);
   if (!item) notFound();
 
   const owner = item.userId ?? "legacy";
-  redirect(`/registry/${owner}/${name}`);
+  redirect(`/registry/${owner}/${item.name}`);
 }
