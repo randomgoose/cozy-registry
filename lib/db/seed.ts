@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { db } from "./index";
-import { registryItems, registryFiles } from "./schema";
+import { user, registryItems, registryFiles } from "./schema";
+import { eq } from "drizzle-orm";
 
 const heroSectionCode = `"use client";
 
@@ -149,7 +150,22 @@ export function PricingCard({
 }
 `;
 
+const LEGACY_USER_ID = "legacy";
+
 async function seed() {
+  // Ensure legacy user exists for seed items
+  const [existingUser] = await db.select().from(user).where(eq(user.id, LEGACY_USER_ID)).limit(1);
+  if (!existingUser) {
+    await db.insert(user).values({
+      id: LEGACY_USER_ID,
+      name: "Legacy",
+      email: "legacy@system.local",
+      emailVerified: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
   const items = [
     {
       name: "hero-section",
@@ -188,13 +204,16 @@ async function seed() {
     const [inserted] = await db
       .insert(registryItems)
       .values({
+        userId: LEGACY_USER_ID,
         name: item.name,
         type: item.type,
         title: item.title,
         description: item.description,
         meta: item.meta,
       })
-      .onConflictDoNothing({ target: registryItems.name })
+      .onConflictDoNothing({
+        target: [registryItems.userId, registryItems.name],
+      })
       .returning();
 
     if (inserted) {

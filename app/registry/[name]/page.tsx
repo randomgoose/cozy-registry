@@ -1,34 +1,25 @@
-import { notFound } from "next/navigation";
-import { getRegistryItemByName, toShadcnRegistryItem } from "@/lib/registry";
-import { ComponentDetail } from "./ComponentDetail";
+import { redirect, notFound } from "next/navigation";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth";
+import { getRegistryItemByName } from "@/lib/registry";
 
 export const dynamic = "force-dynamic";
 
-export default async function RegistryItemPage({
+/**
+ * Backward compat: /registry/[name] redirects to /registry/[owner]/[name]
+ */
+export default async function RegistryItemPageLegacy({
   params,
 }: {
   params: Promise<{ name: string }>;
 }) {
   const { name } = await params;
-  let item: Awaited<ReturnType<typeof getRegistryItemByName>>;
-  try {
-    item = await getRegistryItemByName(name);
-  } catch {
-    notFound();
-  }
+  const session = await auth.api.getSession({ headers: await headers() });
+  const userId = session?.user?.id ?? null;
 
+  const item = await getRegistryItemByName(name, userId);
   if (!item) notFound();
 
-  const shadcnItem = toShadcnRegistryItem(item);
-  const code = shadcnItem?.files?.[0]?.content ?? "";
-
-  return (
-    <ComponentDetail
-      name={item.name}
-      title={item.title}
-      description={item.description}
-      type={item.type}
-      code={code}
-    />
-  );
+  const owner = item.userId ?? "legacy";
+  redirect(`/registry/${owner}/${name}`);
 }

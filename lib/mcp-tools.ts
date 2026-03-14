@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getRegistryItems, getRegistryItemByName, createRegistryItem, toShadcnRegistryItem } from "./registry";
+import { getRegistryItems, getRegistryItemByName, getRegistryItemByOwnerAndName, createRegistryItem, toShadcnRegistryItem } from "./registry";
 import { validateTsx } from "./validate-tsx";
 import { getUserIdFromToken } from "./auth-api";
 
@@ -12,14 +12,17 @@ export function createRegistryMcpServer(request?: Request) {
 
   server.tool(
     "list_components",
-    "List all components and modules available in the registry. Use this to discover what's available before fetching a specific component.",
+    "List all components and modules available in the registry. Use this to discover what's available before fetching a specific component. Public components are always listed; private components require Authorization: Bearer <token>.",
     {},
     async () => {
-      const items = await getRegistryItems();
+      const userId = request ? await getUserIdFromToken(request) : null;
+      const items = await getRegistryItems(userId);
       const summary = items
         .map(
-          (i) =>
-            `- **${i.name}** (${i.type}): ${i.title}${i.description ? ` - ${i.description}` : ""}`
+          (i) => {
+            const owner = i.userId ?? "legacy";
+            return `- **@${owner}/${i.name}** (${i.type}): ${i.title}${i.description ? ` - ${i.description}` : ""}`;
+          }
         )
         .join("\n");
 
@@ -36,15 +39,17 @@ export function createRegistryMcpServer(request?: Request) {
 
   server.tool(
     "get_component",
-    "Get the full source code and metadata for a specific component by name. Use this when you need to implement or use a component. Returns the React/TSX code and props interface.",
+    "Get the full source code and metadata for a specific component. Use owner/name when multiple components share the same name. Returns the React/TSX code and props interface.",
     {
-      name: z
-        .string()
-        .describe("Component name, e.g. hero-section, faq, pricing-card"),
+      name: z.string().describe("Component name, e.g. hero-section, faq, pricing-card"),
+      owner: z.string().optional().describe("Owner userId (e.g. legacy, or from list_components). Use when multiple components have the same name."),
     },
-    async ({ name }) => {
+    async ({ name, owner }) => {
       try {
-        const item = await getRegistryItemByName(name);
+        const userId = request ? await getUserIdFromToken(request) : null;
+        const item = owner
+          ? await getRegistryItemByOwnerAndName(owner, name, userId)
+          : await getRegistryItemByName(name, userId);
 
         if (!item) {
           return {
@@ -93,7 +98,7 @@ ${fileContent}
 
   server.tool(
     "publish_component",
-    "Publish a new component to the registry. Use when the user wants to submit or add a component. Requires: name (kebab-case), type (registry:block or registry:component), title, and content (TSX source code).",
+    "Publish a new component to the registry. Use when the user wants to submit or add a component. Requires: name (kebab-case), type (registry:block or registry:component), title, and content (TSX source code). Requires Bearer token.",
     {
       name: z.string().describe("Component name in kebab-case, e.g. my-hero-section"),
       type: z.enum(["registry:block", "registry:component"]).describe("registry:block for modules, registry:component for components"),
@@ -101,6 +106,7 @@ ${fileContent}
       description: z.string().optional().describe("Optional description of the component"),
       content: z.string().optional().describe("Full TSX/React source code"),
       code: z.string().optional().describe("Alternative to content: TSX source code"),
+      visibility: z.enum(["public", "private"]).optional().describe("Visibility: public (default) or private. Private components only visible to owner with Bearer token."),
     },
     async (args) => {
       const content = args.content ?? args.code;
@@ -114,7 +120,7 @@ ${fileContent}
       console.log("[MCP publish_component] raw args:", JSON.stringify({ ...args, contentLength: content.length }));
 
       try {
-        const { name, type, title, description } = args;
+        const { name, type, title, description, visibility } = args;
 
         const nameRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
         if (!nameRegex.test(name)) {
@@ -152,13 +158,15 @@ ${fileContent}
           description: description || null,
           content,
           userId,
+          visibility: visibility === "private" ? "private" : "public",
         });
 
+        const ownerId = item.userId ?? "legacy";
         return {
           content: [
             {
               type: "text" as const,
-              text: `Published "${item.title}" (${item.name}). View at /registry/${item.name}`,
+              text: `Published "${item.title}" (@${ownerId}/${item.name}). View at /registry/${ownerId}/${item.name}`,
             },
           ],
         };
@@ -166,7 +174,7 @@ ${fileContent}
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("unique") || msg.includes("duplicate")) {
           return {
-            content: [{ type: "text" as const, text: `A component with this name already exists. Use a different name.` }],
+            content: [{ type: "text" as const, text: `You already have a component with this name. Use a different name or update the existing one.` }],
             isError: true,
           };
         }

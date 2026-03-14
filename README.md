@@ -1,4 +1,4 @@
-# Vibe Registry
+# Cozy Registry
 
 设计师参与的组件分发中心，支持 Vibe Coding 与 AI 使用。
 
@@ -47,6 +47,7 @@ pnpm dev
 
 ```bash
 # 确保 .env 中的 DATABASE_URL 指向生产数据库
+pnpm db:migrate-legacy   # 如有旧数据，先迁移 userId
 pnpm db:push
 pnpm db:seed
 ```

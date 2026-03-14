@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 interface ComponentDetailProps {
+  owner: string;
   name: string;
   title: string;
   description: string | null;
@@ -11,6 +12,7 @@ interface ComponentDetailProps {
 }
 
 export function ComponentDetail({
+  owner,
   name,
   title,
   description,

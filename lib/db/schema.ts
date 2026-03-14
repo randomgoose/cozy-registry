@@ -8,6 +8,7 @@ import {
   boolean,
   integer,
   index,
+  unique,
 } from "drizzle-orm/pg-core";
 
 // --- Better Auth tables ---
@@ -120,19 +121,28 @@ export const apiKey = pgTable(
 );
 
 // --- Registry tables ---
-export const registryItems = pgTable("registry_items", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
-  name: text("name").notNull().unique(),
-  type: text("type").notNull(), // registry:block, registry:component, etc.
-  title: text("title").notNull(),
-  description: text("description"),
-  dependencies: jsonb("dependencies").$type<string[]>().default([]),
-  registryDependencies: jsonb("registry_dependencies").$type<string[]>().default([]),
-  meta: jsonb("meta").$type<Record<string, unknown>>().default({}),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const registryItems = pgTable(
+  "registry_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    type: text("type").notNull(), // registry:block, registry:component, etc.
+    title: text("title").notNull(),
+    description: text("description"),
+    visibility: text("visibility").default("public").notNull(), // "public" | "private"
+    dependencies: jsonb("dependencies").$type<string[]>().default([]),
+    registryDependencies: jsonb("registry_dependencies").$type<string[]>().default([]),
+    meta: jsonb("meta").$type<Record<string, unknown>>().default({}),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("registry_items_userId_idx").on(table.userId),
+    // Per-user unique: each user can have one component per name
+    unique("registry_items_user_name_key").on(table.userId, table.name),
+  ]
+);
 
 export const registryFiles = pgTable("registry_files", {
   id: uuid("id").defaultRandom().primaryKey(),

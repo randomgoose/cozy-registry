@@ -47,7 +47,7 @@ pnpm dev
 ## 5. Registry API
 
 - **Registry 列表**: http://localhost:3000/api/registry
-- **单个组件**: http://localhost:3000/api/r/hero-section
+- **单个组件**: http://localhost:3000/api/r/{owner}/{name}（如 `/api/r/legacy/hero-section`）
 
 ## 6. MCP 配置（Cursor）
 

@@ -8,7 +8,7 @@ import { getUserIdFromToken } from "@/lib/auth-api";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, type, title, description, content } = body;
+    const { name, type, title, description, content, visibility } = body;
 
     if (!name || !type || !title || !content) {
       return NextResponse.json(
@@ -52,6 +52,7 @@ export async function POST(request: Request) {
       );
     }
 
+    const validVisibility = visibility === "private" ? "private" : "public";
     const item = await createRegistryItem({
       name,
       type,
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
       description: description || null,
       content,
       userId,
+      visibility: validVisibility,
     });
 
     return NextResponse.json({ success: true, item });

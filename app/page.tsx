@@ -101,12 +101,20 @@ export default async function Home() {
               发布组件
             </Link>
             {session ? (
-              <Link
-                href="/settings"
-                className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-              >
-                设置
-              </Link>
+              <>
+                <Link
+                  href="/dashboard"
+                  className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+                >
+                  我的组件
+                </Link>
+                <Link
+                  href="/settings"
+                  className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+                >
+                  设置
+                </Link>
+              </>
             ) : (
               <Link
                 href="/sign-in"
@@ -136,6 +144,7 @@ export default async function Home() {
             {items.map((item) => (
               <ComponentCard
                 key={item.id}
+                owner={item.userId ?? "legacy"}
                 name={item.name}
                 title={item.title}
                 description={item.description}

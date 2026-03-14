@@ -8,6 +8,7 @@ export default function PublishPage() {
   const [type, setType] = useState("registry:block");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [content, setContent] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [error, setError] = useState("");
@@ -27,6 +28,7 @@ export default function PublishPage() {
           title,
           description: description || null,
           content,
+          visibility,
         }),
       });
 
@@ -40,7 +42,8 @@ export default function PublishPage() {
       }
 
       setStatus("success");
-      window.location.href = `/registry/${name}`;
+      const owner = data?.item?.userId ?? "legacy";
+      window.location.href = `/registry/${owner}/${name}`;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to publish");
       setStatus("error");
@@ -129,6 +132,27 @@ export default function PublishPage() {
               required
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
             />
+          </div>
+
+          <div>
+            <label
+              htmlFor="visibility"
+              className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+            >
+              可见性
+            </label>
+            <select
+              id="visibility"
+              value={visibility}
+              onChange={(e) => setVisibility(e.target.value as "public" | "private")}
+              className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            >
+              <option value="public">公开 - 所有人可访问</option>
+              <option value="private">私有 - 仅本人（需 Bearer Token）可访问</option>
+            </select>
+            <p className="mt-1 text-xs text-zinc-500">
+              私有组件需在 MCP/Figma Make 中配置 Bearer Token 才能访问
+            </p>
           </div>
 
           <div>

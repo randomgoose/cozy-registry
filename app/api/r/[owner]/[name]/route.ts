@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import {
-  getRegistryItemByName,
+  getRegistryItemByOwnerAndName,
   toShadcnRegistryItem,
 } from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ name: string }> }
+  { params }: { params: Promise<{ owner: string; name: string }> }
 ) {
-  const { name } = await params;
+  const { owner, name } = await params;
   const userId = await getUserIdFromToken(request);
-  const item = await getRegistryItemByName(name, userId);
+  const item = await getRegistryItemByOwnerAndName(owner, name, userId);
 
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
