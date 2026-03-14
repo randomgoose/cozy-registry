@@ -84,6 +84,21 @@ export const verification = pgTable(
   (table) => [index("verification_identifier_idx").on(table.identifier)],
 );
 
+// OAuth 2.0 authorization codes (for Figma Make / MCP OAuth flow)
+export const oauthAuthorizationCode = pgTable("oauth_authorization_code", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  code: text("code").notNull().unique(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  clientId: text("client_id").notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  scope: text("scope"),
+  state: text("state"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const apiKey = pgTable(
   "apikey",
   {

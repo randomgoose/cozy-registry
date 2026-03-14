@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Vibe Registry - 组件分发中心",
+  title: "Cozy Registry - 组件分发中心",
   description: "设计师参与的组件分发工具，支持 Vibe Coding 与 AI 使用",
 };
 

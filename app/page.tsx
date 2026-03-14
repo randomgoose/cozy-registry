@@ -7,7 +7,12 @@ import { auth } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const session = await auth.api.getSession({ headers: await headers() });
+  let session: Awaited<ReturnType<typeof auth.api.getSession>> | null = null;
+  try {
+    session = await auth.api.getSession({ headers: await headers() });
+  } catch (err) {
+    console.error("Failed to get session:", err);
+  }
   let items: Awaited<ReturnType<typeof getRegistryItems>> = [];
   let dbError = false;
   try {
@@ -25,7 +30,7 @@ export default async function Home() {
         <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
           <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
             <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-              Vibe Registry
+              Cozy Registry
             </h1>
           </div>
         </header>
@@ -85,7 +90,7 @@ export default async function Home() {
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-            Vibe Registry
+            Cozy Registry
           </h1>
           <nav className="flex items-center gap-4">
             <Link

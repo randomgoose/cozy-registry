@@ -12,7 +12,7 @@
 
 ### 1.2 部署模式（战略选择）
 
-**主方向：企业/组织自部署 Registry**
+**主方向：企业/组织自部署 Cozy Registry**
 
 - 团队可快速建立和共享样式、组件、模块
 - 支持 Vibe Coding 项目快速落地
@@ -105,10 +105,10 @@
 **格式**：采用 shadcn registry schema（`registry.json`、`registry-item.json`），保证生态兼容
 
 **流程**：借鉴 jsrepo，避免 shadcn init 的繁琐
-- shadcn init 强制选择 style 预设（New York / Default），与自有 registry 样式冲突
-- 本产品：**样式由 registry 提供**，作为「第一来源」
-- 简化「首次使用」：不要求 `shadcn init`，registry 提供零预设的 base 样式
-- 已用 shadcn 的项目可继续用 `shadcn add` 从本 registry 拉取
+- shadcn init 强制选择 style 预设（New York / Default），与自有 Cozy registry 样式冲突
+- 本产品：**样式由 Cozy registry 提供**，作为「第一来源」
+- 简化「首次使用」：不要求 `shadcn init`，Cozy registry 提供零预设的 base 样式
+- 已用 shadcn 的项目可继续用 `shadcn add` 从 Cozy registry 拉取
 
 **两层结构**：
 - **Web 应用（人用）**：浏览、搜索、预览、发布、管理
@@ -228,7 +228,7 @@
 | 按需获取 | AI 需要时再查询，不占满上下文 |
 | 生态通用 | Cursor、Claude Desktop 等 MCP 客户端均可使用 |
 | 可扩展 | 后续可增加工具，不改协议 |
-| 与自部署匹配 | 企业自部署 registry 时，MCP 指向其 registry URL |
+| 与自部署匹配 | 企业自部署 Cozy Registry 时，MCP 指向其 registry URL |
 
 ### 8.3 MCP 工具设计（草案）
 

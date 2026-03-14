@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { createRegistryItem } from "@/lib/registry";
-import { validateTsx } from "@/lib/validate-tsx";
+import { validateTsx, extractDependencies } from "@/lib/validate-tsx";
 import { auth } from "@/lib/auth";
 import { getUserIdFromToken } from "@/lib/auth-api";
 
@@ -53,6 +53,7 @@ export async function POST(request: Request) {
     }
 
     const validVisibility = visibility === "private" ? "private" : "public";
+    const dependencies = extractDependencies(content);
     const item = await createRegistryItem({
       name,
       type,
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
       content,
       userId,
       visibility: validVisibility,
+      dependencies,
     });
 
     return NextResponse.json({ success: true, item });

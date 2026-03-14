@@ -55,5 +55,7 @@ pnpm db:seed
 ## 文档
 
 - [产品文档](docs/PRODUCT.md)
+- [待办与下一步](docs/TODO.md)
+- [Vibe Coding 提交规范](docs/SUBMISSION_GUIDELINES.md)
 - [设置指南](SETUP.md)
 - [Figma Make MCP 连接](docs/FIGMA_MAKE_MCP.md)

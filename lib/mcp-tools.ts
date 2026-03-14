@@ -1,12 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getRegistryItems, getRegistryItemByName, getRegistryItemByOwnerAndName, createRegistryItem, toShadcnRegistryItem } from "./registry";
-import { validateTsx } from "./validate-tsx";
+import { validateTsx, extractDependencies } from "./validate-tsx";
 import { getUserIdFromToken } from "./auth-api";
 
 export function createRegistryMcpServer(request?: Request) {
   const server = new McpServer({
-    name: "registry",
+    name: "cozy",
     version: "1.0.0",
   });
 
@@ -151,6 +151,7 @@ ${fileContent}
           };
         }
 
+        const dependencies = extractDependencies(content);
         const item = await createRegistryItem({
           name,
           type,
@@ -159,6 +160,7 @@ ${fileContent}
           content,
           userId,
           visibility: visibility === "private" ? "private" : "public",
+          dependencies,
         });
 
         const ownerId = item.userId ?? "legacy";

@@ -144,6 +144,7 @@ export async function createRegistryItem(data: {
   content: string;
   userId?: string | null;
   visibility?: "public" | "private";
+  dependencies?: string[];
 }) {
   const [item] = await db
     .insert(registryItems)
@@ -154,6 +155,7 @@ export async function createRegistryItem(data: {
       description: data.description ?? null,
       userId: data.userId ?? null,
       visibility: data.visibility ?? "public",
+      dependencies: data.dependencies ?? [],
     })
     .returning();
 

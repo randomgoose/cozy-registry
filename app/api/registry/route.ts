@@ -8,7 +8,7 @@ export async function GET(request: Request) {
 
   const registry = {
     $schema: "https://ui.shadcn.com/schema/registry.json",
-    name: "registry",
+    name: "cozy",
     homepage: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
     items: items.map(toShadcnRegistryItemSummary),
   };

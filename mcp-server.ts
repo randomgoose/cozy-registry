@@ -1,33 +1,33 @@
 #!/usr/bin/env npx tsx
 /**
- * Registry MCP Server (stdio - for Cursor)
+ * Cozy Registry MCP Server (stdio - for Cursor)
  *
  * Exposes list_components and get_component tools for AI to discover and use
- * components from the registry.
+ * components from the Cozy registry.
  *
  * For Figma Make: use the HTTP endpoint at /api/mcp (deploy to public HTTPS).
  * Figma Make does not support localhost or stdio.
  *
- * Requires REGISTRY_URL env (default: http://localhost:3000)
+ * Requires COZY_REGISTRY_URL env (default: http://localhost:3000)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const REGISTRY_URL =
-  process.env.REGISTRY_URL || "http://localhost:3000";
+const COZY_REGISTRY_URL =
+  process.env.COZY_REGISTRY_URL || process.env.REGISTRY_URL || "http://localhost:3000";
 
 async function fetchRegistry<T>(path: string): Promise<T> {
-  const res = await fetch(`${REGISTRY_URL}${path}`);
+  const res = await fetch(`${COZY_REGISTRY_URL}${path}`);
   if (!res.ok) {
-    throw new Error(`Registry fetch failed: ${res.status} ${path}`);
+    throw new Error(`Cozy registry fetch failed: ${res.status} ${path}`);
   }
   return res.json() as Promise<T>;
 }
 
 const server = new McpServer({
-  name: "registry",
+  name: "cozy",
   version: "1.0.0",
 });
 
@@ -104,7 +104,7 @@ ${fileContent}
         content: [
           {
             type: "text" as const,
-            text: `Failed to fetch component "${name}": ${msg}. Is the registry running at ${REGISTRY_URL}?`,
+            text: `Failed to fetch component "${name}": ${msg}. Is Cozy registry running at ${COZY_REGISTRY_URL}?`,
           },
         ],
         isError: true,

@@ -1,4 +1,4 @@
-# Registry 项目设置
+# Cozy Registry 项目设置
 
 ## 1. 环境变量
 
@@ -44,14 +44,14 @@ pnpm dev
 
 访问 http://localhost:3000
 
-## 5. Registry API
+## 5. Cozy Registry API
 
 - **Registry 列表**: http://localhost:3000/api/registry
 - **单个组件**: http://localhost:3000/api/r/{owner}/{name}（如 `/api/r/legacy/hero-section`）
 
 ## 6. MCP 配置（Cursor）
 
-项目已包含 `.cursor/mcp.json`，Cursor 会自动加载 registry MCP。
+项目已包含 `.cursor/mcp.json`，Cursor 会自动加载 Cozy registry MCP。
 
 **使用前**：确保 Next.js 应用已运行（`pnpm dev`），MCP 会从 http://localhost:3000 获取数据。
 

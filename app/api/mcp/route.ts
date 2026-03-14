@@ -1,9 +1,34 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createRegistryMcpServer } from "@/lib/mcp-tools";
+import { getBaseUrl } from "@/lib/oauth";
 
 // Stateless mode: create fresh server + transport per request (required for serverless).
 // Reusing stateless transport causes message ID collisions.
 async function handleMcpRequest(request: Request): Promise<Response> {
+  const authHeader = request.headers.get("authorization");
+  const hasToken = !!(authHeader?.startsWith("Bearer ") && authHeader.slice(7).trim());
+  if (!hasToken) {
+    const baseUrl = getBaseUrl();
+    const prmUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32001,
+          message: "Authorization required. Use OAuth or Bearer token.",
+        },
+        id: null,
+      }),
+      {
+        status: 401,
+        headers: {
+          "Content-Type": "application/json",
+          "WWW-Authenticate": `Bearer realm="cozy-registry", resource_metadata="${prmUrl}"`,
+        },
+      }
+    );
+  }
+
   try {
     const server = createRegistryMcpServer(request);
     const transport = new WebStandardStreamableHTTPServerTransport({
