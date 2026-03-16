@@ -34,6 +34,7 @@ export async function GET(request: Request, { params }: Params) {
       version: v.version,
       createdAt: v.createdAt,
       createdBy: v.createdBy,
+      message: v.message ?? null,
     })),
   });
 }

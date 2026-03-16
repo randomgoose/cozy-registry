@@ -137,8 +137,10 @@ export async function getRegistryItemByOwnerNameAndVersion(
 export async function getRegistryItemVersions(
   ownerId: string,
   name: string,
-  requestUserId?: string | null
-): Promise<{ version: string; createdAt: Date; createdBy: string | null }[]> {
+  requestUserId?: string | null,
+): Promise<
+  { version: string; createdAt: Date; createdBy: string | null; message?: string | null }[]
+> {
   const item = await getRegistryItemByOwnerAndName(ownerId, name, requestUserId);
   if (!item) return [];
 
@@ -147,12 +149,25 @@ export async function getRegistryItemVersions(
       version: registryItemVersions.version,
       createdAt: registryItemVersions.createdAt,
       createdBy: registryItemVersions.createdBy,
+      meta: registryItemVersions.meta,
     })
     .from(registryItemVersions)
     .where(eq(registryItemVersions.itemId, item.id))
     .orderBy(desc(registryItemVersions.createdAt));
 
-  return versions;
+  return versions.map((v) => {
+    const meta = (v as any).meta as Record<string, unknown> | null | undefined;
+    const message =
+      meta && typeof meta === "object" && typeof meta.message === "string"
+        ? meta.message
+        : null;
+    return {
+      version: v.version,
+      createdAt: v.createdAt,
+      createdBy: v.createdBy,
+      message,
+    };
+  });
 }
 
 /**

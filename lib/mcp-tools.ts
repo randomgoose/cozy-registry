@@ -4,6 +4,8 @@ import {
   getRegistryItems,
   getRegistryItemByName,
   getRegistryItemByOwnerAndName,
+  getRegistryItemVersions,
+  getCurrentVersion,
   createRegistryItem,
   createRegistryItemVersion,
   deleteRegistryItem,
@@ -46,46 +48,68 @@ export function createRegistryMcpServer(request?: Request) {
   })
 
 
-  server.registerTool("get_component", {
-    title: "Get component",
-    description: "Get the main TSX source and metadata for a specific component. Use owner/name when multiple components share the same name. Returns the entry React/TSX code and props interface; future versions may expose additional bundle files.",
-    inputSchema: z.object({
-      name: z
-        .string()
-        .describe("Component name, e.g. hero-section, faq, pricing-card"),
-      owner: z
-        .string()
-        .optional()
-        .describe(
-          "Owner userId (e.g. legacy, or from list_components). Use when multiple components have the same name.",
-        ),
-    }),
-  }, async ({ name, owner }) => {
-    try {
-      const userId = request ? await getUserIdFromToken(request) : null;
-      const item = owner
-        ? await getRegistryItemByOwnerAndName(owner, name, userId)
-        : await getRegistryItemByName(name, userId);
+  server.registerTool(
+    "get_component",
+    {
+      title: "Get component",
+      description:
+        "Get the main TSX source and metadata for a specific component. Use owner/name when multiple components share the same name. Returns the entry React/TSX code and props interface; future versions may expose additional bundle files.",
+      inputSchema: z.object({
+        name: z
+          .string()
+          .describe("Component name, e.g. hero-section, faq, pricing-card"),
+        owner: z
+          .string()
+          .optional()
+          .describe(
+            "Owner userId (e.g. legacy, or from list_components). Use when multiple components have the same name.",
+          ),
+      }),
+    },
+    async ({ name, owner }) => {
+      try {
+        const userId = request ? await getUserIdFromToken(request) : null;
+        const item = owner
+          ? await getRegistryItemByOwnerAndName(owner, name, userId)
+          : await getRegistryItemByName(name, userId);
 
-      if (!item) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Component "${name}" not found.`,
-            },
-          ],
-          isError: true,
-        };
-      }
+        if (!item) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Component "${name}" not found.`,
+              },
+            ],
+            isError: true,
+          };
+        }
 
-      const shadcnItem = toShadcnRegistryItem(item);
-      const fileContent = shadcnItem?.files?.[0]?.content ?? "";
-      const text = `## ${item.title} (${item.name})
+        const ownerId = (item as any).userId ?? owner ?? "legacy";
+        const currentVersion = getCurrentVersion(item as any);
+        const versions = await getRegistryItemVersions(
+          ownerId,
+          name,
+          userId,
+        );
+        const latestVersion = versions[0]?.version ?? currentVersion;
 
-${item.description || ""}
+        const shadcnItem = toShadcnRegistryItem(item);
+        const fileContent = shadcnItem?.files?.[0]?.content ?? "";
 
-### Usage
+        const headerLines = [
+          `## ${item.title} (@${ownerId}/${item.name})`,
+          "",
+          item.description || "",
+          "",
+          `- Current version: v${currentVersion}`,
+          `- Latest available: v${latestVersion}`,
+          "",
+        ];
+
+        const text = `${headerLines.join(
+          "\n",
+        )}### Usage
 Import and use in your React component. Props are defined in the interface.
 
 ### Source code
@@ -94,22 +118,112 @@ ${fileContent}
 \`\`\`
 `;
 
-      return {
-        content: [{ type: "text" as const, text }],
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Failed to fetch component "${name}": ${msg}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-  });
+        return {
+          content: [{ type: "text" as const, text }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to fetch component "${name}": ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_component_versions",
+    {
+      title: "Get component versions",
+      description:
+        "List all versions of a specific component, along with creation time and author. Use this to decide whether to upgrade a component in a project.",
+      inputSchema: z.object({
+        name: z
+          .string()
+          .describe(
+            "Component name in kebab-case, e.g. hero-section, trading-button",
+          ),
+        owner: z
+          .string()
+          .describe(
+            "Owner userId (e.g. legacy, or from list_components). Required to disambiguate components with the same name.",
+          ),
+      }),
+    },
+    async ({ name, owner }) => {
+      try {
+        const userId = request ? await getUserIdFromToken(request) : null;
+
+        const versions = await getRegistryItemVersions(owner, name, userId);
+        if (!versions.length) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `No versions found for @${owner}/${name}.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const lines: string[] = [];
+        lines.push(`## Versions for @${owner}/${name}`);
+        lines.push("");
+        lines.push("All versions (newest first):");
+        lines.push("");
+
+        const latest = versions[0];
+        const latestDateIso =
+          typeof latest.createdAt === "string"
+            ? latest.createdAt
+            : latest.createdAt.toISOString();
+        lines.push(
+          `Latest: v${latest.version} (createdAt: ${latestDateIso}${
+            latest.message ? `, message: ${latest.message}` : ""
+          })`,
+        );
+        lines.push("");
+
+        for (const v of versions) {
+          const dateIso =
+            typeof v.createdAt === "string"
+              ? v.createdAt
+              : v.createdAt.toISOString();
+          lines.push(
+            `- v${v.version} (createdAt: ${dateIso}, createdBy: ${
+              v.createdBy ?? "unknown"
+            }${v.message ? `, message: ${v.message}` : ""})`,
+          );
+        }
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: lines.join("\n"),
+            },
+          ],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to fetch versions for @${owner}/${name}: ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
 
   server.registerTool("delete_component", {
     title: "Delete component",

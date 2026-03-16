@@ -219,6 +219,57 @@ export function ComponentDetail({
           </div>
         </section>
 
+        {versions.length > 0 && (
+          <section className="mb-8 space-y-2">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                版本历史
+              </h2>
+              {selectedVersion !== currentVersion && (
+                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900/60">
+                  当前查看 v{selectedVersion}，最新为 v{currentVersion}
+                </span>
+              )}
+            </div>
+            <ul className="space-y-1 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+              {versions.map((v) => {
+                const date =
+                  v.createdAt instanceof Date
+                    ? v.createdAt
+                    : new Date(v.createdAt);
+                const isLatest = v.version === currentVersion;
+                return (
+                  <li
+                    key={v.version}
+                    className="flex items-start justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[11px] text-zinc-800 dark:text-zinc-100">
+                        v{v.version}
+                      </span>
+                      {isLatest && (
+                        <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-200">
+                          最新
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-1 flex-col items-end gap-0.5 text-right">
+                      <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        {date.toLocaleString()}
+                      </span>
+                      {v.createdBy && (
+                        <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+                          by {v.createdBy}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+
         <section className="mb-8 space-y-4">
           <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
             用于项目
