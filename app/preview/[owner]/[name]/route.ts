@@ -41,6 +41,28 @@ const DEMO_PROPS: Record<string, string> = {
   }),
 };
 
+/**
+ * 将 TSX 源码转为可在内联 Babel 脚本中运行的代码：移除所有 import/export，
+ * 避免 "import and export may only appear at the top level" 报错。
+ */
+function transformCodeForInlineBabel(code: string, _componentName: string): string {
+  let out = code
+    .replace(/^["']use client["'];\s*\n?/i, "")
+    .replace(/^["']use server["'];\s*\n?/i, "");
+
+  // 移除所有 import 语句（从 import 到分号，支持多行）
+  out = out.replace(/import\s+[\s\S]*?;\s*\n?/g, "");
+
+  // 移除仅 export 的语句行（export { A }; export type { A };）
+  out = out.replace(/^\s*export\s+(?:type\s+)?\{[^}]*\}\s*;?\s*\n?/gm, "");
+
+  // 去掉 export default / export，保留声明
+  out = out.replace(/\bexport\s+default\s+/g, "");
+  out = out.replace(/\bexport\s+/g, "");
+
+  return out.trim();
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ owner: string; name: string }> }
@@ -80,12 +102,7 @@ export async function GET(
 
   const demoProps = DEMO_PROPS[name] ?? "{}";
 
-  const transformedCode = code
-    .replace(/^["']use client["'];\s*\n?/i, "")
-    .replace(/import\s+React(?:\s*,\s*\{[^}]*\})?\s+from\s+["']react["'];\s*\n?/g, "")
-    .replace(new RegExp(`export\\s+function\\s+${componentName}\\b`), `function ${componentName}`)
-    .replace(/export\s+(?:interface|type)\s+\w+[^]*?\}\s*;?\s*\n/g, "")
-    .trim();
+  const transformedCode = transformCodeForInlineBabel(code, componentName);
 
   const html = `<!DOCTYPE html>
 <html lang="zh">
@@ -102,6 +119,14 @@ export async function GET(
   <script type="text/babel" data-presets="react,typescript">
     (function() {
       const container = document.getElementById('root');
+      Object.assign(typeof globalThis !== 'undefined' ? globalThis : window, {
+        useState: React.useState,
+        useEffect: React.useEffect,
+        useRef: React.useRef,
+        useMemo: React.useMemo,
+        useCallback: React.useCallback,
+        useContext: React.useContext,
+      });
 
       try {
         const Component = (function() {
