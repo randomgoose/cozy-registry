@@ -60,19 +60,31 @@ server.tool(
 
 server.tool(
   "get_component",
-  "Get the full source code and metadata for a specific component by name. Use this when you need to implement or use a component. Returns the React/TSX code and props interface.",
+  "Get the full source code and metadata for a specific component. Prefer owner + name when available; falls back to legacy /api/r/[name] for backward compatibility.",
   {
-    name: z.string().describe("Component name, e.g. hero-section, faq, pricing-card"),
+    name: z
+      .string()
+      .describe("Component name, e.g. hero-section, faq, pricing-card"),
+    owner: z
+      .string()
+      .optional()
+      .describe(
+        "Optional owner id. When present, fetches from /api/r/{owner}/{name}. When omitted, falls back to legacy /api/r/{name}.",
+      ),
   },
-  async ({ name }) => {
+  async ({ name, owner }) => {
     try {
+      const path = owner
+        ? `/api/r/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`
+        : `/api/r/${encodeURIComponent(name)}`;
+
       const item = await fetchRegistry<{
         name: string;
         type: string;
         title: string;
         description?: string;
         files: Array<{ path: string; content: string; type: string }>;
-      }>(`/api/r/${encodeURIComponent(name)}`);
+      }>(path);
 
       if (!item) {
         return {

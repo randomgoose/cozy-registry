@@ -245,8 +245,8 @@
 数据库（组件/模块/样式）
        │
        │ 动态生成 shadcn 格式
-       ▼
-Registry API（/api/registry.json, /api/r/[name].json）
+      ▼
+Registry API（/api/registry.json, /api/r/[owner]/[name].json）
        │
        ▼
 MCP Server（可独立部署或内嵌）
@@ -281,7 +281,7 @@ Cursor / 其他 MCP 客户端
 
 - [x] Drizzle + Postgres schema
 - [x] 预设组件 seed（Hero Section、FAQ、Pricing Card）
-- [x] Registry API（/api/registry、/api/r/[name]）
+- [x] Registry API（/api/registry、/api/r/[owner]/[name]）
 - [x] MCP server（list_components、get_component）
 - [x] Cursor MCP 配置（.cursor/mcp.json）
 
