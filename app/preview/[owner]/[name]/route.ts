@@ -43,20 +43,39 @@ const DEMO_PROPS: Record<string, string> = {
 
 /**
  * 将 TSX 源码转为可在内联 Babel 脚本中运行的代码：移除所有 import/export，
- * 避免 "import and export may only appear at the top level" 报错。
+ * 并确保存在名为 componentName 的组件绑定，避免 Babel 与运行时报错。
  */
-function transformCodeForInlineBabel(code: string, _componentName: string): string {
+function transformCodeForInlineBabel(
+  code: string,
+  componentName: string,
+): string {
   let out = code
     .replace(/^["']use client["'];\s*\n?/i, "")
     .replace(/^["']use server["'];\s*\n?/i, "");
 
-  // 移除所有 import 语句（从 import 到分号，支持多行）
+  // 1) 处理 export default function（有名或匿名），统一为命名函数 componentName
+  out = out.replace(
+    /export\s+default\s+function(?:\s+[A-Za-z0-9_]+)?\s*\(/g,
+    `function ${componentName}(`,
+  );
+
+  // 2) 处理 export default 表达式（含标识符或任意表达式）
+  //    例如：export default ContractPositionCard; 或 export default () => { ... };
+  out = out.replace(
+    /export\s+default\s+([^;]+);/g,
+    (_match, expr) => `const ${componentName} = ${expr};`,
+  );
+
+  // 3) 移除所有 import 语句（从 import 到分号，支持多行）
   out = out.replace(/import\s+[\s\S]*?;\s*\n?/g, "");
 
-  // 移除仅 export 的语句行（export { A }; export type { A };）
-  out = out.replace(/^\s*export\s+(?:type\s+)?\{[^}]*\}\s*;?\s*\n?/gm, "");
+  // 4) 移除仅 export 的语句行（export { A }; export type { A };）
+  out = out.replace(
+    /^\s*export\s+(?:type\s+)?\{[^}]*\}\s*;?\s*\n?/gm,
+    "",
+  );
 
-  // 去掉 export default / export，保留声明
+  // 5) 去掉剩余的 export / export default 关键字，保留声明
   out = out.replace(/\bexport\s+default\s+/g, "");
   out = out.replace(/\bexport\s+/g, "");
 
