@@ -55,6 +55,7 @@ function transformCodeForInlineBabel(
     .replace(/^["']use server["'];\s*\n?/i, "");
 
   let defaultId: string | null = null;
+  const importedNames = new Set<string>();
 
   // 1) export default function ContractPositionCard() { ... }
   out = out.replace(
@@ -84,7 +85,33 @@ function transformCodeForInlineBabel(
     },
   );
 
-  // 4) 移除所有 import 语句（从 import 到分号，支持多行）
+  // 4) 记录并移除常见形式的 import 语句
+  // import DefaultName from "module";
+  out = out.replace(
+    /import\s+([A-Za-z0-9_]+)\s+from\s+["'][^"']+["'];?\s*\n?/g,
+    (_m, name: string) => {
+      importedNames.add(name);
+      return "";
+    },
+  );
+
+  // import { A, B as C } from "module";
+  out = out.replace(
+    /import\s*{([^}]+)}\s*from\s+["'][^"']+["'];?\s*\n?/g,
+    (_m, spec: string) => {
+      spec
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((part) => {
+          const [orig] = part.split(/\s+as\s+/);
+          if (orig) importedNames.add(orig.trim());
+        });
+      return "";
+    },
+  );
+
+  // 兜底：移除剩余的 import 语句（从 import 到分号，支持多行）
   out = out.replace(/import\s+[\s\S]*?;\s*\n?/g, "");
 
   // 5) 移除仅 export 的语句行（export { A }; export type { A };）
@@ -104,6 +131,19 @@ function transformCodeForInlineBabel(
   if (defaultId && defaultId !== componentName) {
     out += `\n\nconst ${componentName} = ${defaultId};`;
   }
+
+  // 8) 为外部依赖创建简单的占位组件，避免 \"X is not defined\" 报错。
+  //    仅在源码中看不到同名声明时才注入占位。
+  importedNames.forEach((name) => {
+    if (!name) return;
+    const declPattern = new RegExp(
+      `\\b(function|const|let|class)\\s+${name}\\b`,
+    );
+    if (declPattern.test(out)) return;
+    // 避免覆盖我们刚刚绑定的默认组件引用
+    if (name === componentName || name === defaultId) return;
+    out += `\n\nconst ${name} = () => null;`;
+  });
 
   return out;
 }
