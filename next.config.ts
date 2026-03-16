@@ -7,6 +7,7 @@ const nextConfig: NextConfig = {
       { source: "/.well-known/oauth-authorization-server", destination: "/api/well-known/oauth-authorization-server" },
     ];
   },
+  serverExternalPackages: ["esbuild"],
 };
 
 export default nextConfig;

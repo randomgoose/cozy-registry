@@ -1,0 +1,182 @@
+import fs from "fs/promises";
+import os from "os";
+import path from "path";
+// 注意：为了避免 Next.js 在服务器 bundle 时把 esbuild 的可执行文件等一起打包，
+// 我们只在运行时通过 require 动态引入它，而不是作为顶层静态依赖。
+// 这有助于绕过 Turbopack 对 README / bin 等非 JS 资源的解析问题。
+ 
+const esbuild = require("esbuild") as typeof import("esbuild");
+
+type ComponentBundle = {
+  name: string;
+  version: string;
+  files: Record<string, string>;
+  dependencies?: string[];
+};
+
+export type PreviewBuildResult =
+  | { ok: true; code: string }
+  | {
+      ok: false;
+      error: {
+        message: string;
+        file?: string;
+        line?: number;
+        column?: number;
+      };
+    };
+
+/**
+ * Build a browser-ready ESM preview bundle from a ComponentBundle.
+ * Uses a temporary on-disk project and esbuild, following the
+ * high-level flow from docs/COMPONENT_PREVIEW_RUNTIME.md.
+ */
+export async function buildPreviewBundle(
+  bundle: ComponentBundle,
+  previewProps: unknown,
+): Promise<PreviewBuildResult> {
+  const tmpDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "cozy-registry-preview-"),
+  );
+
+  try {
+    // Write all source files to the temp directory, preserving relative paths.
+    for (const [relPath, content] of Object.entries(bundle.files)) {
+      const filePath = path.join(tmpDir, relPath);
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, content, "utf8");
+    }
+
+    // Ensure an index.tsx entry file exists. If not, create a shallow wrapper
+    // that re-exports a sensible default from the first TSX file:
+    // - 优先使用已有的 export default
+    // - 其次使用约定的 PreviewComponent
+    // - 否则使用首个导出的组件名（大写开头）
+    if (!("index.tsx" in bundle.files)) {
+      const entrySourcePath =
+        Object.keys(bundle.files).find((p) => p.endsWith(".tsx")) ??
+        Object.keys(bundle.files)[0];
+
+      if (!entrySourcePath) {
+        return {
+          ok: false,
+          error: { message: "Component bundle has no files" },
+        };
+      }
+
+      const importPath = `./${entrySourcePath.replace(/\.(tsx?|jsx?)$/, "")}`;
+      const source = bundle.files[entrySourcePath] ?? "";
+
+      let indexContent: string;
+
+      if (/export\s+default\b/.test(source)) {
+        // 源文件本身已有默认导出，直接转 re-export，避免重复命名
+        indexContent = `export { default } from "${importPath}";\n`;
+      } else if (
+        /export\s+(?:const|function|class)\s+PreviewComponent\b/.test(source)
+      ) {
+        indexContent = `export { PreviewComponent as default } from "${importPath}";\n`;
+      } else {
+        const namedMatch = source.match(
+          /export\s+(?:const|function|class)\s+([A-Z][A-Za-z0-9_]*)\b/,
+        );
+        const pickedName = namedMatch?.[1] ?? "Component";
+        indexContent = `export { ${pickedName} as default } from "${importPath}";\n`;
+      }
+
+      const indexPath = path.join(tmpDir, "index.tsx");
+      await fs.writeFile(indexPath, indexContent, "utf8");
+    }
+
+    // Generate preview-entry.tsx that renders the default export with props.
+    const previewEntryPath = path.join(tmpDir, "preview-entry.tsx");
+    let serializedProps = "{}";
+    try {
+      serializedProps = JSON.stringify(previewProps ?? {});
+    } catch {
+      serializedProps = "{}";
+    }
+
+    const previewEntryContent = `import React from "react";
+import { createRoot } from "react-dom/client";
+import Component from "./index";
+
+function App() {
+  const props = ${serializedProps};
+  return (
+    <div style={{ padding: 24 }}>
+      <Component {...props} />
+    </div>
+  );
+}
+
+const container = document.getElementById("root");
+if (!container) {
+  throw new Error("Missing #root element for preview runtime");
+}
+
+const root = createRoot(container);
+root.render(<App />);
+`;
+
+    await fs.writeFile(previewEntryPath, previewEntryContent, "utf8");
+
+    // Run esbuild to bundle the preview entry into a single ESM file.
+    const result = await esbuild.build({
+      entryPoints: [previewEntryPath],
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      jsx: "automatic",
+      outfile: "preview.js",
+      target: ["es2018"],
+      sourcemap: false,
+      // React 相关始终由 runtime import map 提供
+      external: [
+        "react",
+        "react-dom",
+        "react-dom/client",
+        "react/jsx-runtime",
+        // 其余依赖全部 external，交给浏览器 import map + CDN 解决
+        ...(bundle.dependencies ?? []),
+      ],
+      logLevel: "silent",
+      write: false,
+    });
+
+    const output = result.outputFiles?.[0]?.text;
+    if (!output) {
+      return {
+        ok: false,
+        error: { message: "Failed to generate preview bundle" },
+      };
+    }
+
+    return { ok: true, code: output };
+  } catch (err) {
+    if (err && typeof err === "object" && "errors" in err) {
+      const first = Array.isArray((err as any).errors)
+        ? (err as any).errors[0]
+        : undefined;
+      return {
+        ok: false,
+        error: {
+          message:
+            first?.text ??
+            (err instanceof Error ? err.message : String(err)),
+          file: first?.location?.file,
+          line: first?.location?.line,
+          column: first?.location?.column,
+        },
+      };
+    }
+
+    return {
+      ok: false,
+      error: {
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+

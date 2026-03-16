@@ -5,28 +5,29 @@ import {
   toShadcnRegistryItem,
 } from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
+import { buildPreviewBundle } from "@/lib/preview-build";
 
-const COMPONENT_NAME_MAP: Record<string, string> = {
-  "hero-section": "HeroSection",
-  faq: "FAQ",
-  "pricing-card": "PricingCard",
-};
-
-const DEMO_PROPS: Record<string, string> = {
-  "hero-section": JSON.stringify({
+const DEMO_PROPS: Record<string, unknown> = {
+  "hero-section": {
     title: "Welcome to Our Product",
     subtitle: "Build something amazing with our platform",
     ctaText: "Get Started",
     ctaHref: "#",
-  }),
-  faq: JSON.stringify({
+  },
+  faq: {
     items: [
-      { question: "What is this?", answer: "A component registry for your team." },
-      { question: "How do I use it?", answer: "Copy the code and paste into your project." },
+      {
+        question: "What is this?",
+        answer: "A component registry for your team.",
+      },
+      {
+        question: "How do I use it?",
+        answer: "Copy the code and paste into your project.",
+      },
     ],
     title: "Frequently Asked Questions",
-  }),
-  "pricing-card": JSON.stringify({
+  },
+  "pricing-card": {
     name: "Pro",
     price: "$29",
     period: "/month",
@@ -38,130 +39,24 @@ const DEMO_PROPS: Record<string, string> = {
     ],
     ctaText: "Get Started",
     highlighted: true,
-  }),
+  },
 };
-
-/**
- * 将 TSX 源码转为可在内联 Babel 脚本中运行的代码：移除所有 import/export，
- * 并尽量保留原始组件名（尤其是 export default ContractPositionCard 场景），
- * 同时确保存在名为 componentName 的引用可供外层使用。
- */
-function transformCodeForInlineBabel(
-  code: string,
-  componentName: string,
-): string {
-  let out = code
-    .replace(/^["']use client["'];\s*\n?/i, "")
-    .replace(/^["']use server["'];\s*\n?/i, "");
-
-  let defaultId: string | null = null;
-  const importedNames = new Set<string>();
-
-  // 1) export default function ContractPositionCard() { ... }
-  out = out.replace(
-    /export\s+default\s+function\s+([A-Za-z0-9_]+)\s*\(/,
-    (_m, name: string) => {
-      defaultId = name;
-      return `function ${name}(`;
-    },
-  );
-
-  // 2) export default function () { ... }  —— 匿名默认导出
-  out = out.replace(
-    /export\s+default\s+function\s*\(/,
-    () => {
-      defaultId = componentName;
-      return `function ${componentName}(`;
-    },
-  );
-
-  // 3) export default ContractPositionCard;
-  out = out.replace(
-    /export\s+default\s+([A-Za-z0-9_]+)\s*;/,
-    (_m, name: string) => {
-      defaultId = name;
-      // 去掉这行，稍后用默认标识符生成绑定
-      return "";
-    },
-  );
-
-  // 4) 记录并移除常见形式的 import 语句
-  // import DefaultName from "module";
-  out = out.replace(
-    /import\s+([A-Za-z0-9_]+)\s+from\s+["'][^"']+["'];?\s*\n?/g,
-    (_m, name: string) => {
-      importedNames.add(name);
-      return "";
-    },
-  );
-
-  // import { A, B as C } from "module";
-  out = out.replace(
-    /import\s*{([^}]+)}\s*from\s+["'][^"']+["'];?\s*\n?/g,
-    (_m, spec: string) => {
-      spec
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .forEach((part) => {
-          const [orig] = part.split(/\s+as\s+/);
-          if (orig) importedNames.add(orig.trim());
-        });
-      return "";
-    },
-  );
-
-  // 兜底：移除剩余的 import 语句（从 import 到分号，支持多行）
-  out = out.replace(/import\s+[\s\S]*?;\s*\n?/g, "");
-
-  // 5) 移除仅 export 的语句行（export { A }; export type { A };）
-  out = out.replace(
-    /^\s*export\s+(?:type\s+)?\{[^}]*\}\s*;?\s*\n?/gm,
-    "",
-  );
-
-  // 6) 去掉剩余的 export / export default 关键字，保留声明
-  out = out.replace(/\bexport\s+default\s+/g, "");
-  out = out.replace(/\bexport\s+/g, "");
-
-  out = out.trim();
-
-  // 7) 如果有明确的默认导出标识符，且名称与 componentName 不同，
-  //    追加一行绑定：const <componentName> = <defaultId>;
-  if (defaultId && defaultId !== componentName) {
-    out += `\n\nconst ${componentName} = ${defaultId};`;
-  }
-
-  // 8) 为外部依赖创建简单的占位组件，避免 \"X is not defined\" 报错。
-  //    仅在源码中看不到同名声明时才注入占位。
-  importedNames.forEach((name) => {
-    if (!name) return;
-    const declPattern = new RegExp(
-      `\\b(function|const|let|class)\\s+${name}\\b`,
-    );
-    if (declPattern.test(out)) return;
-    // 避免覆盖我们刚刚绑定的默认组件引用
-    if (name === componentName || name === defaultId) return;
-    out += `\n\nconst ${name} = () => null;`;
-  });
-
-  return out;
-}
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ owner: string; name: string }> }
+  { params }: { params: Promise<{ owner: string; name: string }> },
 ) {
   const { owner, name } = await params;
   const url = new URL(request.url);
   const version = url.searchParams.get("v") ?? null;
+
   const session = await auth.api.getSession({ headers: request.headers });
   const userId = session?.user?.id ?? (await getUserIdFromToken(request));
   const item = await getRegistryItemByOwnerNameAndVersion(
     owner,
     name,
     version,
-    userId
+    userId,
   );
 
   if (!item) {
@@ -169,86 +64,115 @@ export async function GET(
   }
 
   const shadcnItem = toShadcnRegistryItem(item);
-  const code = shadcnItem?.files?.[0]?.content ?? "";
+  const filesArray = shadcnItem?.files ?? [];
 
-  // 优先支持约定导出名 PreviewComponent，方便在 registry 中统一写法；
-  // 若不存在，则回退到基于 name 推导的组件名，以兼容旧数据。
-  const hasPreviewComponentExport = /export\s+function\s+PreviewComponent\b/.test(
-    code
-  );
-
-  const componentName = hasPreviewComponentExport
-    ? "PreviewComponent"
-    : COMPONENT_NAME_MAP[name] ??
-      name
-        .split("-")
-        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-        .join("");
-
-  // 优先使用组件自身携带的 previewProps（存储在 meta.previewProps 中），
-  // 若不存在则回退到内置 DEMO_PROPS，再退到空对象。
-  const rawPreviewProps = (item as any)?.meta?.previewProps;
-  let demoProps: string;
-  if (rawPreviewProps === undefined || rawPreviewProps === null) {
-    demoProps = DEMO_PROPS[name] ?? "{}";
-  } else if (typeof rawPreviewProps === "string") {
-    demoProps = rawPreviewProps;
-  } else {
-    try {
-      demoProps = JSON.stringify(rawPreviewProps);
-    } catch {
-      demoProps = DEMO_PROPS[name] ?? "{}";
-    }
+  const files: Record<string, string> = {};
+  for (const f of filesArray) {
+    files[f.path] = f.content;
   }
 
-  const transformedCode = transformCodeForInlineBabel(code, componentName);
+  const rawPreviewProps = (item as any)?.meta?.previewProps;
+  let previewProps: unknown;
+  if (rawPreviewProps === undefined || rawPreviewProps === null) {
+    previewProps = DEMO_PROPS[name] ?? {};
+  } else if (typeof rawPreviewProps === "string") {
+    try {
+      previewProps = JSON.parse(rawPreviewProps);
+    } catch {
+      previewProps = DEMO_PROPS[name] ?? {};
+    }
+  } else {
+    previewProps = rawPreviewProps;
+  }
+
+  const dependencies = (item.dependencies ?? []) as string[];
+
+  const buildResult = await buildPreviewBundle(
+    {
+      name: item.name,
+      version: version ?? item.currentVersion ?? "0.1.0",
+      files,
+      // 传给 esbuild，用于 external 出所有运行时依赖
+      dependencies,
+    },
+    previewProps,
+  );
+
+  if (!buildResult.ok) {
+    const err = buildResult.error;
+    const details =
+      err.file && err.line != null
+        ? `${err.file}:${err.line}:${err.column ?? 0}`
+        : "";
+    const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Preview build error</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  </head>
+  <body style="margin:0;padding:24px;font-family:system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;background:#fef2f2;color:#b91c1c;">
+    <h1 style="font-size:16px;margin:0 0 8px;">Preview build failed</h1>
+    <pre style="white-space:pre-wrap;font-size:13px;background:#fff;border-radius:8px;border:1px solid #fecaca;padding:12px;color:#991b1b;">${err.message}${details ? "\\n" + details : ""
+      }</pre>
+  </body>
+</html>`;
+
+    return new NextResponse(html, {
+      status: 500,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+      },
+    });
+  }
+
+  // 根据环境切换 React dev / prod 版本
+  const isDev = process.env.NODE_ENV !== "production";
+
+  const reactBase = "https://esm.sh/react@19";
+  const reactDomBase = "https://esm.sh/react-dom@19";
+  const reactDomClientBase = "https://esm.sh/react-dom@19/client";
+  const reactJsxRuntimeBase = "https://esm.sh/react@19/jsx-runtime";
+  const devSuffix = isDev ? "?dev" : "";
+
+  // 基本 import map：始终提供 React 运行时（与项目 React 版本保持一致）
+  const importMap: Record<string, string> = {
+    react: `${reactBase}${devSuffix}`,
+    "react-dom": `${reactDomBase}${devSuffix}`,
+    "react-dom/client": `${reactDomClientBase}${devSuffix}`,
+    "react/jsx-runtime": `${reactJsxRuntimeBase}${devSuffix}`,
+  };
+
+  // 告诉 CDN 依赖不要内联自己的 React，而是从 import map 取
+  const reactExternalQuery = "?external=react,react-dom,react-dom/client";
+
+  // 根据组件声明的 dependencies 动态扩展 import map。
+  // 策略：所有 bare import <pkg> → https://esm.sh/<pkg>?external=react,react-dom,react-dom/client
+  for (const dep of dependencies) {
+    if (!dep) continue;
+    if (dep in importMap) continue;
+    importMap[dep] = `https://esm.sh/${dep}${reactExternalQuery}`;
+  }
+
+  const importMapJson = JSON.stringify({ imports: importMap }, null, 2);
 
   const html = `<!DOCTYPE html>
-<html lang="zh">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="min-h-screen bg-white">
-  <div id="root"></div>
-  <script type="text/babel" data-presets="react,typescript">
-    (function() {
-      const container = document.getElementById('root');
-      Object.assign(typeof globalThis !== 'undefined' ? globalThis : window, {
-        useState: React.useState,
-        useEffect: React.useEffect,
-        useRef: React.useRef,
-        useMemo: React.useMemo,
-        useCallback: React.useCallback,
-        useContext: React.useContext,
-      });
-
-      try {
-        const Component = (function() {
-          ${transformedCode}
-          return ${componentName};
-        })();
-
-        if (!Component) {
-          throw new Error('组件未正确导出，请确保使用 export function ${componentName} 或 export function PreviewComponent');
-        }
-
-        const props = ${demoProps};
-        const root = ReactDOM.createRoot(container);
-        root.render(React.createElement(Component, props));
-      } catch (error) {
-        console.error(error);
-        if (container) {
-          container.innerHTML = '<div style="padding:16px;font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:0.5rem;white-space:pre-wrap;"><strong>预览出错：</strong> ' + (error && error.message ? error.message : String(error)) + '</div>';
-        }
-      }
-    })();
-  </script>
-</body>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Component Preview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="importmap">
+${importMapJson}
+    </script>
+  </head>
+  <body class="min-h-screen bg-white">
+    <div id="root"></div>
+    <script type="module">
+${buildResult.code}
+    </script>
+  </body>
 </html>`;
 
   return new NextResponse(html, {
