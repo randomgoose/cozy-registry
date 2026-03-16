@@ -20,7 +20,8 @@ export function createRegistryMcpServer(request?: Request) {
 
 
   server.registerTool("list_components", {
-    description: "List all components and modules available in the registry.Use this to discover what's available before fetching a specific component. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>.",
+    title: "List components",
+    description: "List all components and modules available in the registry. Use this to discover what's available before fetching a specific component. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>.",
     inputSchema: z.object({}).describe("No input required"),
   }, async () => {
     const userId = request ? await getUserIdFromToken(request) : null;
@@ -46,6 +47,7 @@ export function createRegistryMcpServer(request?: Request) {
 
 
   server.registerTool("get_component", {
+    title: "Get component",
     description: "Get the main TSX source and metadata for a specific component. Use owner/name when multiple components share the same name. Returns the entry React/TSX code and props interface; future versions may expose additional bundle files.",
     inputSchema: z.object({
       name: z
@@ -110,6 +112,7 @@ ${fileContent}
   });
 
   server.registerTool("delete_component", {
+    title: "Delete component",
     description: "Delete a component you own from the registry, including all its versions. Use this when the user explicitly asks to remove a component. Requires Bearer token.",
     inputSchema: z.object({
       name: z
@@ -191,6 +194,7 @@ ${fileContent}
   });
 
   server.registerTool("publish_component", {
+    title: "Publish or update component",
     description: "Publish or update a design-layer UI component in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). If the current user already owns a component with the same name, this will create a NEW VERSION instead of a new component. Otherwise it creates a new component. Requires: name (kebab-case), type (registry:block or registry:component), title, and content (TSX source code). Requires Bearer token. Future versions may accept multi-file bundles; for now, keep dependencies within a single entry file or simple relative imports.",
     inputSchema: z.object({
       name: z
