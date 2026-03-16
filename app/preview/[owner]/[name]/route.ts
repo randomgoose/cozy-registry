@@ -185,7 +185,21 @@ export async function GET(
         .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
         .join("");
 
-  const demoProps = DEMO_PROPS[name] ?? "{}";
+  // 优先使用组件自身携带的 previewProps（存储在 meta.previewProps 中），
+  // 若不存在则回退到内置 DEMO_PROPS，再退到空对象。
+  const rawPreviewProps = (item as any)?.meta?.previewProps;
+  let demoProps: string;
+  if (rawPreviewProps === undefined || rawPreviewProps === null) {
+    demoProps = DEMO_PROPS[name] ?? "{}";
+  } else if (typeof rawPreviewProps === "string") {
+    demoProps = rawPreviewProps;
+  } else {
+    try {
+      demoProps = JSON.stringify(rawPreviewProps);
+    } catch {
+      demoProps = DEMO_PROPS[name] ?? "{}";
+    }
+  }
 
   const transformedCode = transformCodeForInlineBabel(code, componentName);
 

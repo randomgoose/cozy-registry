@@ -165,6 +165,8 @@ export async function createRegistryItemVersion(params: {
   bump: "patch" | "minor" | "major";
   userId: string;
   message?: string;
+  /** 可选：更新用于预览的 props（将写回 registry_items.meta.previewProps） */
+  previewProps?: unknown;
 }) {
   const item = await getRegistryItemByOwnerAndName(
     params.ownerId,
@@ -186,11 +188,19 @@ export async function createRegistryItemVersion(params: {
       description: item.description,
       dependencies: item.dependencies ?? [],
       registryDependencies: item.registryDependencies ?? [],
-      meta: {
-        ...(typeof item.meta === "object" && item.meta ? item.meta : {}),
-        message: params.message,
-        source: "vibe",
-      },
+      meta: ((): Record<string, unknown> => {
+        const base =
+          typeof item.meta === "object" && item.meta ? item.meta : {};
+        const next: Record<string, unknown> = {
+          ...base,
+          message: params.message,
+          source: "vibe",
+        };
+        if (params.previewProps !== undefined) {
+          next.previewProps = params.previewProps;
+        }
+        return next;
+      })(),
       createdBy: params.userId,
     })
     .returning();
@@ -214,6 +224,14 @@ export async function createRegistryItemVersion(params: {
     .set({
       currentVersion: nextVersion,
       updatedAt: new Date(),
+      ...(params.previewProps !== undefined
+        ? {
+            meta: {
+              ...(typeof item.meta === "object" && item.meta ? item.meta : {}),
+              previewProps: params.previewProps,
+            } as Record<string, unknown>,
+          }
+        : {}),
     })
     .where(eq(registryItems.id, item.id));
 
@@ -312,6 +330,8 @@ export async function createRegistryItem(data: {
   userId?: string | null;
   visibility?: "public" | "private";
   dependencies?: string[];
+  /** 用于预览的 props 对象（会存入 registry_items.meta.previewProps） */
+  previewProps?: unknown;
 }) {
   const [item] = await db
     .insert(registryItems)
@@ -323,6 +343,10 @@ export async function createRegistryItem(data: {
       userId: data.userId ?? null,
       visibility: data.visibility ?? "public",
       dependencies: data.dependencies ?? [],
+      meta:
+        data.previewProps !== undefined
+          ? { previewProps: data.previewProps }
+          : undefined,
       currentVersion: INITIAL_VERSION,
     })
     .returning();
