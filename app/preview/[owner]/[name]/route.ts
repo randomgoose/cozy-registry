@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getRegistryItemByOwnerAndName, toShadcnRegistryItem } from "@/lib/registry";
+import {
+  getRegistryItemByOwnerNameAndVersion,
+  toShadcnRegistryItem,
+} from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
 
 const COMPONENT_NAME_MAP: Record<string, string> = {
@@ -43,9 +46,16 @@ export async function GET(
   { params }: { params: Promise<{ owner: string; name: string }> }
 ) {
   const { owner, name } = await params;
+  const url = new URL(request.url);
+  const version = url.searchParams.get("v") ?? null;
   const session = await auth.api.getSession({ headers: request.headers });
   const userId = session?.user?.id ?? (await getUserIdFromToken(request));
-  const item = await getRegistryItemByOwnerAndName(owner, name, userId);
+  const item = await getRegistryItemByOwnerNameAndVersion(
+    owner,
+    name,
+    version,
+    userId
+  );
 
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -53,7 +63,21 @@ export async function GET(
 
   const shadcnItem = toShadcnRegistryItem(item);
   const code = shadcnItem?.files?.[0]?.content ?? "";
-  const componentName = COMPONENT_NAME_MAP[name] ?? name.split("-").map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join("");
+
+  // 优先支持约定导出名 PreviewComponent，方便在 registry 中统一写法；
+  // 若不存在，则回退到基于 name 推导的组件名，以兼容旧数据。
+  const hasPreviewComponentExport = /export\s+function\s+PreviewComponent\b/.test(
+    code
+  );
+
+  const componentName = hasPreviewComponentExport
+    ? "PreviewComponent"
+    : COMPONENT_NAME_MAP[name] ??
+      name
+        .split("-")
+        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+        .join("");
+
   const demoProps = DEMO_PROPS[name] ?? "{}";
 
   const transformedCode = code
@@ -76,13 +100,29 @@ export async function GET(
 <body class="min-h-screen bg-white">
   <div id="root"></div>
   <script type="text/babel" data-presets="react,typescript">
-    const Component = (function() {
-      ${transformedCode}
-      return ${componentName};
+    (function() {
+      const container = document.getElementById('root');
+
+      try {
+        const Component = (function() {
+          ${transformedCode}
+          return ${componentName};
+        })();
+
+        if (!Component) {
+          throw new Error('组件未正确导出，请确保使用 export function ${componentName} 或 export function PreviewComponent');
+        }
+
+        const props = ${demoProps};
+        const root = ReactDOM.createRoot(container);
+        root.render(React.createElement(Component, props));
+      } catch (error) {
+        console.error(error);
+        if (container) {
+          container.innerHTML = '<div style="padding:16px;font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:0.5rem;white-space:pre-wrap;"><strong>预览出错：</strong> ' + (error && error.message ? error.message : String(error)) + '</div>';
+        }
+      }
     })();
-    const props = ${demoProps};
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(React.createElement(Component, props));
   </script>
 </body>
 </html>`;

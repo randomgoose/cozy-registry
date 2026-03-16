@@ -1,6 +1,25 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { db } from "./db";
-import { registryItems, registryFiles } from "./db/schema";
+import {
+  registryItems,
+  registryFiles,
+  registryItemVersions,
+  registryFileVersions,
+} from "./db/schema";
+
+const INITIAL_VERSION = "0.1.0";
+
+/** 根据 bump 类型计算下一版本号（简单 semver） */
+export function bumpVersion(
+  current: string,
+  bump: "patch" | "minor" | "major"
+): string {
+  const parts = current.split(".").map((s) => parseInt(s, 10) || 0);
+  const [major = 0, minor = 0, patch = 0] = parts;
+  if (bump === "major") return `${major + 1}.0.0`;
+  if (bump === "minor") return `${major}.${minor + 1}.0`;
+  return `${major}.${minor}.${patch + 1}`;
+}
 
 /**
  * Get registry items. If userId is provided, returns public items + owner's private items.
@@ -61,6 +80,146 @@ export async function getRegistryItemByOwnerAndName(
   return { ...item, files };
 }
 
+/** 当前展示版本号（兼容旧数据无 currentVersion） */
+export function getCurrentVersion(item: { currentVersion?: string | null }): string {
+  return item.currentVersion ?? INITIAL_VERSION;
+}
+
+/**
+ * 按 owner/name 获取组件，可选指定版本。不传 version 或等于当前版本时返回最新快照。
+ */
+export async function getRegistryItemByOwnerNameAndVersion(
+  ownerId: string,
+  name: string,
+  version: string | null | undefined,
+  requestUserId?: string | null
+) {
+  const base = await getRegistryItemByOwnerAndName(ownerId, name, requestUserId);
+  if (!base) return null;
+
+  const currentVer = getCurrentVersion(base);
+  if (!version || version === currentVer) return base;
+
+  const [itemVersion] = await db
+    .select()
+    .from(registryItemVersions)
+    .where(
+      and(
+        eq(registryItemVersions.itemId, base.id),
+        eq(registryItemVersions.version, version)
+      )
+    );
+
+  if (!itemVersion) return null;
+
+  const fileVersions = await db
+    .select()
+    .from(registryFileVersions)
+    .where(eq(registryFileVersions.itemVersionId, itemVersion.id));
+
+  return {
+    ...base,
+    title: itemVersion.title,
+    description: itemVersion.description,
+    dependencies: itemVersion.dependencies,
+    registryDependencies: itemVersion.registryDependencies,
+    files: fileVersions.map((f) => ({
+      path: f.path,
+      content: f.content,
+      type: f.type,
+    })),
+  };
+}
+
+/**
+ * 获取组件的版本列表（用于版本选择器 / 升级提示）
+ */
+export async function getRegistryItemVersions(
+  ownerId: string,
+  name: string,
+  requestUserId?: string | null
+): Promise<{ version: string; createdAt: Date; createdBy: string | null }[]> {
+  const item = await getRegistryItemByOwnerAndName(ownerId, name, requestUserId);
+  if (!item) return [];
+
+  const versions = await db
+    .select({
+      version: registryItemVersions.version,
+      createdAt: registryItemVersions.createdAt,
+      createdBy: registryItemVersions.createdBy,
+    })
+    .from(registryItemVersions)
+    .where(eq(registryItemVersions.itemId, item.id))
+    .orderBy(desc(registryItemVersions.createdAt));
+
+  return versions;
+}
+
+/**
+ * 发布新版本（Vibe 更新已有组件时调用）。仅组件 owner 可调用。
+ */
+export async function createRegistryItemVersion(params: {
+  ownerId: string;
+  name: string;
+  content: string;
+  bump: "patch" | "minor" | "major";
+  userId: string;
+  message?: string;
+}) {
+  const item = await getRegistryItemByOwnerAndName(
+    params.ownerId,
+    params.name,
+    params.userId
+  );
+  if (!item) throw new Error("Item not found or no access");
+  if (item.userId !== params.userId) throw new Error("Only owner can publish new version");
+
+  const currentVer = getCurrentVersion(item);
+  const nextVersion = bumpVersion(currentVer, params.bump);
+
+  const [itemVersion] = await db
+    .insert(registryItemVersions)
+    .values({
+      itemId: item.id,
+      version: nextVersion,
+      title: item.title,
+      description: item.description,
+      dependencies: item.dependencies ?? [],
+      registryDependencies: item.registryDependencies ?? [],
+      meta: {
+        ...(typeof item.meta === "object" && item.meta ? item.meta : {}),
+        message: params.message,
+        source: "vibe",
+      },
+      createdBy: params.userId,
+    })
+    .returning();
+
+  if (!itemVersion) throw new Error("Failed to create version record");
+
+  await db.insert(registryFileVersions).values({
+    itemVersionId: itemVersion.id,
+    path: item.files[0]?.path ?? `registry/modules/${params.name}.tsx`,
+    content: params.content,
+    type: item.type,
+  });
+
+  await db
+    .update(registryFiles)
+    .set({ content: params.content })
+    .where(eq(registryFiles.itemId, item.id));
+
+  await db
+    .update(registryItems)
+    .set({
+      currentVersion: nextVersion,
+      updatedAt: new Date(),
+    })
+    .where(eq(registryItems.id, item.id));
+
+  return { version: nextVersion, id: itemVersion.id };
+}
+
 /**
  * @deprecated Use getRegistryItemByOwnerAndName. For backward compat, looks up by name only.
  * If multiple items match (different owners), returns first public one or owner's if requestUserId matches.
@@ -101,7 +260,15 @@ export async function getRegistryItemByName(
 }
 
 export function toShadcnRegistryItem(
-  item: Awaited<ReturnType<typeof getRegistryItemByName>>
+  item: {
+    name: string;
+    type: string;
+    title: string;
+    description: string | null;
+    dependencies: string[] | null;
+    registryDependencies: string[] | null;
+    files: { path: string; content: string; type: string }[];
+  } | null
 ) {
   if (!item) return null;
 
@@ -110,8 +277,8 @@ export function toShadcnRegistryItem(
     type: item.type as "registry:block" | "registry:component",
     title: item.title,
     description: item.description ?? undefined,
-    dependencies: (item.dependencies as string[]) ?? [],
-    registryDependencies: (item.registryDependencies as string[]) ?? [],
+    dependencies: (item.dependencies ?? []) as string[],
+    registryDependencies: (item.registryDependencies ?? []) as string[],
   };
 
   const files = item.files.map((f) => ({
@@ -156,19 +323,74 @@ export async function createRegistryItem(data: {
       userId: data.userId ?? null,
       visibility: data.visibility ?? "public",
       dependencies: data.dependencies ?? [],
+      currentVersion: INITIAL_VERSION,
     })
     .returning();
 
   if (!item) throw new Error("Failed to create registry item");
 
+  const filePath = `registry/modules/${data.name}.tsx`;
   await db.insert(registryFiles).values({
     itemId: item.id,
-    path: `registry/modules/${data.name}.tsx`,
+    path: filePath,
     content: data.content,
     type: data.type,
   });
 
+  const [itemVersion] = await db
+    .insert(registryItemVersions)
+    .values({
+      itemId: item.id,
+      version: INITIAL_VERSION,
+      title: data.title,
+      description: data.description ?? null,
+      dependencies: data.dependencies ?? [],
+      registryDependencies: [],
+      meta: { source: "initial" },
+      createdBy: data.userId ?? null,
+    })
+    .returning();
+
+  if (itemVersion) {
+    await db.insert(registryFileVersions).values({
+      itemVersionId: itemVersion.id,
+      path: filePath,
+      content: data.content,
+      type: data.type,
+    });
+  }
+
   return item;
+}
+
+/**
+ * 删除组件（包括所有文件与版本）。仅 owner 可删除。
+ */
+export async function deleteRegistryItem(params: {
+  ownerId: string;
+  name: string;
+  requestUserId: string;
+}) {
+  const item = await getRegistryItemByOwnerAndName(
+    params.ownerId,
+    params.name,
+    params.requestUserId,
+  );
+  if (!item) {
+    throw new Error("Item not found or no access");
+  }
+  if (item.userId !== params.requestUserId) {
+    throw new Error("Only owner can delete the component");
+  }
+
+  await db
+    .delete(registryItems)
+    .where(
+      and(
+        eq(registryItems.userId, params.ownerId),
+        eq(registryItems.name, params.name),
+      ),
+    );
 }
 
 export function toShadcnRegistryItemSummary(item: {

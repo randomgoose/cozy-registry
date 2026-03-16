@@ -1,6 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getRegistryItems, getRegistryItemByName, getRegistryItemByOwnerAndName, createRegistryItem, toShadcnRegistryItem } from "./registry";
+import {
+  getRegistryItems,
+  getRegistryItemByName,
+  getRegistryItemByOwnerAndName,
+  createRegistryItem,
+  createRegistryItemVersion,
+  deleteRegistryItem,
+  toShadcnRegistryItem,
+} from "./registry";
 import { validateTsx, extractDependencies } from "./validate-tsx";
 import { getUserIdFromToken } from "./auth-api";
 
@@ -97,8 +105,91 @@ ${fileContent}
   );
 
   server.tool(
+    "delete_component",
+    "Delete a component you own from the registry, including all its versions. Use this when the user explicitly asks to remove a component. Requires Bearer token.",
+    {
+      name: z
+        .string()
+        .describe("Component name in kebab-case, e.g. hero-section"),
+      owner: z
+        .string()
+        .optional()
+        .describe(
+          "Owner userId (e.g. legacy, or from list_components). If omitted, assumes the current authenticated user.",
+        ),
+    },
+    async ({ name, owner }) => {
+      try {
+        const userId = request ? await getUserIdFromToken(request) : null;
+        if (!userId) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: "Authentication required. Add Authorization: Bearer <your-token>.",
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const ownerId = owner ?? userId;
+
+        await deleteRegistryItem({
+          ownerId,
+          name,
+          requestUserId: userId,
+        });
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Deleted component @${ownerId}/${name} and all of its versions.`,
+            },
+          ],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("not found") || msg.includes("no access")) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Component @${owner ?? "<current>"}/${name} not found or you do not have access.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (msg.includes("Only owner")) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: "Only the component owner can delete it.",
+              },
+            ],
+            isError: true,
+          };
+        }
+        console.error("[MCP delete_component] error:", msg);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to delete component: ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
     "publish_component",
-    "Publish a new component to the registry. Use when the user wants to submit or add a component. Requires: name (kebab-case), type (registry:block or registry:component), title, and content (TSX source code). Requires Bearer token.",
+    "Publish or update a component in the registry. If the current user already owns a component with the same name, this will create a NEW VERSION instead of a new component. Otherwise it creates a new component. Requires: name (kebab-case), type (registry:block or registry:component), title, and content (TSX source code). Requires Bearer token.",
     {
       name: z.string().describe("Component name in kebab-case, e.g. my-hero-section"),
       type: z.enum(["registry:block", "registry:component"]).describe("registry:block for modules, registry:component for components"),
@@ -107,6 +198,10 @@ ${fileContent}
       content: z.string().optional().describe("Full TSX/React source code"),
       code: z.string().optional().describe("Alternative to content: TSX source code"),
       visibility: z.enum(["public", "private"]).optional().describe("Visibility: public (default) or private. Private components only visible to owner with Bearer token."),
+      bump: z
+        .enum(["patch", "minor", "major"])
+        .optional()
+        .describe("When updating an existing component, how to bump the version. Defaults to patch."),
     },
     async (args) => {
       const content = args.content ?? args.code;
@@ -120,7 +215,7 @@ ${fileContent}
       console.log("[MCP publish_component] raw args:", JSON.stringify({ ...args, contentLength: content.length }));
 
       try {
-        const { name, type, title, description, visibility } = args;
+        const { name, type, title, description, visibility, bump } = args;
 
         const nameRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
         if (!nameRegex.test(name)) {
@@ -151,6 +246,34 @@ ${fileContent}
           };
         }
 
+        // 如果当前用户已经有同名组件，则视为「发布新版本」，而不是创建新组件。
+        const existing = await getRegistryItemByOwnerAndName(userId, name, userId).catch(
+          () => null,
+        );
+
+        if (existing) {
+          const bumpType = bump ?? "patch";
+          const result = await createRegistryItemVersion({
+            ownerId: userId,
+            name,
+            content,
+            bump: bumpType,
+            userId,
+            message: description || undefined,
+          });
+
+          const ownerId = existing.userId ?? "legacy";
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Updated "${existing.title}" (@${ownerId}/${existing.name}) to version v${result.version}. View at /registry/${ownerId}/${existing.name}`,
+              },
+            ],
+          };
+        }
+
+        // 否则创建一个全新的组件（初始版本会在 createRegistryItem 中一并写入）
         const dependencies = extractDependencies(content);
         const item = await createRegistryItem({
           name,
@@ -168,18 +291,13 @@ ${fileContent}
           content: [
             {
               type: "text" as const,
-              text: `Published "${item.title}" (@${ownerId}/${item.name}). View at /registry/${ownerId}/${item.name}`,
+              text: `Published new component "${item.title}" (@${ownerId}/${item.name}). View at /registry/${ownerId}/${item.name}`,
             },
           ],
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("unique") || msg.includes("duplicate")) {
-          return {
-            content: [{ type: "text" as const, text: `You already have a component with this name. Use a different name or update the existing one.` }],
-            isError: true,
-          };
-        }
+        // 不再对 duplicate name 给出「换名字」提示，因为我们已经在上面处理为版本更新。
         console.error("[MCP publish_component] error:", msg);
         return {
           content: [{ type: "text" as const, text: `Failed to publish: ${msg}` }],

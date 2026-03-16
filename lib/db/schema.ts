@@ -149,6 +149,8 @@ export const registryItems = pgTable(
     dependencies: jsonb("dependencies").$type<string[]>().default([]),
     registryDependencies: jsonb("registry_dependencies").$type<string[]>().default([]),
     meta: jsonb("meta").$type<Record<string, unknown>>().default({}),
+    /** 当前发布版本号，如 "0.1.0"；null 表示旧数据，按 "0.1.0" 处理 */
+    currentVersion: text("current_version"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -167,4 +169,38 @@ export const registryFiles = pgTable("registry_files", {
   path: text("path").notNull(),
   content: text("content").notNull(),
   type: text("type").notNull(), // registry:block, registry:component, etc.
+});
+
+/** 组件版本历史（每次 Vibe 更新或发布新版本写入） */
+export const registryItemVersions = pgTable(
+  "registry_item_versions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => registryItems.id, { onDelete: "cascade" }),
+    version: text("version").notNull(), // "0.1.0", "1.2.3"
+    title: text("title").notNull(),
+    description: text("description"),
+    dependencies: jsonb("dependencies").$type<string[]>().default([]),
+    registryDependencies: jsonb("registry_dependencies").$type<string[]>().default([]),
+    meta: jsonb("meta").$type<Record<string, unknown>>().default({}),
+    createdBy: text("created_by"), // userId or tool identifier
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("registry_item_versions_itemId_idx").on(table.itemId),
+    unique("registry_item_versions_item_version_key").on(table.itemId, table.version),
+  ]
+);
+
+/** 某版本对应的文件快照 */
+export const registryFileVersions = pgTable("registry_file_versions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  itemVersionId: uuid("item_version_id")
+    .notNull()
+    .references(() => registryItemVersions.id, { onDelete: "cascade" }),
+  path: text("path").notNull(),
+  content: text("content").notNull(),
+  type: text("type").notNull(),
 });
