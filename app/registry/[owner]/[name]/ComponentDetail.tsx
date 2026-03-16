@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChangeEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CodeBlock } from "./CodeBlock";
@@ -47,7 +47,14 @@ export function ComponentDetail({
   const [copied, setCopied] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [localSelectedVersion, setLocalSelectedVersion] =
+    useState(selectedVersion);
   const router = useRouter();
+
+  // 当路由参数变化时，同步下拉框与本地状态
+  useEffect(() => {
+    setLocalSelectedVersion(selectedVersion);
+  }, [selectedVersion]);
 
   async function handleCopy() {
     await navigator.clipboard.writeText(code);
@@ -58,8 +65,8 @@ export function ComponentDetail({
   const baseInstallUrl =
     installUrl ?? `https://你的registry域名/api/r/${owner}/${name}`;
   const installUrlWithVersion =
-    selectedVersion && selectedVersion !== currentVersion
-      ? `${baseInstallUrl}?v=${encodeURIComponent(selectedVersion)}`
+    localSelectedVersion && localSelectedVersion !== currentVersion
+      ? `${baseInstallUrl}?v=${encodeURIComponent(localSelectedVersion)}`
       : baseInstallUrl;
   const shadcnCommand = `npx shadcn@latest add ${installUrlWithVersion}`;
 
@@ -71,12 +78,15 @@ export function ComponentDetail({
 
   const typeLabel = type.replace("registry:", "") === "block" ? "模块" : "组件";
   const previewHref =
-    selectedVersion && selectedVersion !== currentVersion
-      ? `/preview/${owner}/${name}?v=${encodeURIComponent(selectedVersion)}`
+    localSelectedVersion && localSelectedVersion !== currentVersion
+      ? `/preview/${owner}/${name}?v=${encodeURIComponent(
+          localSelectedVersion,
+        )}`
       : `/preview/${owner}/${name}`;
 
   function handleVersionChange(e: ChangeEvent<HTMLSelectElement>) {
     const v = e.target.value;
+    setLocalSelectedVersion(v);
     if (v === currentVersion) {
       router.push(`/registry/${owner}/${name}`);
     } else {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  getCurrentVersion,
   getRegistryItemByOwnerNameAndVersion,
   toShadcnRegistryItem,
 } from "@/lib/registry";
@@ -7,7 +8,7 @@ import { getUserIdFromToken } from "@/lib/auth-api";
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ owner: string; name: string }> }
+  { params }: { params: Promise<{ owner: string; name: string }> },
 ) {
   const { owner, name } = await params;
   const url = new URL(request.url);
@@ -17,7 +18,7 @@ export async function GET(
     owner,
     name,
     version || null,
-    userId
+    userId,
   );
 
   if (!item) {
@@ -25,5 +26,35 @@ export async function GET(
   }
 
   const shadcnItem = toShadcnRegistryItem(item);
-  return NextResponse.json(shadcnItem);
+
+  // 计算当前安装的版本（显式 ?v 优先，其次为 currentVersion）
+  const installVersion = version && version.trim().length > 0
+    ? version.trim()
+    : getCurrentVersion(item as any);
+
+  const header = `// cozy-registry: @${owner}/${item.name} v${installVersion}\n`;
+
+  // 为 TS/TSX/JS/JSX 文件注入注释头，方便后续工具或 AI 识别来源与版本
+  const filesWithHeader =
+    shadcnItem?.files?.map((f) => {
+      const lower = f.path.toLowerCase();
+      const isCodeFile =
+        lower.endsWith(".tsx") ||
+        lower.endsWith(".ts") ||
+        lower.endsWith(".jsx") ||
+        lower.endsWith(".js");
+
+      if (!isCodeFile) return f;
+      if (f.content.startsWith("// cozy-registry:")) return f;
+
+      return {
+        ...f,
+        content: `${header}${f.content}`,
+      };
+    }) ?? shadcnItem.files;
+
+  return NextResponse.json({
+    ...shadcnItem,
+    files: filesWithHeader,
+  });
 }
