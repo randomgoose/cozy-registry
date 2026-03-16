@@ -95,7 +95,41 @@ export function createRegistryMcpServer(request?: Request) {
         const latestVersion = versions[0]?.version ?? currentVersion;
 
         const shadcnItem = toShadcnRegistryItem(item);
-        const fileContent = shadcnItem?.files?.[0]?.content ?? "";
+        const mainFile = shadcnItem?.files?.[0];
+        const rawFileContent = mainFile?.content ?? "";
+
+        // 在入口 TSX 文件顶部注入 cozy-registry 注释头，方便 AI / 工具识别来源与版本
+        const installVersion = latestVersion || currentVersion;
+        const headerComment = `// cozy-registry: @${ownerId}/${item.name} v${installVersion}\n`;
+
+        const isCodeFile = mainFile
+          ? [".tsx", ".ts", ".jsx", ".js"].some((ext) =>
+              mainFile.path.toLowerCase().endsWith(ext),
+            )
+          : false;
+
+        const fileContent =
+          isCodeFile && !rawFileContent.startsWith("// cozy-registry:")
+            ? `${headerComment}${rawFileContent}`
+            : rawFileContent;
+
+        // 生成一个推荐的「锁文件条目」片段，方便用户粘贴到自己的 lock/registry 配置中
+        const lockEntry = {
+          name: item.name,
+          owner: ownerId,
+          version: installVersion,
+          type: item.type,
+        };
+
+        const lockSnippet = JSON.stringify(
+          {
+            components: {
+              [`@${ownerId}/${item.name}`]: lockEntry,
+            },
+          },
+          null,
+          2,
+        );
 
         const headerLines = [
           `## ${item.title} (@${ownerId}/${item.name})`,
@@ -111,6 +145,13 @@ export function createRegistryMcpServer(request?: Request) {
           "\n",
         )}### Usage
 Import and use in your React component. Props are defined in the interface.
+
+### Suggested lockfile entry
+Add or merge the following into your project's registry/lock file so tools can track this component:
+
+\`\`\`json
+${lockSnippet}
+\`\`\`
 
 ### Source code
 \`\`\`tsx
