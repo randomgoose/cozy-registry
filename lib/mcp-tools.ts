@@ -210,6 +210,12 @@ ${fileContent}
         .string()
         .optional()
         .describe("Optional description of the component"),
+      previewProps: z
+        .any()
+        .optional()
+        .describe(
+          "Optional preview props object (will be stored in meta.previewProps and used by /preview)",
+        ),
       content: z
         .string()
         .optional()
@@ -288,6 +294,7 @@ ${fileContent}
           bump: bumpType,
           userId,
           message: description || undefined,
+          previewProps: args.previewProps,
         });
 
         const ownerId = existing.userId ?? "legacy";
@@ -312,6 +319,7 @@ ${fileContent}
         userId,
         visibility: visibility === "private" ? "private" : "public",
         dependencies,
+        previewProps: args.previewProps,
       });
 
       const ownerId = item.userId ?? "legacy";
