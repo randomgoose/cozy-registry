@@ -24,6 +24,7 @@
 
 - [ ] **组件/模块 schema 详细设计**：在文档中明确字段、必填/可选、与 shadcn 的对应关系（可新建 `docs/SCHEMA.md`）
 - [ ] **样式与组件关联机制**：确定规则（如每组件可绑一套样式/主题），并在 DB 或 API 预留扩展
+- [ ] **资源类型扩展（样式 / 图标 / 组件 / Block）**：按 [RESOURCE_TYPES.md](./RESOURCE_TYPES.md) 落地——`registry:theme` 按主题发布、`registry:icon-set` 按集合发布，组件/Block 保持现状；API 与 MCP 支持 theme、icon-set 的拉取与依赖声明
 
 ---
 

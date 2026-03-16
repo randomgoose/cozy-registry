@@ -195,6 +195,30 @@ export function ComponentDetail({
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-8">
+        <section className="mb-8">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+              组件预览
+            </h2>
+            <Link
+              href={previewHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
+            >
+              在新窗口打开
+            </Link>
+          </div>
+          <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+            <iframe
+              title={`${title} 预览`}
+              src={previewHref}
+              className="h-[420px] w-full border-0"
+              sandbox="allow-scripts"
+            />
+          </div>
+        </section>
+
         <section className="mb-8 space-y-4">
           <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
             用于项目
