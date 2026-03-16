@@ -43,7 +43,8 @@ const DEMO_PROPS: Record<string, string> = {
 
 /**
  * 将 TSX 源码转为可在内联 Babel 脚本中运行的代码：移除所有 import/export，
- * 并确保存在名为 componentName 的组件绑定，避免 Babel 与运行时报错。
+ * 并尽量保留原始组件名（尤其是 export default ContractPositionCard 场景），
+ * 同时确保存在名为 componentName 的引用可供外层使用。
  */
 function transformCodeForInlineBabel(
   code: string,
@@ -53,33 +54,58 @@ function transformCodeForInlineBabel(
     .replace(/^["']use client["'];\s*\n?/i, "")
     .replace(/^["']use server["'];\s*\n?/i, "");
 
-  // 1) 处理 export default function（有名或匿名），统一为命名函数 componentName
+  let defaultId: string | null = null;
+
+  // 1) export default function ContractPositionCard() { ... }
   out = out.replace(
-    /export\s+default\s+function(?:\s+[A-Za-z0-9_]+)?\s*\(/g,
-    `function ${componentName}(`,
+    /export\s+default\s+function\s+([A-Za-z0-9_]+)\s*\(/,
+    (_m, name: string) => {
+      defaultId = name;
+      return `function ${name}(`;
+    },
   );
 
-  // 2) 处理 export default 表达式（含标识符或任意表达式）
-  //    例如：export default ContractPositionCard; 或 export default () => { ... };
+  // 2) export default function () { ... }  —— 匿名默认导出
   out = out.replace(
-    /export\s+default\s+([^;]+);/g,
-    (_match, expr) => `const ${componentName} = ${expr};`,
+    /export\s+default\s+function\s*\(/,
+    () => {
+      defaultId = componentName;
+      return `function ${componentName}(`;
+    },
   );
 
-  // 3) 移除所有 import 语句（从 import 到分号，支持多行）
+  // 3) export default ContractPositionCard;
+  out = out.replace(
+    /export\s+default\s+([A-Za-z0-9_]+)\s*;/,
+    (_m, name: string) => {
+      defaultId = name;
+      // 去掉这行，稍后用默认标识符生成绑定
+      return "";
+    },
+  );
+
+  // 4) 移除所有 import 语句（从 import 到分号，支持多行）
   out = out.replace(/import\s+[\s\S]*?;\s*\n?/g, "");
 
-  // 4) 移除仅 export 的语句行（export { A }; export type { A };）
+  // 5) 移除仅 export 的语句行（export { A }; export type { A };）
   out = out.replace(
     /^\s*export\s+(?:type\s+)?\{[^}]*\}\s*;?\s*\n?/gm,
     "",
   );
 
-  // 5) 去掉剩余的 export / export default 关键字，保留声明
+  // 6) 去掉剩余的 export / export default 关键字，保留声明
   out = out.replace(/\bexport\s+default\s+/g, "");
   out = out.replace(/\bexport\s+/g, "");
 
-  return out.trim();
+  out = out.trim();
+
+  // 7) 如果有明确的默认导出标识符，且名称与 componentName 不同，
+  //    追加一行绑定：const <componentName> = <defaultId>;
+  if (defaultId && defaultId !== componentName) {
+    out += `\n\nconst ${componentName} = ${defaultId};`;
+  }
+
+  return out;
 }
 
 export async function GET(
