@@ -604,17 +604,30 @@ ${fileContent}
       }
 
       // 否则创建一个全新的组件（初始版本会在 createRegistryItem 中一并写入）
+      // 仅保留裸模块依赖（npm 包），忽略相对路径 import
       const dependencies = (() => {
-        if (files) {
-          const allDeps = new Set<string>();
-          for (const source of Object.values(files)) {
-            for (const dep of extractDependencies(source)) {
-              allDeps.add(dep);
-            }
+        const isBare = (spec: string) =>
+          !spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/");
+
+        const allDeps = new Set<string>();
+
+        const addDepsFromSource = (src: string | undefined | null) => {
+          if (!src) return;
+          for (const dep of extractDependencies(src)) {
+            if (isBare(dep)) allDeps.add(dep);
           }
-          return Array.from(allDeps).sort();
+        };
+
+        if (files) {
+          for (const source of Object.values(files)) {
+            if (typeof source !== "string") continue;
+            addDepsFromSource(source);
+          }
+        } else if (content) {
+          addDepsFromSource(content);
         }
-        return content ? extractDependencies(content) : [];
+
+        return Array.from(allDeps).sort();
       })();
       const item = await createRegistryItem({
         name,

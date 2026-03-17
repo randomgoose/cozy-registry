@@ -58,8 +58,17 @@ export async function GET(
     };
   });
 
+  const isBare = (spec: string) =>
+    typeof spec === "string" &&
+    !spec.startsWith("./") &&
+    !spec.startsWith("../") &&
+    !spec.startsWith("/");
+
+  const cleanDependencies = (shadcnItem.dependencies ?? []).filter(isBare);
+
   return NextResponse.json({
     ...shadcnItem,
+    dependencies: cleanDependencies,
     files: filesWithHeader,
   });
 }

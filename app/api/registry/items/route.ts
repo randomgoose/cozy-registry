@@ -85,17 +85,30 @@ export async function POST(request: Request) {
     }
 
     const validVisibility = visibility === "private" ? "private" : "public";
+    // 仅保留裸模块依赖（npm 包），忽略相对路径 import
     const dependencies = (() => {
       if (isTheme) return [];
+      const isBare = (spec: string) =>
+        !spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/");
+      const all = new Set<string>();
+
+      const addDepsFromSource = (src: string | undefined | null) => {
+        if (!src) return;
+        for (const dep of extractDependencies(src)) {
+          if (isBare(dep)) all.add(dep);
+        }
+      };
+
       if (hasFiles) {
-        const all = new Set<string>();
         for (const src of Object.values(files as Record<string, unknown>)) {
           if (typeof src !== "string") continue;
-          for (const dep of extractDependencies(src)) all.add(dep);
+          addDepsFromSource(src);
         }
-        return Array.from(all).sort();
+      } else {
+        addDepsFromSource(content);
       }
-      return extractDependencies(content);
+
+      return Array.from(all).sort();
     })();
 
     const normalizedFiles = hasFiles
