@@ -7,6 +7,7 @@ import {
 } from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
 import { buildPreviewBundle } from "@/lib/preview-build";
+import { extractDependencies } from "@/lib/validate-tsx";
 
 /** 解析 registryDependencies 项，如 "@owner/name" 或 "@owner/name@1.0.0" */
 function parseRegistryDep(dep: string): { owner: string; name: string; version: string | null } | null {
@@ -62,7 +63,11 @@ const DEMO_PROPS: Record<string, unknown> = {
 };
 
 function isBareModuleSpecifier(spec: string): boolean {
-  return !spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/");
+  return (
+    !spec.startsWith("./") &&
+    !spec.startsWith("../") &&
+    !spec.startsWith("/")
+  );
 }
 
 export async function GET(
@@ -135,7 +140,19 @@ export async function GET(
     previewProps = rawPreviewProps;
   }
 
-  const allDependencies = (item.dependencies ?? []) as string[];
+  // 运行时依赖来源：
+  // - 存储在 DB 中的 item.dependencies（兼容旧数据）
+  // - 从所有源码文件中动态提取的 bare imports
+  const depsFromDb = (item.dependencies ?? []) as string[];
+  const depsFromFiles = new Set<string>();
+  for (const source of Object.values(files)) {
+    for (const dep of extractDependencies(source)) {
+      depsFromFiles.add(dep);
+    }
+  }
+  const allDependencies = Array.from(
+    new Set<string>([...depsFromDb, ...depsFromFiles]),
+  ).sort();
   // 仅对裸模块依赖构建 import map / external；相对路径交给 esbuild 走本地文件
   const runtimeDependencies = allDependencies.filter(isBareModuleSpecifier);
 
