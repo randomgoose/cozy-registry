@@ -161,6 +161,27 @@ root.render(<App />);
       },
     };
 
+    // Figma Make 的资源引用（figma:asset/...）只在其运行时可用。
+    // Preview 环境下将其替换为一个空字符串，保证组件仍可渲染（背景图等会缺失但不阻塞）。
+    const figmaAssetPlugin: import("esbuild").Plugin = {
+      name: "figma-asset-stub",
+      setup(build: import("esbuild").PluginBuild) {
+        build.onResolve({ filter: /^figma:asset\// }, (args: import("esbuild").OnResolveArgs) => {
+          return {
+            path: args.path,
+            namespace: "figma-asset",
+          };
+        });
+        build.onLoad({ filter: /.*/, namespace: "figma-asset" }, (args: import("esbuild").OnLoadArgs) => {
+          const safe = JSON.stringify(args.path);
+          return {
+            contents: `export default ""; export const __figmaAsset = ${safe};\n`,
+            loader: "js",
+          };
+        });
+      },
+    };
+
     // Run esbuild to bundle the preview entry into a single ESM file.
     const result = await esbuild.build({
       entryPoints: [previewEntryPath],
@@ -171,7 +192,7 @@ root.render(<App />);
       outfile: "preview.js",
       target: ["es2018"],
       sourcemap: false,
-      plugins: [cssPlugin],
+      plugins: [cssPlugin, figmaAssetPlugin],
       // React 相关始终由 runtime import map 提供
       external: [
         "react",

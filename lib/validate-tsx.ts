@@ -37,6 +37,9 @@ export function extractDependencies(code: string): string[] {
       if (node.type === "ImportDeclaration" && node.source?.value) {
         const value = node.source.value;
         if (typeof value === "string" && value.length > 0) {
+          // Figma Make 会把图片写成 `figma:asset/<hash>.png` 形式的 specifier；
+          // 该路径只在 Figma Make 运行时有效，不应作为通用依赖参与 import map / CDN 解析。
+          if (isFigmaAssetSpecifier(value)) continue;
           deps.add(value);
         }
       }
@@ -45,6 +48,11 @@ export function extractDependencies(code: string): string[] {
   } catch {
     return [];
   }
+}
+
+function isFigmaAssetSpecifier(spec: string): boolean {
+  // e.g. "figma:asset/xxxx.png"
+  return spec.startsWith("figma:asset/");
 }
 
 export interface PropField {
