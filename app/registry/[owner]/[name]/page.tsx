@@ -8,6 +8,7 @@ import {
   getCurrentVersion,
   toShadcnRegistryItem,
 } from "@/lib/registry";
+import { extractPropsFromTsx } from "@/lib/validate-tsx";
 import { ComponentDetail } from "./ComponentDetail";
 
 export const dynamic = "force-dynamic";
@@ -58,6 +59,9 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
   const shadcnItem = toShadcnRegistryItem(item);
   const code = shadcnItem?.files?.[0]?.content ?? "";
   const currentVersion = getCurrentVersion(item);
+  const dependencies = (item.dependencies ?? []) as string[];
+  const registryDependencies = (item.registryDependencies ?? []) as string[];
+  const propsFromCode = item.type !== "registry:theme" ? extractPropsFromTsx(code) : [];
 
   let versions: { version: string; createdAt: Date; createdBy: string | null }[] = [];
   try {
@@ -83,6 +87,9 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
       selectedVersion={version ?? currentVersion}
       versions={versions}
       isOwner={item.userId === requestUserId}
+      dependencies={dependencies}
+      registryDependencies={registryDependencies}
+      propsFromCode={propsFromCode}
     />
   );
 }

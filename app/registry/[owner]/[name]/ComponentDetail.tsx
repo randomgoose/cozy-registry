@@ -5,6 +5,16 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CodeBlock } from "./CodeBlock";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import type { PropField } from "@/lib/validate-tsx";
 
 interface VersionInfo {
   version: string;
@@ -29,6 +39,12 @@ interface ComponentDetailProps {
   versions: VersionInfo[];
   /** 是否为当前登录用户自己的组件（owner） */
   isOwner: boolean;
+  /** npm 依赖（如 react、clsx） */
+  dependencies: string[];
+  /** 本 registry 内依赖（如 @owner/other-component） */
+  registryDependencies: string[];
+  /** 从 TSX 解析出的 Props 接口字段 */
+  propsFromCode: PropField[];
 }
 
 export function ComponentDetail({
@@ -43,6 +59,9 @@ export function ComponentDetail({
   selectedVersion,
   versions,
   isOwner,
+  dependencies,
+  registryDependencies,
+  propsFromCode,
 }: ComponentDetailProps) {
   const [copied, setCopied] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -178,6 +197,29 @@ export function ComponentDetail({
               <p className="mt-2 text-zinc-600 dark:text-zinc-400">
                 {description || "—"}
               </p>
+              {(dependencies.length > 0 || registryDependencies.length > 0) && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                    依赖：
+                  </span>
+                  {dependencies.map((dep) => (
+                    <span
+                      key={dep}
+                      className="rounded-md bg-zinc-200 px-2 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300"
+                    >
+                      {dep}
+                    </span>
+                  ))}
+                  {registryDependencies.map((ref) => (
+                    <span
+                      key={ref}
+                      className="rounded-md bg-blue-100 px-2 py-0.5 font-mono text-xs text-blue-800 dark:bg-blue-900/50 dark:text-blue-200"
+                    >
+                      @{ref}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
               <Link
@@ -189,27 +231,68 @@ export function ComponentDetail({
                 预览
               </Link>
               {isOwner && (
-                <button
+                <Button
                   type="button"
+                  variant="destructive"
+                  size="lg"
                   onClick={handleDelete}
                   disabled={deleting}
-                  className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-60 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-900/60"
                 >
                   {deleting ? "正在删除…" : "删除组件"}
-                </button>
+                </Button>
               )}
-              <button
-                onClick={handleCopy}
-                className="rounded-lg border border-zinc-200 bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:border-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-              >
+              <Button variant="default" size="lg" onClick={handleCopy}>
                 {copied ? "已复制" : "复制代码"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-8">
+        {propsFromCode.length > 0 && (
+          <section className="mb-8">
+            <h2 className="mb-3 text-sm font-medium text-zinc-500 dark:text-zinc-400">
+              Props
+            </h2>
+            <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80 hover:bg-zinc-50 dark:hover:bg-zinc-900/80">
+                    <TableHead className="text-zinc-500 dark:text-zinc-400">
+                      属性
+                    </TableHead>
+                    <TableHead className="text-zinc-500 dark:text-zinc-400">
+                      类型
+                    </TableHead>
+                    <TableHead className="text-zinc-500 dark:text-zinc-400">
+                      可选
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {propsFromCode.map((p) => (
+                    <TableRow
+                      key={p.name}
+                      className="border-zinc-100 dark:border-zinc-800"
+                    >
+                      <TableCell className="font-mono text-zinc-800 dark:text-zinc-200">
+                        {p.name}
+                      </TableCell>
+                      <TableCell className="font-mono text-zinc-600 dark:text-zinc-400">
+                        {p.type}
+                      </TableCell>
+                      <TableCell className="text-zinc-500 dark:text-zinc-400">
+                        {p.optional ? "是" : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </section>
+        )}
+
         <section className="mb-8">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
@@ -308,13 +391,15 @@ export function ComponentDetail({
               <code className="min-w-0 flex-1 break-all font-mono text-sm text-zinc-800 dark:text-zinc-200">
                 {shadcnCommand}
               </code>
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
                 onClick={handleCopyCommand}
-                className="shrink-0 rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600"
               >
                 {copiedCmd ? "已复制" : "复制命令"}
-              </button>
+              </Button>
             </div>
             {!installUrl && (
               <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
@@ -329,12 +414,9 @@ export function ComponentDetail({
             <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
               TSX
             </span>
-            <button
-              onClick={handleCopy}
-              className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
-            >
+            <Button variant="ghost" size="sm" onClick={handleCopy}>
               {copied ? "已复制" : "复制"}
-            </button>
+            </Button>
           </div>
           <CodeBlock code={code} language={type === "registry:theme" ? "css" : "tsx"} />
         </section>

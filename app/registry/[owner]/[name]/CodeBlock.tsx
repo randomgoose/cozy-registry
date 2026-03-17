@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import "prismjs/themes/prism-tomorrow.css";
+import { Button } from "@/components/ui/button";
 
 const LINES_TO_SHOW = 14;
 const LINE_HEIGHT_REM = 1.625;
@@ -104,10 +105,12 @@ export function CodeBlock({
         )}
       </div>
       {hasManyLines && (
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
+          className="mt-2 w-full"
           onClick={() => setCollapsed((c) => !c)}
-          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded border border-zinc-200 bg-zinc-100 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
         >
           {collapsed ? (
             <>
@@ -117,7 +120,7 @@ export function CodeBlock({
           ) : (
             "收起"
           )}
-        </button>
+        </Button>
       )}
     </div>
   );

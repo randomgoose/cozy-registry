@@ -371,6 +371,10 @@ ${fileContent}
         .describe(
           "Optional preview props object (will be stored in meta.previewProps and used by /preview)",
         ),
+      /**
+       * 单文件模式：入口 TSX/CSS 源码（向后兼容）。
+       * 当 files 存在时会被忽略。
+       */
       content: z
         .string()
         .optional()
@@ -379,6 +383,16 @@ ${fileContent}
         .string()
         .optional()
         .describe("Alternative to content: TSX or CSS source"),
+      /**
+       * 多文件 bundle。键为相对路径（如 index.tsx、Button.tsx、styles.css）。
+       * 若提供，则优先于 content/code。
+       */
+      files: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(
+          "Optional multi-file bundle. Keys are relative paths (e.g. index.tsx, Button.tsx, styles.css). When provided, this is used instead of content/code.",
+        ),
       visibility: z
         .enum(["public", "private"])
         .optional()
@@ -393,15 +407,31 @@ ${fileContent}
         ),
     }),
   }, async (args) => {
-    const content = args.content ?? args.code;
-    if (!content) {
+    const files =
+      args.files && Object.keys(args.files).length > 0 ? args.files : undefined;
+    const content = files ? undefined : args.content ?? args.code;
+    if (!files && !content) {
       return {
-        content: [{ type: "text" as const, text: "Missing required field: content or code (TSX or CSS for theme)" }],
+        content: [
+          {
+            type: "text" as const,
+            text:
+              "Missing required field: files or content/code (TSX or CSS for theme).",
+          },
+        ],
         isError: true,
       };
     }
     // Log raw input for debugging Figma Make request format (Vercel Logs)
-    console.log("[MCP publish_component] raw args:", JSON.stringify({ ...args, contentLength: content.length }));
+    console.log(
+      "[MCP publish_component] raw args:",
+      JSON.stringify({
+        ...args,
+        hasFiles: !!files,
+        fileCount: files ? Object.keys(files).length : 0,
+        contentLength: content?.length ?? 0,
+      }),
+    );
 
     try {
       const { name, type, title, description, visibility, bump } = args;
@@ -414,12 +444,20 @@ ${fileContent}
         };
       }
 
-      const validation = validateTsx(content);
-      if (!validation.valid) {
-        return {
-          content: [{ type: "text" as const, text: `Invalid TSX: ${validation.error}` }],
-          isError: true,
-        };
+      // 目前 validate 仍基于入口 TSX；多文件模式下由客户端保证 files 内 TSX/CSS 有效。
+      if (content) {
+        const validation = validateTsx(content);
+        if (!validation.valid) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Invalid TSX: ${validation.error}`,
+              },
+            ],
+            isError: true,
+          };
+        }
       }
 
       const userId = request ? await getUserIdFromToken(request) : null;
@@ -436,7 +474,11 @@ ${fileContent}
       }
 
       // 如果当前用户已经有同名组件，则视为「发布新版本」，而不是创建新组件。
-      const existing = await getRegistryItemByOwnerAndName(userId, name, userId).catch(
+      const existing = await getRegistryItemByOwnerAndName(
+        userId,
+        name,
+        userId,
+      ).catch(
         () => null,
       );
 
@@ -445,7 +487,8 @@ ${fileContent}
         const result = await createRegistryItemVersion({
           ownerId: userId,
           name,
-          content,
+          content: content ?? undefined,
+          files,
           bump: bumpType,
           userId,
           message: description || undefined,
@@ -464,13 +507,25 @@ ${fileContent}
       }
 
       // 否则创建一个全新的组件（初始版本会在 createRegistryItem 中一并写入）
-      const dependencies = extractDependencies(content);
+      const dependencies = (() => {
+        if (files) {
+          const allDeps = new Set<string>();
+          for (const source of Object.values(files)) {
+            for (const dep of extractDependencies(source)) {
+              allDeps.add(dep);
+            }
+          }
+          return Array.from(allDeps).sort();
+        }
+        return content ? extractDependencies(content) : [];
+      })();
       const item = await createRegistryItem({
         name,
         type,
         title,
         description: description || null,
-        content,
+        content: content ?? undefined,
+        files,
         userId,
         visibility: visibility === "private" ? "private" : "public",
         dependencies,

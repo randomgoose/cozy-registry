@@ -230,7 +230,14 @@ export async function getRegistryItemVersions(
 export async function createRegistryItemVersion(params: {
   ownerId: string;
   name: string;
-  content: string;
+  /**
+   * 单文件入口内容（向后兼容）。当提供 files 时会被忽略。
+   */
+  content?: string;
+  /**
+   * 多文件 bundle。key 为相对路径。若为空则退回到单文件 content。
+   */
+  files?: Record<string, string>;
   bump: "patch" | "minor" | "major";
   userId: string;
   message?: string;
@@ -248,13 +255,43 @@ export async function createRegistryItemVersion(params: {
   const currentVer = getCurrentVersion(item);
   const nextVersion = bumpVersion(currentVer, params.bump);
 
-  const contentWithHeader = withCozyHeader({
-    ownerId: params.ownerId,
-    name: params.name,
-    version: nextVersion,
-    content: params.content,
-    format: item.type === "registry:theme" ? "css" : "js",
-  });
+  // 归一化为多文件 bundle：
+  // - 若显式提供 files，则优先使用
+  // - 否则仅更新一个入口文件（向后兼容）
+  const normalizedFiles = (() => {
+    const files = params.files && Object.keys(params.files).length > 0 ? params.files : null;
+    if (files) return files;
+    if (!params.content) {
+      throw new Error("Either files or content must be provided when creating new version");
+    }
+    const entryPath = item.files[0]?.path
+      ?? (item.type === "registry:theme"
+        ? "theme.css"
+        : `registry/modules/${params.name}.tsx`);
+    return { [entryPath]: params.content };
+  })();
+
+  const filesForDb: {
+    path: string;
+    content: string;
+    type: string;
+  }[] = [];
+
+  for (const [pathKey, rawContent] of Object.entries(normalizedFiles)) {
+    const isCss = item.type === "registry:theme" || pathKey.toLowerCase().endsWith(".css");
+    const contentWithHeader = withCozyHeader({
+      ownerId: params.ownerId,
+      name: params.name,
+      version: nextVersion,
+      content: rawContent,
+      format: isCss ? "css" : "js",
+    });
+    filesForDb.push({
+      path: pathKey,
+      content: contentWithHeader,
+      type: item.type,
+    });
+  }
 
   const [itemVersion] = await db
     .insert(registryItemVersions)
@@ -284,17 +321,28 @@ export async function createRegistryItemVersion(params: {
 
   if (!itemVersion) throw new Error("Failed to create version record");
 
-  await db.insert(registryFileVersions).values({
-    itemVersionId: itemVersion.id,
-    path: item.files[0]?.path ?? `registry/modules/${params.name}.tsx`,
-    content: contentWithHeader,
-    type: item.type,
-  });
+  await db.insert(registryFileVersions).values(
+    filesForDb.map((f) => ({
+      itemVersionId: itemVersion.id,
+      path: f.path,
+      content: f.content,
+      type: f.type,
+    })),
+  );
 
+  // 更新当前快照：先删后插，保持与版本表结构一致
   await db
-    .update(registryFiles)
-    .set({ content: contentWithHeader })
+    .delete(registryFiles)
     .where(eq(registryFiles.itemId, item.id));
+
+  await db.insert(registryFiles).values(
+    filesForDb.map((f) => ({
+      itemId: item.id,
+      path: f.path,
+      content: f.content,
+      type: f.type,
+    })),
+  );
 
   await db
     .update(registryItems)
@@ -403,7 +451,19 @@ export async function createRegistryItem(data: {
   type: string;
   title: string;
   description?: string | null;
-  content: string;
+  /**
+   * 单文件入口内容（向后兼容）。当提供 files 时会被忽略；
+   * 当 files 为空时，会被包装为一个默认文件。
+   */
+  content?: string;
+  /**
+   * 多文件 bundle。key 为相对路径，例如：
+   * - "index.tsx"
+   * - "Button.tsx"
+   * - "hooks/useFoo.ts"
+   * - "styles.css"
+   */
+  files?: Record<string, string>;
   userId?: string | null;
   visibility?: "public" | "private";
   dependencies?: string[];
@@ -430,23 +490,54 @@ export async function createRegistryItem(data: {
 
   if (!item) throw new Error("Failed to create registry item");
 
-  const filePath =
-    data.type === "registry:theme"
-      ? "theme.css"
-      : `registry/modules/${data.name}.tsx`;
-  const contentWithHeader = withCozyHeader({
-    ownerId: data.userId,
-    name: data.name,
-    version: INITIAL_VERSION,
-    content: data.content,
-    format: data.type === "registry:theme" ? "css" : "js",
-  });
-  await db.insert(registryFiles).values({
-    itemId: item.id,
-    path: filePath,
-    content: contentWithHeader,
-    type: data.type,
-  });
+  // 统一归一化为多文件 bundle：
+  // - 若提供了 files 且非空，则直接使用
+  // - 否则将单文件 content 包装为默认路径：
+  //   - theme: "theme.css"
+  //   - 其他：`registry/modules/${name}.tsx`
+  const normalizedFiles = (() => {
+    const files = data.files && Object.keys(data.files).length > 0 ? data.files : null;
+    if (files) return files;
+    if (!data.content) {
+      throw new Error("Either files or content must be provided when creating registry item");
+    }
+    const singlePath =
+      data.type === "registry:theme"
+        ? "theme.css"
+        : `registry/modules/${data.name}.tsx`;
+    return { [singlePath]: data.content };
+  })();
+
+  const filesForDb: {
+    path: string;
+    content: string;
+    type: string;
+  }[] = [];
+
+  for (const [pathKey, rawContent] of Object.entries(normalizedFiles)) {
+    const isCss = data.type === "registry:theme" || pathKey.toLowerCase().endsWith(".css");
+    const contentWithHeader = withCozyHeader({
+      ownerId: data.userId,
+      name: data.name,
+      version: INITIAL_VERSION,
+      content: rawContent,
+      format: isCss ? "css" : "js",
+    });
+    filesForDb.push({
+      path: pathKey,
+      content: contentWithHeader,
+      type: data.type,
+    });
+  }
+
+  await db.insert(registryFiles).values(
+    filesForDb.map((f) => ({
+      itemId: item.id,
+      path: f.path,
+      content: f.content,
+      type: f.type,
+    })),
+  );
 
   const [itemVersion] = await db
     .insert(registryItemVersions)
@@ -463,12 +554,14 @@ export async function createRegistryItem(data: {
     .returning();
 
   if (itemVersion) {
-    await db.insert(registryFileVersions).values({
-      itemVersionId: itemVersion.id,
-      path: filePath,
-      content: contentWithHeader,
-      type: data.type,
-    });
+    await db.insert(registryFileVersions).values(
+      filesForDb.map((f) => ({
+        itemVersionId: itemVersion.id,
+        path: f.path,
+        content: f.content,
+        type: f.type,
+      })),
+    );
   }
 
   return item;

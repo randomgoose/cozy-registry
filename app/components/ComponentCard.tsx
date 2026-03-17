@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 
 interface ComponentCardProps {
   owner: string;
@@ -55,12 +56,14 @@ export function ComponentCard({
             {description || "—"}
           </p>
         </div>
-        <button
+        <Button
+          variant="outline"
+          size="lg"
+          className="shrink-0"
           onClick={handleCopy}
-          className="shrink-0 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
         >
           {copied ? "已复制" : "复制代码"}
-        </button>
+        </Button>
       </div>
       <a
         href={`/registry/${owner}/${name}`}

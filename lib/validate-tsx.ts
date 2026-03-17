@@ -46,3 +46,90 @@ export function extractDependencies(code: string): string[] {
     return [];
   }
 }
+
+export interface PropField {
+  name: string;
+  type: string;
+  optional: boolean;
+}
+
+/**
+ * Extract props interface from TSX (finds *Props interface used by component).
+ * Returns array of { name, type, optional }. Returns [] if parse fails or no props interface found.
+ */
+export function extractPropsFromTsx(code: string): PropField[] {
+  try {
+    const ast = parser.parse(code, PARSE_OPTIONS);
+    let propsInterface: parser.ParseResult<parser.ParseResultFile>["program"]["body"][0] | null = null;
+    for (const node of ast.program.body) {
+      if (node.type === "TSInterfaceDeclaration") {
+        const name = node.id.type === "Identifier" ? node.id.name : "";
+        if (name.endsWith("Props") || name === "Props") {
+          propsInterface = node;
+          break;
+        }
+        if (!propsInterface) propsInterface = node;
+      }
+    }
+    if (!propsInterface || propsInterface.type !== "TSInterfaceDeclaration") return [];
+    const body = propsInterface.body;
+    if (body.type !== "TSInterfaceBody") return [];
+    const out: PropField[] = [];
+    for (const member of body.body) {
+      if (member.type !== "TSPropertySignature" || !member.key) continue;
+      const key = member.key;
+      const name =
+        key.type === "Identifier"
+          ? key.name
+          : key.type === "StringLiteral"
+            ? key.value
+            : "";
+      if (!name || (typeof name === "string" && (name === "key" || name === "ref"))) continue;
+      const optional = member.optional ?? false;
+      const typeStr = member.typeAnnotation?.typeAnnotation
+        ? typeAnnotationToString(member.typeAnnotation.typeAnnotation)
+        : "unknown";
+      out.push({ name, type: typeStr, optional });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function typeAnnotationToString(node: parser.Node): string {
+  switch (node.type) {
+    case "TSStringKeyword":
+      return "string";
+    case "TSNumberKeyword":
+      return "number";
+    case "TSBooleanKeyword":
+      return "boolean";
+    case "TSAnyKeyword":
+      return "any";
+    case "TSUnknownKeyword":
+      return "unknown";
+    case "TSVoidKeyword":
+      return "void";
+    case "TSNullKeyword":
+      return "null";
+    case "TSArrayType":
+      return typeAnnotationToString(node.elementType) + "[]";
+    case "TSUnionType":
+      return node.types.map(typeAnnotationToString).join(" | ");
+    case "TSLiteralType":
+      if (node.literal.type === "StringLiteral") return `"${node.literal.value}"`;
+      if (node.literal.type === "NumericLiteral") return String(node.literal.value);
+      if (node.literal.type === "BooleanLiteral") return node.literal.value ? "true" : "false";
+      return "literal";
+    case "TSTypeReference":
+      if (node.typeName.type === "Identifier") return node.typeName.name;
+      return "unknown";
+    case "TSFunctionType":
+      return "function";
+    case "TSIntersectionType":
+      return node.types.map(typeAnnotationToString).join(" & ");
+    default:
+      return "unknown";
+  }
+}
