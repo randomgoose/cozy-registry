@@ -57,7 +57,8 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
   if (!item) notFound();
 
   const shadcnItem = toShadcnRegistryItem(item);
-  const code = shadcnItem?.files?.[0]?.content ?? "";
+  const files = shadcnItem?.files ?? [];
+  const code = files[0]?.content ?? "";
   const currentVersion = getCurrentVersion(item);
   const dependencies = (item.dependencies ?? []) as string[];
   const registryDependencies = (item.registryDependencies ?? []) as string[];
@@ -90,6 +91,7 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
       dependencies={dependencies}
       registryDependencies={registryDependencies}
       propsFromCode={propsFromCode}
+      files={files}
     />
   );
 }

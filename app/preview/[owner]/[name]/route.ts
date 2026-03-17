@@ -61,6 +61,10 @@ const DEMO_PROPS: Record<string, unknown> = {
   },
 };
 
+function isBareModuleSpecifier(spec: string): boolean {
+  return !spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/");
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ owner: string; name: string }> },
@@ -131,7 +135,9 @@ export async function GET(
     previewProps = rawPreviewProps;
   }
 
-  const dependencies = (item.dependencies ?? []) as string[];
+  const allDependencies = (item.dependencies ?? []) as string[];
+  // 仅对裸模块依赖构建 import map / external；相对路径交给 esbuild 走本地文件
+  const runtimeDependencies = allDependencies.filter(isBareModuleSpecifier);
 
   const buildResult = await buildPreviewBundle(
     {
@@ -139,7 +145,7 @@ export async function GET(
       version: version ?? item.currentVersion ?? "0.1.0",
       files,
       // 传给 esbuild，用于 external 出所有运行时依赖
-      dependencies,
+      dependencies: runtimeDependencies,
     },
     previewProps,
   );
@@ -194,7 +200,7 @@ export async function GET(
 
   // 根据组件声明的 dependencies 动态扩展 import map。
   // 策略：所有 bare import <pkg> → https://esm.sh/<pkg>?external=react,react-dom,react-dom/client
-  for (const dep of dependencies) {
+  for (const dep of runtimeDependencies) {
     if (!dep) continue;
     if (dep in importMap) continue;
     importMap[dep] = `https://esm.sh/${dep}${reactExternalQuery}`;

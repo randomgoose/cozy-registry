@@ -45,6 +45,8 @@ interface ComponentDetailProps {
   registryDependencies: string[];
   /** 从 TSX 解析出的 Props 接口字段 */
   propsFromCode: PropField[];
+  /** 当前版本 bundle 中的所有文件（path + content） */
+  files: { path: string; content: string; type: string }[];
 }
 
 export function ComponentDetail({
@@ -62,6 +64,7 @@ export function ComponentDetail({
   dependencies,
   registryDependencies,
   propsFromCode,
+  files,
 }: ComponentDetailProps) {
   const [copied, setCopied] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -250,6 +253,52 @@ export function ComponentDetail({
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-8">
+        {files.length > 0 && (
+          <section className="mb-8">
+            <h2 className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
+              文件列表
+            </h2>
+            <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white text-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[60%] text-zinc-500 dark:text-zinc-400">
+                      路径
+                    </TableHead>
+                    <TableHead className="w-[20%] text-zinc-500 dark:text-zinc-400">
+                      类型
+                    </TableHead>
+                    <TableHead className="w-[20%] text-right text-zinc-500 dark:text-zinc-400">
+                      行数
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {files.map((f) => {
+                    const lines =
+                      typeof f.content === "string"
+                        ? f.content.split("\n").length
+                        : 0;
+                    return (
+                      <TableRow key={f.path}>
+                        <TableCell className="font-mono text-xs text-zinc-800 dark:text-zinc-200">
+                          {f.path}
+                        </TableCell>
+                        <TableCell className="text-xs text-zinc-500 dark:text-zinc-400">
+                          {f.type.replace("registry:", "")}
+                        </TableCell>
+                        <TableCell className="text-right text-xs text-zinc-500 dark:text-zinc-400">
+                          {lines || "—"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </section>
+        )}
+
         {propsFromCode.length > 0 && (
           <section className="mb-8">
             <h2 className="mb-3 text-sm font-medium text-zinc-500 dark:text-zinc-400">
