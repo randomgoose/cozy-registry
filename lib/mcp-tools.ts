@@ -4,7 +4,7 @@ import path from "path";
 import {
   getRegistryItems,
   getRegistryItemByName,
-  getRegistryItemByOwnerAndName,
+  getRegistryItemByOwnerNameAndVersion,
   getRegistryItemVersions,
   getCurrentVersion,
   createRegistryItem,
@@ -14,6 +14,7 @@ import {
 } from "./registry";
 import { validateTsx, extractDependencies } from "./validate-tsx";
 import { getUserIdFromToken } from "./auth-api";
+import { resolveOwner } from "./owner";
 
 export function createRegistryMcpServer(request?: Request) {
   const server = new McpServer({
@@ -32,7 +33,7 @@ export function createRegistryMcpServer(request?: Request) {
     const summary = items
       .map(
         (i) => {
-          const owner = i.userId ?? "legacy";
+          const owner = (i as { ownerHandle?: string | null; userId?: string | null }).ownerHandle ?? i.userId ?? "legacy";
           return `- **@${owner}/${i.name}** (${i.type}): ${i.title}${i.description ? ` - ${i.description}` : ""}`;
         }
       )
@@ -63,7 +64,7 @@ export function createRegistryMcpServer(request?: Request) {
           .string()
           .optional()
           .describe(
-            "Owner userId (e.g. legacy, or from list_components). Use when multiple components have the same name.",
+            "Owner handle (preferred) or legacy userId (from list_components). Use when multiple components have the same name.",
           ),
       }),
     },
@@ -71,7 +72,7 @@ export function createRegistryMcpServer(request?: Request) {
       try {
         const userId = request ? await getUserIdFromToken(request) : null;
         const item = owner
-          ? await getRegistryItemByOwnerAndName(owner, name, userId)
+          ? await getRegistryItemByOwnerNameAndVersion(owner, name, null, userId)
           : await getRegistryItemByName(name, userId);
 
         if (!item) {
@@ -86,10 +87,15 @@ export function createRegistryMcpServer(request?: Request) {
           };
         }
 
-        const ownerId = item.userId ?? owner ?? "legacy";
+        const canonicalOwner =
+          (await resolveOwner(item.userId ?? owner ?? "legacy"))?.handle ??
+          item.userId ??
+          owner ??
+          "legacy";
         const currentVersion = getCurrentVersion(item);
+        const resolvedForVersions = item.userId ? await resolveOwner(item.userId) : null;
         const versions = await getRegistryItemVersions(
-          ownerId,
+          resolvedForVersions?.userId ?? item.userId ?? "legacy",
           name,
           userId,
         );
@@ -101,7 +107,7 @@ export function createRegistryMcpServer(request?: Request) {
 
         // 在入口 TSX 文件顶部注入 cozy-registry 注释头，方便 AI / 工具识别来源与版本
         const installVersion = latestVersion || currentVersion;
-        const headerComment = `// cozy-registry: @${ownerId}/${item.name} v${installVersion}\n`;
+        const headerComment = `// cozy-registry: @${canonicalOwner}/${item.name} v${installVersion}\n`;
 
         const isCodeFile = mainFile
           ? [".tsx", ".ts", ".jsx", ".js"].some((ext) =>
@@ -117,7 +123,7 @@ export function createRegistryMcpServer(request?: Request) {
         // 生成一个推荐的「锁文件条目」片段，方便用户粘贴到自己的 lock/registry 配置中
         const lockEntry = {
           name: item.name,
-          owner: ownerId,
+          owner: canonicalOwner,
           version: installVersion,
           type: item.type,
         };
@@ -125,7 +131,7 @@ export function createRegistryMcpServer(request?: Request) {
         const lockSnippet = JSON.stringify(
           {
             components: {
-              [`@${ownerId}/${item.name}`]: lockEntry,
+              [`@${canonicalOwner}/${item.name}`]: lockEntry,
             },
           },
           null,
@@ -133,7 +139,7 @@ export function createRegistryMcpServer(request?: Request) {
         );
 
         const headerLines = [
-          `## ${item.title} (@${ownerId}/${item.name})`,
+          `## ${item.title} (@${canonicalOwner}/${item.name})`,
           "",
           item.description || "",
           "",
@@ -278,7 +284,7 @@ ${fileContent}
         .string()
         .optional()
         .describe(
-          "Owner userId (e.g. legacy, or from list_components). If omitted, assumes the current authenticated user.",
+          "Owner handle (preferred) or legacy userId (from list_components). If omitted, assumes the current authenticated user.",
         ),
     }),
   }, async ({ name, owner }) => {
@@ -297,6 +303,8 @@ ${fileContent}
       }
 
       const ownerId = owner ?? userId;
+      const canonicalOwner =
+        (await resolveOwner(ownerId))?.handle ?? ownerId;
 
       await deleteRegistryItem({
         ownerId,
@@ -308,7 +316,7 @@ ${fileContent}
         content: [
           {
             type: "text" as const,
-            text: `Deleted component @${ownerId}/${name} and all of its versions.`,
+            text: `Deleted component @${canonicalOwner}/${name} and all of its versions.`,
           },
         ],
       };
@@ -571,13 +579,12 @@ ${fileContent}
       }
 
       // 如果当前用户已经有同名组件，则视为「发布新版本」，而不是创建新组件。
-      const existing = await getRegistryItemByOwnerAndName(
+      const existing = await getRegistryItemByOwnerNameAndVersion(
         userId,
         name,
+        null,
         userId,
-      ).catch(
-        () => null,
-      );
+      ).catch(() => null);
 
       if (existing) {
         const bumpType = bump ?? "patch";
@@ -592,12 +599,15 @@ ${fileContent}
           previewProps: args.previewProps,
         });
 
-        const ownerId = existing.userId ?? "legacy";
+        const canonicalOwner =
+          (await resolveOwner(existing.userId ?? userId))?.handle ??
+          existing.userId ??
+          "legacy";
         return {
           content: [
             {
               type: "text" as const,
-              text: `Updated "${existing.title}" (@${ownerId}/${existing.name}) to version v${result.version}. View at /registry/${ownerId}/${existing.name}`,
+              text: `Updated "${existing.title}" (@${canonicalOwner}/${existing.name}) to version v${result.version}. View at /registry/${canonicalOwner}/${existing.name}`,
             },
           ],
         };
@@ -642,12 +652,15 @@ ${fileContent}
         previewProps: args.previewProps,
       });
 
-      const ownerId = item.userId ?? "legacy";
+      const canonicalOwner =
+        (await resolveOwner(item.userId ?? "legacy"))?.handle ??
+        item.userId ??
+        "legacy";
       return {
         content: [
           {
             type: "text" as const,
-            text: `Published new component "${item.title}" (@${ownerId}/${item.name}). View at /registry/${ownerId}/${item.name}`,
+            text: `Published new component "${item.title}" (@${canonicalOwner}/${item.name}). View at /registry/${canonicalOwner}/${item.name}`,
           },
         ],
       };

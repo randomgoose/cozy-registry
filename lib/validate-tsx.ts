@@ -147,12 +147,13 @@ function typeAnnotationToString(node: unknown): string {
       return Array.isArray(n.types) ? n.types.map(typeAnnotationToString).join(" | ") : "unknown";
     case "TSLiteralType":
       if (!n.literal || typeof n.literal !== "object") return "literal";
-      // eslint-disable-next-line @typescript-eslint/no-shadow
-      const lit = n.literal as Record<string, unknown>;
-      if (lit.type === "StringLiteral" && typeof lit.value === "string") return `"${lit.value}"`;
-      if (lit.type === "NumericLiteral" && typeof lit.value === "number") return String(lit.value);
-      if (lit.type === "BooleanLiteral" && typeof lit.value === "boolean")
-        return lit.value ? "true" : "false";
+      const literal = n.literal as Record<string, unknown>;
+      if (literal.type === "StringLiteral" && typeof literal.value === "string")
+        return `"${literal.value}"`;
+      if (literal.type === "NumericLiteral" && typeof literal.value === "number")
+        return String(literal.value);
+      if (literal.type === "BooleanLiteral" && typeof literal.value === "boolean")
+        return literal.value ? "true" : "false";
       return "literal";
     case "TSTypeReference":
       if (n.typeName && typeof n.typeName === "object") {

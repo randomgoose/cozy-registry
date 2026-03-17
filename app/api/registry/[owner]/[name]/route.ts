@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { deleteRegistryItem, getRegistryItemByOwnerAndName } from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
+import { resolveOwner } from "@/lib/owner";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -25,8 +26,12 @@ export async function DELETE(request: Request, { params }: Params) {
   }
 
   try {
+    const resolved = await resolveOwner(owner);
+    if (!resolved) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     await deleteRegistryItem({
-      ownerId: owner,
+      ownerId: resolved.userId,
       name,
       requestUserId: userId,
     });
@@ -48,7 +53,11 @@ export async function DELETE(request: Request, { params }: Params) {
  */
 export async function GET(_request: Request, { params }: Params) {
   const { owner, name } = await params;
-  const item = await getRegistryItemByOwnerAndName(owner, name, null);
+  const resolved = await resolveOwner(owner);
+  if (!resolved) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const item = await getRegistryItemByOwnerAndName(resolved.userId, name, null);
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

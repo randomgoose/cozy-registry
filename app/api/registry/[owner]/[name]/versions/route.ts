@@ -6,6 +6,7 @@ import {
   createRegistryItemVersion,
   getCurrentVersion,
 } from "@/lib/registry";
+import { resolveOwner } from "@/lib/owner";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -25,7 +26,11 @@ export async function GET(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const versions = await getRegistryItemVersions(owner, name, userId);
+  const resolved = await resolveOwner(owner);
+  if (!resolved) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const versions = await getRegistryItemVersions(resolved.userId, name, userId);
   const currentVersion = getCurrentVersion(item);
 
   return NextResponse.json({
@@ -74,8 +79,12 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
+    const resolved = await resolveOwner(owner);
+    if (!resolved) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     const result = await createRegistryItemVersion({
-      ownerId: owner,
+      ownerId: resolved.userId,
       name,
       content: content.trim(),
       bump: bumpType,

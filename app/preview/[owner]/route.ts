@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getRegistryItemByName } from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
+import { resolveOwner } from "@/lib/owner";
 
 /**
  * Backward compat: /preview/[owner] (single segment) treats segment as component name,
@@ -20,6 +21,7 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const owner = item.userId ?? "legacy";
+  const resolved = item.userId ? await resolveOwner(item.userId) : null;
+  const owner = resolved?.handle ?? item.userId ?? "legacy";
   return NextResponse.redirect(new URL(`/preview/${owner}/${item.name}`, request.url));
 }

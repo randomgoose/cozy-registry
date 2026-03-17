@@ -42,7 +42,18 @@ export default function PublishPage() {
       }
 
       setStatus("success");
-      const owner = data?.item?.userId ?? "legacy";
+      const ownerId = data?.item?.userId ?? "legacy";
+      // Prefer public handle for nicer URLs; fallback to internal id.
+      let owner = ownerId;
+      try {
+        const me = await fetch("/api/me");
+        if (me.ok) {
+          const meData = (await me.json()) as { user?: { handle?: string | null } | null };
+          if (meData.user?.handle) owner = meData.user.handle;
+        }
+      } catch {
+        // ignore
+      }
       window.location.href = `/registry/${owner}/${name}`;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to publish");

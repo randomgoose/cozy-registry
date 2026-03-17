@@ -5,9 +5,13 @@ import {
   registryFiles,
   registryItemVersions,
   registryFileVersions,
+  user,
 } from "./db/schema";
+import { resolveOwner } from "@/lib/owner";
 
 const INITIAL_VERSION = "0.1.0";
+
+// owner resolution is centralized in lib/owner.ts
 
 function withCozyHeader(params: {
   ownerId: string | null | undefined;
@@ -47,18 +51,32 @@ export function bumpVersion(
  */
 export async function getRegistryItems(userId?: string | null) {
   const items = await db
-    .select()
+    .select({
+      id: registryItems.id,
+      userId: registryItems.userId,
+      ownerHandle: user.handle,
+      name: registryItems.name,
+      type: registryItems.type,
+      title: registryItems.title,
+      description: registryItems.description,
+      visibility: registryItems.visibility,
+      createdAt: registryItems.createdAt,
+      updatedAt: registryItems.updatedAt,
+      currentVersion: registryItems.currentVersion,
+      meta: registryItems.meta,
+    })
     .from(registryItems)
+    .leftJoin(user, eq(registryItems.userId, user.id))
     .where(
       userId
         ? or(
             eq(registryItems.visibility, "public"),
             and(
               eq(registryItems.visibility, "private"),
-              eq(registryItems.userId, userId)
-            )
+              eq(registryItems.userId, userId),
+            ),
           )
-        : eq(registryItems.visibility, "public")
+        : eq(registryItems.visibility, "public"),
     )
     .orderBy(registryItems.name);
 
@@ -148,7 +166,9 @@ export async function getRegistryItemByOwnerNameAndVersion(
   version: string | null | undefined,
   requestUserId?: string | null
 ) {
-  const base = await getRegistryItemByOwnerAndName(ownerId, name, requestUserId);
+  const resolved = await resolveOwner(ownerId);
+  if (!resolved) return null;
+  const base = await getRegistryItemByOwnerAndName(resolved.userId, name, requestUserId);
   if (!base) return null;
 
   const currentVer = getCurrentVersion(base);
@@ -441,8 +461,22 @@ export function toShadcnRegistryItem(
  */
 export async function getRegistryItemsByUserId(userId: string) {
   const items = await db
-    .select()
+    .select({
+      id: registryItems.id,
+      userId: registryItems.userId,
+      ownerHandle: user.handle,
+      name: registryItems.name,
+      type: registryItems.type,
+      title: registryItems.title,
+      description: registryItems.description,
+      visibility: registryItems.visibility,
+      createdAt: registryItems.createdAt,
+      updatedAt: registryItems.updatedAt,
+      currentVersion: registryItems.currentVersion,
+      meta: registryItems.meta,
+    })
     .from(registryItems)
+    .leftJoin(user, eq(registryItems.userId, user.id))
     .where(eq(registryItems.userId, userId))
     .orderBy(registryItems.name);
 
@@ -606,8 +640,9 @@ export function toShadcnRegistryItemSummary(item: {
   title: string;
   description: string | null;
   userId?: string | null;
+  ownerHandle?: string | null;
 }) {
-  const owner = item.userId ?? "legacy";
+  const owner = item.ownerHandle ?? item.userId ?? "legacy";
   const path =
     item.type === "registry:theme"
       ? "theme.css"

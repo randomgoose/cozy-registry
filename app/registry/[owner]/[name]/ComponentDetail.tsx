@@ -219,7 +219,7 @@ export function ComponentDetail({
                       key={ref}
                       className="rounded-md bg-blue-100 px-2 py-0.5 font-mono text-xs text-blue-800 dark:bg-blue-900/50 dark:text-blue-200"
                     >
-                      @{ref}
+                      {ref.startsWith("@") ? ref : `@${ref}`}
                     </span>
                   ))}
                 </div>

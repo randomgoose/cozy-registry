@@ -5,6 +5,7 @@ import {
   toShadcnRegistryItem,
 } from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
+import { resolveOwner } from "@/lib/owner";
 
 export async function GET(
   request: Request,
@@ -37,7 +38,8 @@ export async function GET(
   const installVersion =
     version && version.trim().length > 0 ? version.trim() : getCurrentVersion(item);
 
-  const header = `// cozy-registry: @${owner}/${item.name} v${installVersion}\n`;
+  const canonicalOwner = (await resolveOwner(item.userId ?? owner))?.handle ?? owner;
+  const header = `// cozy-registry: @${canonicalOwner}/${item.name} v${installVersion}\n`;
 
   // 为 TS/TSX/JS/JSX 文件注入注释头，方便后续工具或 AI 识别来源与版本
   const filesWithHeader = shadcnItem.files.map((f) => {

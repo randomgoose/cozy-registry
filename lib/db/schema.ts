@@ -1,4 +1,3 @@
-import { relations } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -14,6 +13,8 @@ import {
 // --- Better Auth tables ---
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
+  /** Public owner identifier (immutable once set) */
+  handle: text("handle").unique(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),

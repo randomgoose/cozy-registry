@@ -74,7 +74,7 @@ export default async function DashboardPage() {
             {items.map((item) => (
               <div key={item.id} className="relative">
                 <ComponentCard
-                  owner={item.userId ?? "legacy"}
+                  owner={item.ownerHandle ?? item.userId ?? "legacy"}
                   name={item.name}
                   title={item.title}
                   description={item.description}

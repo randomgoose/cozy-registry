@@ -2,6 +2,7 @@ import { redirect, notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { getRegistryItemByName } from "@/lib/registry";
+import { resolveOwner } from "@/lib/owner";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ export default async function RegistryItemPageLegacy({
   const item = await getRegistryItemByName(nameFromPath, userId);
   if (!item) notFound();
 
-  const owner = item.userId ?? "legacy";
+  const resolved = item.userId ? await resolveOwner(item.userId) : null;
+  const owner = resolved?.handle ?? item.userId ?? "legacy";
   redirect(`/registry/${owner}/${item.name}`);
 }

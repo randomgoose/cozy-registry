@@ -18,7 +18,7 @@ export default function SignInPage() {
       const { error: err } = await authClient.signIn.email({
         email,
         password,
-        callbackURL: "/",
+        callbackURL: "/onboarding/handle",
       });
       if (err) setError(err.message ?? "Sign in failed");
     } finally {
@@ -94,7 +94,7 @@ export default function SignInPage() {
         <div className="space-y-2">
           <button
             type="button"
-            onClick={() => authClient.signIn.social({ provider: "google", callbackURL: "/" })}
+            onClick={() => authClient.signIn.social({ provider: "google", callbackURL: "/onboarding/handle" })}
             className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -119,7 +119,7 @@ export default function SignInPage() {
           </button>
           <button
             type="button"
-            onClick={() => authClient.signIn.social({ provider: "figma", callbackURL: "/" })}
+            onClick={() => authClient.signIn.social({ provider: "figma", callbackURL: "/onboarding/handle" })}
             className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

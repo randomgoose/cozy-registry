@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
+import { resolveOwner } from "@/lib/owner";
 import {
   getRegistryItemByOwnerNameAndVersion,
   getRegistryItemVersions,
@@ -28,8 +29,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     requestUserId
   ).catch(() => null);
   if (!item) return { title: "组件未找到" };
+  const canonicalOwner =
+    (await resolveOwner(item.userId ?? owner))?.handle ?? owner;
   return {
-    title: `${item.title} · ${owner}/${name}`,
+    title: `${item.title} · ${canonicalOwner}/${name}`,
     description: item.description ?? undefined,
   };
 }
@@ -56,6 +59,8 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
 
   if (!item) notFound();
 
+  const canonicalOwner =
+    (await resolveOwner(item.userId ?? owner))?.handle ?? owner;
   const shadcnItem = toShadcnRegistryItem(item);
   const files = shadcnItem?.files ?? [];
   const code = files[0]?.content ?? "";
@@ -80,13 +85,13 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
 
   return (
     <ComponentDetail
-      owner={owner}
+      owner={canonicalOwner}
       name={item.name}
       title={item.title}
       description={item.description}
       type={item.type}
       code={code}
-      installUrl={baseUrl ? `${baseUrl}/api/r/${owner}/${item.name}` : null}
+      installUrl={baseUrl ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}` : null}
       currentVersion={currentVersion}
       selectedVersion={version ?? currentVersion}
       versions={versions}
