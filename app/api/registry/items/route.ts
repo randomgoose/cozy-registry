@@ -8,11 +8,17 @@ import { getUserIdFromToken } from "@/lib/auth-api";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, type, title, description, content, visibility } = body;
+    const { name, type, title, description, content, files, visibility } = body;
 
-    if (!name || !type || !title || !content) {
+    const hasFiles =
+      files &&
+      typeof files === "object" &&
+      !Array.isArray(files) &&
+      Object.keys(files as Record<string, unknown>).length > 0;
+
+    if (!name || !type || !title || (!hasFiles && !content)) {
       return NextResponse.json(
-        { error: "Missing required fields: name, type, title, content" },
+        { error: "Missing required fields: name, type, title, and (files or content)" },
         { status: 400 }
       );
     }
@@ -29,19 +35,37 @@ export async function POST(request: Request) {
     }
 
     const isTheme = type === "registry:theme";
-    if (!isTheme) {
-      const validation = validateTsx(content);
-      if (!validation.valid) {
+    if (!hasFiles) {
+      // 单文件模式校验
+      if (!isTheme) {
+        const validation = validateTsx(content);
+        if (!validation.valid) {
+          return NextResponse.json(
+            { error: `Invalid TSX: ${validation.error}` },
+            { status: 400 }
+          );
+        }
+      } else if (typeof content !== "string" || content.trim().length === 0) {
         return NextResponse.json(
-          { error: `Invalid TSX: ${validation.error}` },
+          { error: "Theme content (CSS) is required" },
           { status: 400 }
         );
       }
-    } else if (typeof content !== "string" || content.trim().length === 0) {
-      return NextResponse.json(
-        { error: "Theme content (CSS) is required" },
-        { status: 400 }
-      );
+    } else {
+      // 多文件模式：theme 允许只有 css；component/block 仅做最轻量的入口校验（如存在 index.tsx）
+      if (!isTheme) {
+        const record = files as Record<string, unknown>;
+        const index = record["index.tsx"];
+        if (typeof index === "string" && index.trim()) {
+          const validation = validateTsx(index);
+          if (!validation.valid) {
+            return NextResponse.json(
+              { error: `Invalid TSX (index.tsx): ${validation.error}` },
+              { status: 400 }
+            );
+          }
+        }
+      }
     }
 
     const nameRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -61,13 +85,33 @@ export async function POST(request: Request) {
     }
 
     const validVisibility = visibility === "private" ? "private" : "public";
-    const dependencies = isTheme ? [] : extractDependencies(content);
+    const dependencies = (() => {
+      if (isTheme) return [];
+      if (hasFiles) {
+        const all = new Set<string>();
+        for (const src of Object.values(files as Record<string, unknown>)) {
+          if (typeof src !== "string") continue;
+          for (const dep of extractDependencies(src)) all.add(dep);
+        }
+        return Array.from(all).sort();
+      }
+      return extractDependencies(content);
+    })();
+
+    const normalizedFiles = hasFiles
+      ? (Object.fromEntries(
+          Object.entries(files as Record<string, unknown>)
+            .filter(([, v]) => typeof v === "string")
+            .map(([k, v]) => [k, v as string])
+        ) as Record<string, string>)
+      : undefined;
     const item = await createRegistryItem({
       name,
       type,
       title,
       description: description || null,
-      content,
+      content: hasFiles ? undefined : content,
+      files: normalizedFiles,
       userId,
       visibility: validVisibility,
       dependencies,

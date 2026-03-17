@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import path from "path";
 import {
   getRegistryItems,
   getRegistryItemByName,
@@ -85,8 +86,8 @@ export function createRegistryMcpServer(request?: Request) {
           };
         }
 
-        const ownerId = (item as any).userId ?? owner ?? "legacy";
-        const currentVersion = getCurrentVersion(item as any);
+        const ownerId = item.userId ?? owner ?? "legacy";
+        const currentVersion = getCurrentVersion(item);
         const versions = await getRegistryItemVersions(
           ownerId,
           name,
@@ -350,7 +351,8 @@ ${fileContent}
 
   server.registerTool("publish_component", {
     title: "Publish or update component",
-    description: "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:component, or registry:theme), title, and content (TSX for block/component, CSS for theme). Requires Bearer token.",
+    description:
+      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:component, or registry:theme), title, and content (TSX for block/component, CSS for theme). Requires Bearer token.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.",
     inputSchema: z.object({
       name: z
         .string()
@@ -444,7 +446,9 @@ ${fileContent}
         };
       }
 
-      // 目前 validate 仍基于入口 TSX；多文件模式下由客户端保证 files 内 TSX/CSS 有效。
+      // 入口校验 + 本地依赖校验：
+      // - 单文件：若出现相对 import（./ ../），强制要求改用 files 方式提交
+      // - 多文件：校验所有相对 import 都能在 files 中解析到对应文件，否则报缺失列表
       if (content) {
         const validation = validateTsx(content);
         if (!validation.valid) {
@@ -453,6 +457,44 @@ ${fileContent}
               {
                 type: "text" as const,
                 text: `Invalid TSX: ${validation.error}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        const rel = extractDependencies(content).filter((d) => isRelativeImport(d));
+        if (rel.length > 0 && type !== "registry:theme") {
+          const list = rel.slice(0, 12).map((x) => `- ${x}`).join("\n");
+          const more = rel.length > 12 ? `\n- ... and ${rel.length - 12} more` : "";
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  "This component imports local files, but only a single entry file was provided. Please re-submit using the `files` field (multi-file bundle).\n\nDetected relative imports:\n" +
+                  list +
+                  more +
+                  "\n\nExpected format:\nfiles: {\"index.tsx\": \"<entry>\", \"button.tsx\": \"<imported>\", ...}",
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+
+      if (files) {
+        const missing = findMissingRelativeImports(files);
+        if (missing.length > 0) {
+          const list = missing.slice(0, 20).map((x) => `- ${x}`).join("\n");
+          const more = missing.length > 20 ? `\n- ... and ${missing.length - 20} more` : "";
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  "Multi-file bundle is missing local import targets. Please include these files in `files` (paths must match relative imports):\n" +
+                  list +
+                  more,
               },
             ],
             isError: true,
@@ -553,4 +595,56 @@ ${fileContent}
   });
 
   return server;
+}
+
+function isRelativeImport(specifier: string): boolean {
+  return (
+    specifier.startsWith("./") ||
+    specifier.startsWith("../") ||
+    specifier === "." ||
+    specifier === ".."
+  );
+}
+
+function normalizePosix(p: string): string {
+  return p.replaceAll("\\", "/");
+}
+
+function resolveRelativeImport(importerPath: string, spec: string): string[] {
+  const importer = normalizePosix(importerPath);
+  const dir = path.posix.dirname(importer);
+  const base = normalizePosix(path.posix.normalize(path.posix.join(dir, spec)));
+
+  const hasExt = /\.[a-z0-9]+$/i.test(base);
+  if (hasExt) return [base];
+
+  return [
+    `${base}.ts`,
+    `${base}.tsx`,
+    `${base}.js`,
+    `${base}.jsx`,
+    path.posix.join(base, "index.ts"),
+    path.posix.join(base, "index.tsx"),
+    path.posix.join(base, "index.js"),
+    path.posix.join(base, "index.jsx"),
+  ];
+}
+
+function findMissingRelativeImports(files: Record<string, string>): string[] {
+  const keys = new Set(Object.keys(files).map(normalizePosix));
+  const missing = new Set<string>();
+
+  for (const [filePathRaw, content] of Object.entries(files)) {
+    const filePath = normalizePosix(filePathRaw);
+    if (typeof content !== "string") continue;
+    const imports = extractDependencies(content);
+    for (const spec of imports) {
+      if (!isRelativeImport(spec)) continue;
+      const candidates = resolveRelativeImport(filePath, spec);
+      const ok = candidates.some((c) => keys.has(c));
+      if (!ok) missing.add(`${filePath} -> ${spec}`);
+    }
+  }
+
+  return Array.from(missing).sort();
 }
