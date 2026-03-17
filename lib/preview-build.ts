@@ -99,7 +99,29 @@ export async function buildPreviewBundle(
 
     const previewEntryContent = `import React from "react";
 import { createRoot } from "react-dom/client";
-import Component from "./index";
+import * as Mod from "./index";
+
+const Component =
+  // 优先使用默认导出
+  (Mod as any).default ??
+  // 其次使用与组件名匹配的导出（如 name: "button-group" → ButtonGroup）
+  (Mod as any)["${bundle.name
+    .split(/[^a-zA-Z0-9]/)
+    .filter(Boolean)
+    .map((s) => s[0]?.toUpperCase() + s.slice(1))
+    .join("")}"] ??
+  // 其次使用约定的 PreviewComponent
+  (Mod as any).PreviewComponent ??
+  // 否则挑选首个大写开头的命名导出
+  (() => {
+    const keys = Object.keys(Mod);
+    const found = keys.find((k) => /^[A-Z]/.test(k));
+    return found ? (Mod as any)[found] : null;
+  })();
+
+if (!Component) {
+  throw new Error("No suitable component export found from ./index for preview");
+}
 
 function App() {
   const props = ${serializedProps};
