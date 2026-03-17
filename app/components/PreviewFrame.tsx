@@ -24,6 +24,9 @@ export function PreviewFrame(props: {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const [contentSize, setContentSize] = useState<Size>({ width: 800, height: 400 });
+  // Keep the iframe viewport ("stage") stable to avoid responsive reflow loops.
+  // Stage can grow when needed, but we don't aggressively shrink it.
+  const [stageSize, setStageSize] = useState<Size>({ width: 1200, height: 900 });
   const [containerSize, setContainerSize] = useState<Size>({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -54,10 +57,20 @@ export function PreviewFrame(props: {
       if (!Number.isFinite(w) || !Number.isFinite(h)) return;
       if (w <= 0 || h <= 0) return;
 
-      setContentSize({
+      const nextContent = {
         width: clamp(Math.round(w), 1, 10000),
         height: clamp(Math.round(h), 1, 10000),
-      });
+      };
+      setContentSize(nextContent);
+      // Add some breathing room so shadows/anti-aliasing don't get clipped.
+      const padded = {
+        width: clamp(nextContent.width + 48, 1, 4000),
+        height: clamp(nextContent.height + 48, 1, 4000),
+      };
+      setStageSize((prev) => ({
+        width: Math.max(prev.width, padded.width),
+        height: Math.max(prev.height, padded.height),
+      }));
     }
 
     window.addEventListener("message", onMessage);
@@ -100,8 +113,8 @@ export function PreviewFrame(props: {
           position: "absolute",
           left: 0,
           top: 0,
-          width: contentSize.width,
-          height: contentSize.height,
+          width: stageSize.width,
+          height: stageSize.height,
           transformOrigin: "top left",
           transform: `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`,
           border: 0,
