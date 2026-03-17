@@ -29,6 +29,7 @@ interface ComponentDetailProps {
   title: string;
   description: string | null;
   type: string;
+  visibility: "public" | "private";
   code: string;
   /** 完整安装 URL（如 https://xxx.vercel.app/api/r/owner/name），用于 shadcn add；未设置时仅展示路径 */
   installUrl: string | null;
@@ -56,6 +57,7 @@ export function ComponentDetail({
   title,
   description,
   type,
+  visibility,
   code,
   installUrl,
   currentVersion,
@@ -70,6 +72,10 @@ export function ComponentDetail({
   const [copied, setCopied] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [togglingVisibility, setTogglingVisibility] = useState(false);
+  const [localVisibility, setLocalVisibility] = useState<"public" | "private">(
+    visibility,
+  );
   const [localSelectedVersion, setLocalSelectedVersion] =
     useState(selectedVersion);
   const router = useRouter();
@@ -78,6 +84,10 @@ export function ComponentDetail({
   useEffect(() => {
     setLocalSelectedVersion(selectedVersion);
   }, [selectedVersion]);
+
+  useEffect(() => {
+    setLocalVisibility(visibility);
+  }, [visibility]);
 
   async function handleCopy() {
     await navigator.clipboard.writeText(code);
@@ -145,6 +155,35 @@ export function ComponentDetail({
     }
   }
 
+  async function handleToggleVisibility() {
+    if (!isOwner || togglingVisibility) return;
+    const next = localVisibility === "public" ? "private" : "public";
+    const confirmed = window.confirm(
+      next === "private"
+        ? "设为私有后，只有你自己可以访问/预览/安装这个组件。确定继续吗？"
+        : "设为公开后，所有人都可以访问/预览/安装这个组件。确定继续吗？",
+    );
+    if (!confirmed) return;
+    try {
+      setTogglingVisibility(true);
+      const res = await fetch(`/api/registry/${owner}/${name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: next }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const msg = data?.error || `更新失败（${res.status}）`;
+        window.alert(msg);
+        return;
+      }
+      setLocalVisibility(next);
+      router.refresh();
+    } finally {
+      setTogglingVisibility(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -170,6 +209,15 @@ export function ComponentDetail({
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                   {typeLabel}
+                </span>
+                <span
+                  className={
+                    localVisibility === "public"
+                      ? "rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                      : "rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                  }
+                >
+                  {localVisibility === "public" ? "公开" : "私有"}
                 </span>
                 {versions.length > 0 && (
                   <>
@@ -234,6 +282,21 @@ export function ComponentDetail({
               >
                 预览
               </Link>
+              {isOwner && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  onClick={handleToggleVisibility}
+                  disabled={togglingVisibility}
+                >
+                  {togglingVisibility
+                    ? "正在更新…"
+                    : localVisibility === "public"
+                      ? "设为私有"
+                      : "设为公开"}
+                </Button>
+              )}
               {isOwner && (
                 <Button
                   type="button"

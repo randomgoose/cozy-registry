@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { deleteRegistryItem, getRegistryItemByOwnerAndName } from "@/lib/registry";
+import {
+  deleteRegistryItem,
+  getRegistryItemByOwnerAndName,
+  updateRegistryItemVisibility,
+} from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
 
@@ -53,11 +57,18 @@ export async function DELETE(request: Request, { params }: Params) {
  */
 export async function GET(_request: Request, { params }: Params) {
   const { owner, name } = await params;
+  // Optional auth: allow owner to read their private items
+  const session = await auth.api.getSession({ headers: await headers() });
+  const requestUserId = session?.user?.id ?? null;
   const resolved = await resolveOwner(owner);
   if (!resolved) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  const item = await getRegistryItemByOwnerAndName(resolved.userId, name, null);
+  const item = await getRegistryItemByOwnerAndName(
+    resolved.userId,
+    name,
+    requestUserId,
+  );
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -68,5 +79,59 @@ export async function GET(_request: Request, { params }: Params) {
     type: item.type,
     visibility: item.visibility,
   });
+}
+
+/**
+ * 更新组件可见性（public/private），仅 owner。
+ */
+export async function PATCH(request: Request, { params }: Params) {
+  const { owner, name } = await params;
+
+  let userId: string | null = null;
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (session?.user?.id) userId = session.user.id;
+  if (!userId) userId = await getUserIdFromToken(request);
+
+  if (!userId) {
+    return NextResponse.json(
+      { error: "Authentication required" },
+      { status: 401 },
+    );
+  }
+
+  const body = await request.json().catch(() => ({} as unknown));
+  const visibility =
+    body && typeof body === "object" && (body as { visibility?: unknown }).visibility === "private"
+      ? "private"
+      : "public";
+
+  try {
+    const resolved = await resolveOwner(owner);
+    if (!resolved) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const updated = await updateRegistryItemVisibility({
+      ownerId: resolved.userId,
+      name,
+      requestUserId: userId,
+      visibility,
+    });
+
+    return NextResponse.json({
+      success: true,
+      visibility: updated.visibility,
+      updatedAt: updated.updatedAt,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to update";
+    if (msg.includes("not found") || msg.includes("no access")) {
+      return NextResponse.json({ error: msg }, { status: 404 });
+    }
+    if (msg.includes("Only owner")) {
+      return NextResponse.json({ error: msg }, { status: 403 });
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
 

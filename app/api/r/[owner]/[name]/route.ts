@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth";
 import {
   getCurrentVersion,
   getRegistryItemByOwnerNameAndVersion,
@@ -14,7 +16,8 @@ export async function GET(
   const { owner, name } = await params;
   const url = new URL(request.url);
   const version = url.searchParams.get("v") ?? undefined;
-  const userId = await getUserIdFromToken(request);
+  const session = await auth.api.getSession({ headers: await headers() });
+  const userId = session?.user?.id ?? (await getUserIdFromToken(request));
   const item = await getRegistryItemByOwnerNameAndVersion(
     owner,
     name,

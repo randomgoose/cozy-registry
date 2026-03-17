@@ -71,6 +71,7 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
   );
   const registryDependencies = (item.registryDependencies ?? []) as string[];
   const propsFromCode = item.type !== "registry:theme" ? extractPropsFromTsx(code) : [];
+  const visibility = item.visibility === "private" ? "private" : "public";
 
   let versions: { version: string; createdAt: Date; createdBy: string | null }[] = [];
   try {
@@ -90,6 +91,7 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
       title={item.title}
       description={item.description}
       type={item.type}
+      visibility={visibility}
       code={code}
       installUrl={baseUrl ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}` : null}
       currentVersion={currentVersion}

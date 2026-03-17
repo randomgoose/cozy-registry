@@ -634,6 +634,45 @@ export async function deleteRegistryItem(params: {
     );
 }
 
+/**
+ * 更新组件可见性（public/private）。仅 owner 可操作。
+ */
+export async function updateRegistryItemVisibility(params: {
+  ownerId: string;
+  name: string;
+  requestUserId: string;
+  visibility: "public" | "private";
+}) {
+  const item = await getRegistryItemByOwnerAndName(
+    params.ownerId,
+    params.name,
+    params.requestUserId,
+  );
+  if (!item) {
+    throw new Error("Item not found or no access");
+  }
+  if (item.userId !== params.requestUserId) {
+    throw new Error("Only owner can update visibility");
+  }
+
+  const [updated] = await db
+    .update(registryItems)
+    .set({
+      visibility: params.visibility,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(registryItems.userId, params.ownerId),
+        eq(registryItems.name, params.name),
+      ),
+    )
+    .returning();
+
+  if (!updated) throw new Error("Failed to update visibility");
+  return updated;
+}
+
 export function toShadcnRegistryItemSummary(item: {
   name: string;
   type: string;
