@@ -60,7 +60,10 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
   const files = shadcnItem?.files ?? [];
   const code = files[0]?.content ?? "";
   const currentVersion = getCurrentVersion(item);
-  const dependencies = (item.dependencies ?? []) as string[];
+  const allDependencies = (item.dependencies ?? []) as string[];
+  const dependencies = allDependencies.filter(
+    (d) => !d.startsWith("./") && !d.startsWith("../") && !d.startsWith("/"),
+  );
   const registryDependencies = (item.registryDependencies ?? []) as string[];
   const propsFromCode = item.type !== "registry:theme" ? extractPropsFromTsx(code) : [];
 
