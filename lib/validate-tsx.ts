@@ -59,8 +59,9 @@ export interface PropField {
  */
 export function extractPropsFromTsx(code: string): PropField[] {
   try {
-    const ast = parser.parse(code, PARSE_OPTIONS);
-    let propsInterface: parser.TSInterfaceDeclaration | null = null;
+    // 使用 any 避免依赖具体 @babel/parser 类型定义，兼容不同版本
+    const ast: any = parser.parse(code, PARSE_OPTIONS);
+    let propsInterface: any = null;
     for (const node of ast.program.body) {
       if (node.type === "TSInterfaceDeclaration") {
         const name = node.id.type === "Identifier" ? node.id.name : "";
@@ -86,9 +87,8 @@ export function extractPropsFromTsx(code: string): PropField[] {
             : "";
       if (!name || (typeof name === "string" && (name === "key" || name === "ref"))) continue;
       const optional = member.optional ?? false;
-      const typeStr = member.typeAnnotation?.typeAnnotation
-        ? typeAnnotationToString(member.typeAnnotation.typeAnnotation)
-        : "unknown";
+      const typeNode = (member as any).typeAnnotation?.typeAnnotation;
+      const typeStr = typeNode ? typeAnnotationToString(typeNode) : "unknown";
       out.push({ name, type: typeStr, optional });
     }
     return out;
@@ -97,7 +97,7 @@ export function extractPropsFromTsx(code: string): PropField[] {
   }
 }
 
-function typeAnnotationToString(node: parser.Node): string {
+function typeAnnotationToString(node: any): string {
   switch (node.type) {
     case "TSStringKeyword":
       return "string";
