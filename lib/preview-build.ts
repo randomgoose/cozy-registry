@@ -1,11 +1,8 @@
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-// 注意：为了避免 Next.js 在服务器 bundle 时把 esbuild 的可执行文件等一起打包，
-// 我们只在运行时通过 require 动态引入它，而不是作为顶层静态依赖。
-// 这有助于绕过 Turbopack 对 README / bin 等非 JS 资源的解析问题。
- 
-const esbuild = require("esbuild") as typeof import("esbuild");
+
+type EsbuildModule = typeof import("esbuild");
 
 type ComponentBundle = {
   name: string;
@@ -35,6 +32,11 @@ export async function buildPreviewBundle(
   bundle: ComponentBundle,
   previewProps: unknown,
 ): Promise<PreviewBuildResult> {
+  // 注意：为了避免 Next.js 在服务器 bundle 时把 esbuild 的可执行文件等一起打包，
+  // 我们只在运行时动态引入它，而不是作为顶层静态依赖。
+  // 这有助于绕过 Turbopack 对 README / bin 等非 JS 资源的解析问题。
+  const esbuild: EsbuildModule = await import("esbuild");
+
   const tmpDir = await fs.mkdtemp(
     path.join(os.tmpdir(), "cozy-registry-preview-"),
   );
@@ -218,10 +220,8 @@ root.render(<App />);
       collectedCss.length > 0 ? collectedCss.join("\n\n") : undefined;
     return { ok: true, code: output, css };
   } catch (err) {
-    if (err && typeof err === "object" && "errors" in err) {
-      const first = Array.isArray((err as any).errors)
-        ? (err as any).errors[0]
-        : undefined;
+    if (isEsbuildBuildError(err)) {
+      const first = err.errors[0];
       return {
         ok: false,
         error: {
@@ -242,5 +242,19 @@ root.render(<App />);
       },
     };
   }
+}
+
+type EsbuildBuildErrorLike = {
+  errors: Array<{
+    text?: string;
+    location?: { file?: string; line?: number; column?: number };
+  }>;
+};
+
+function isEsbuildBuildError(err: unknown): err is EsbuildBuildErrorLike {
+  if (!err || typeof err !== "object") return false;
+  const rec = err as Record<string, unknown>;
+  if (!Array.isArray(rec.errors)) return false;
+  return true;
 }
 

@@ -34,9 +34,8 @@ export async function GET(
   }
 
   // 计算当前安装的版本（显式 ?v 优先，其次为 currentVersion）
-  const installVersion = version && version.trim().length > 0
-    ? version.trim()
-    : getCurrentVersion(item as any);
+  const installVersion =
+    version && version.trim().length > 0 ? version.trim() : getCurrentVersion(item);
 
   const header = `// cozy-registry: @${owner}/${item.name} v${installVersion}\n`;
 

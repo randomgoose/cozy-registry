@@ -34,28 +34,15 @@ export function CodeBlock({
     let cancelled = false;
 
     void (async () => {
-      const prismMod = await import("prismjs");
-      const Prism = prismMod.default ?? prismMod;
-      if (language === "css") {
-        // @ts-expect-error prism-css has no types in @types/prismjs
-        await import("prismjs/components/prism-css");
-      } else {
-        await import("prismjs/components/prism-tsx");
-      }
-      if (cancelled) return;
-
-      const langs = Prism.languages;
-      if (!langs) {
-        setHighlightedHtml(escapeHtml(text));
-        return;
-      }
-      const grammar = langs[language] ?? langs.plaintext ?? langs.plain;
-      if (!grammar) {
-        setHighlightedHtml(escapeHtml(text));
-        return;
-      }
       try {
-        const html = Prism.highlight(text, grammar, language);
+        const res = await fetch("/api/highlight", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: text, language }),
+        });
+        if (!res.ok) throw new Error("Highlight request failed");
+        const data = (await res.json()) as { html?: string };
+        const html = typeof data.html === "string" ? data.html : "";
         if (!cancelled) setHighlightedHtml(html);
       } catch {
         if (!cancelled) setHighlightedHtml(escapeHtml(text));
@@ -70,7 +57,7 @@ export function CodeBlock({
   return (
     <div className="relative">
       <div
-        className="overflow-x-auto rounded-lg border border-zinc-200 bg-[#1d1f21] dark:border-zinc-800"
+        className="overflow-x-auto rounded-lg border border-zinc-200 bg-[#0d1117] dark:border-zinc-800"
         style={
           hasManyLines && collapsed
             ? {
@@ -80,25 +67,22 @@ export function CodeBlock({
             : undefined
         }
       >
-        <pre className="p-4 text-sm leading-relaxed">
-          {highlightedHtml ? (
-            <code
-              className={`language-${language} font-mono`}
-              style={{ background: "transparent", padding: 0 }}
-              dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-            />
-          ) : (
-            <code
-              className={`language-${language} font-mono`}
-              style={{ background: "transparent", padding: 0 }}
-            >
+        {highlightedHtml ? (
+          <div
+            className="text-sm leading-relaxed [&_pre]:m-0 [&_pre]:p-4 [&_code]:font-mono"
+            // shiki returns a full <pre class="shiki">...</pre>
+            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+          />
+        ) : (
+          <pre className="p-4 text-sm leading-relaxed">
+            <code className="font-mono" style={{ background: "transparent", padding: 0 }}>
               {safeCode}
             </code>
-          )}
-        </pre>
+          </pre>
+        )}
         {hasManyLines && collapsed && (
           <div
-            className="pointer-events-none absolute bottom-0 left-0 right-0 h-20 bg-linear-to-t from-[#1d1f21] to-transparent"
+            className="pointer-events-none absolute bottom-0 left-0 right-0 h-20 bg-linear-to-t from-[#0d1117] to-transparent"
             aria-hidden
           />
         )}

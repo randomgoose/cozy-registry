@@ -67,12 +67,20 @@ export interface PropField {
  */
 export function extractPropsFromTsx(code: string): PropField[] {
   try {
-    // 使用 any 避免依赖具体 @babel/parser 类型定义，兼容不同版本
-    const ast: any = parser.parse(code, PARSE_OPTIONS);
-    let propsInterface: any = null;
-    for (const node of ast.program.body) {
-      if (node.type === "TSInterfaceDeclaration") {
-        const name = node.id.type === "Identifier" ? node.id.name : "";
+    const ast = parser.parse(code, PARSE_OPTIONS) as unknown;
+    const program = (ast as { program?: unknown }).program as
+      | { body?: unknown[] }
+      | undefined;
+    const bodyNodes = Array.isArray(program?.body) ? program.body : [];
+
+    let propsInterface: unknown = null;
+    for (const node of bodyNodes) {
+      if (!node || typeof node !== "object") continue;
+      const rec = node as Record<string, unknown>;
+      if (rec.type === "TSInterfaceDeclaration") {
+        const id = rec.id as Record<string, unknown> | undefined;
+        const name =
+          id && id.type === "Identifier" && typeof id.name === "string" ? id.name : "";
         if (name.endsWith("Props") || name === "Props") {
           propsInterface = node;
           break;
@@ -80,22 +88,29 @@ export function extractPropsFromTsx(code: string): PropField[] {
         if (!propsInterface) propsInterface = node;
       }
     }
-    if (!propsInterface || propsInterface.type !== "TSInterfaceDeclaration") return [];
-    const body = propsInterface.body;
-    if (body.type !== "TSInterfaceBody") return [];
+    if (!propsInterface || typeof propsInterface !== "object") return [];
+    const propsRec = propsInterface as Record<string, unknown>;
+    if (propsRec.type !== "TSInterfaceDeclaration") return [];
+    const ifaceBody = propsRec.body as Record<string, unknown> | undefined;
+    if (!ifaceBody || ifaceBody.type !== "TSInterfaceBody") return [];
     const out: PropField[] = [];
-    for (const member of body.body) {
-      if (member.type !== "TSPropertySignature" || !member.key) continue;
-      const key = member.key;
+    const members = (ifaceBody.body as unknown) ?? [];
+    if (!Array.isArray(members)) return [];
+    for (const member of members) {
+      if (!member || typeof member !== "object") continue;
+      const mem = member as Record<string, unknown>;
+      if (mem.type !== "TSPropertySignature" || !mem.key) continue;
+      const key = mem.key as Record<string, unknown>;
       const name =
         key.type === "Identifier"
-          ? key.name
+          ? (key.name as string)
           : key.type === "StringLiteral"
-            ? key.value
+            ? (key.value as string)
             : "";
       if (!name || (typeof name === "string" && (name === "key" || name === "ref"))) continue;
-      const optional = member.optional ?? false;
-      const typeNode = (member as any).typeAnnotation?.typeAnnotation;
+      const optional = typeof mem.optional === "boolean" ? mem.optional : false;
+      const typeNode =
+        (mem.typeAnnotation as Record<string, unknown> | undefined)?.typeAnnotation ?? undefined;
       const typeStr = typeNode ? typeAnnotationToString(typeNode) : "unknown";
       out.push({ name, type: typeStr, optional });
     }
@@ -105,8 +120,13 @@ export function extractPropsFromTsx(code: string): PropField[] {
   }
 }
 
-function typeAnnotationToString(node: any): string {
-  switch (node.type) {
+function typeAnnotationToString(node: unknown): string {
+  if (!node || typeof node !== "object") return "unknown";
+  const n = node as Record<string, unknown>;
+  const t = n.type;
+  if (typeof t !== "string") return "unknown";
+
+  switch (t) {
     case "TSStringKeyword":
       return "string";
     case "TSNumberKeyword":
@@ -122,21 +142,28 @@ function typeAnnotationToString(node: any): string {
     case "TSNullKeyword":
       return "null";
     case "TSArrayType":
-      return typeAnnotationToString(node.elementType) + "[]";
+      return typeAnnotationToString(n.elementType) + "[]";
     case "TSUnionType":
-      return node.types.map(typeAnnotationToString).join(" | ");
+      return Array.isArray(n.types) ? n.types.map(typeAnnotationToString).join(" | ") : "unknown";
     case "TSLiteralType":
-      if (node.literal.type === "StringLiteral") return `"${node.literal.value}"`;
-      if (node.literal.type === "NumericLiteral") return String(node.literal.value);
-      if (node.literal.type === "BooleanLiteral") return node.literal.value ? "true" : "false";
+      if (!n.literal || typeof n.literal !== "object") return "literal";
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      const lit = n.literal as Record<string, unknown>;
+      if (lit.type === "StringLiteral" && typeof lit.value === "string") return `"${lit.value}"`;
+      if (lit.type === "NumericLiteral" && typeof lit.value === "number") return String(lit.value);
+      if (lit.type === "BooleanLiteral" && typeof lit.value === "boolean")
+        return lit.value ? "true" : "false";
       return "literal";
     case "TSTypeReference":
-      if (node.typeName.type === "Identifier") return node.typeName.name;
+      if (n.typeName && typeof n.typeName === "object") {
+        const tn = n.typeName as Record<string, unknown>;
+        if (tn.type === "Identifier" && typeof tn.name === "string") return tn.name;
+      }
       return "unknown";
     case "TSFunctionType":
       return "function";
     case "TSIntersectionType":
-      return node.types.map(typeAnnotationToString).join(" & ");
+      return Array.isArray(n.types) ? n.types.map(typeAnnotationToString).join(" & ") : "unknown";
     default:
       return "unknown";
   }

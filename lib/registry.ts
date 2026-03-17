@@ -210,7 +210,10 @@ export async function getRegistryItemVersions(
     .orderBy(desc(registryItemVersions.createdAt));
 
   return versions.map((v) => {
-    const meta = (v as any).meta as Record<string, unknown> | null | undefined;
+    const meta = (v as { meta?: unknown }).meta as
+      | Record<string, unknown>
+      | null
+      | undefined;
     const message =
       meta && typeof meta === "object" && typeof meta.message === "string"
         ? meta.message
