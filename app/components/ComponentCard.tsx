@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { PreviewFrame } from "./PreviewFrame";
 
 interface ComponentCardProps {
   owner: string;
@@ -37,11 +38,11 @@ export function ComponentCard({
   return (
     <article className="rounded-xl border border-zinc-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900">
       <div className="relative h-40 w-full overflow-hidden rounded-t-xl border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/50">
-        <iframe
+        <PreviewFrame
           src={`/preview/${owner}/${name}`}
           title={`${title} 预览`}
-          className="absolute left-0 top-0 h-[400px] w-[800px] origin-top-left scale-50"
-          sandbox="allow-scripts"
+          className="h-full w-full"
+          allowUpscale={false}
         />
       </div>
       <div className="flex items-start justify-between gap-4 p-5">

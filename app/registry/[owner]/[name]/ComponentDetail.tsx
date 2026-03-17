@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CodeBlock } from "./CodeBlock";
 import { Button } from "@/components/ui/button";
+import { PreviewFrame } from "@/app/components/PreviewFrame";
 import {
   Table,
   TableBody,
@@ -357,11 +358,10 @@ export function ComponentDetail({
             </Link>
           </div>
           <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-            <iframe
+            <PreviewFrame
               title={`${title} 预览`}
               src={previewHref}
-              className="h-[420px] w-full border-0"
-              sandbox="allow-scripts"
+              className="h-[420px] w-full"
             />
           </div>
         </section>

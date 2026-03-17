@@ -126,7 +126,10 @@ export async function GET(
     files[f.path] = f.content;
   }
 
-  const rawPreviewProps = (item as any)?.meta?.previewProps;
+  const rawPreviewProps =
+    item.meta && typeof item.meta === "object"
+      ? (item.meta as Record<string, unknown>).previewProps
+      : undefined;
   let previewProps: unknown;
   if (rawPreviewProps === undefined || rawPreviewProps === null) {
     previewProps = DEMO_PROPS[name] ?? {};
@@ -254,6 +257,40 @@ export async function GET(
       ? `\n    <style>${escapeHtmlCss(buildResult.css)}</style>`
       : "";
 
+  // 向父页面（列表卡片/详情页）报告真实渲染尺寸，便于居中与自适应缩放
+  const sizeReporter = `
+    <script>
+      (function () {
+        var root = document.getElementById("root");
+        if (!root) return;
+        var lastW = 0, lastH = 0;
+        function measure() {
+          var el = root;
+          var rect = el.getBoundingClientRect();
+          // fallback to scroll sizes when rect is zero (e.g. initial render)
+          var w = Math.max(rect.width || 0, el.scrollWidth || 0);
+          var h = Math.max(rect.height || 0, el.scrollHeight || 0);
+          // add a small padding to avoid edge clipping due to subpixel rounding
+          w = Math.ceil(w + 2);
+          h = Math.ceil(h + 2);
+          if (w === lastW && h === lastH) return;
+          lastW = w; lastH = h;
+          try {
+            window.parent && window.parent.postMessage({ type: "cozy-preview:size", width: w, height: h }, "*");
+          } catch {}
+        }
+        // initial + after paint
+        requestAnimationFrame(function () { measure(); requestAnimationFrame(measure); });
+        if ("ResizeObserver" in window) {
+          new ResizeObserver(function () { measure(); }).observe(root);
+        } else {
+          window.addEventListener("resize", measure);
+          setInterval(measure, 500);
+        }
+      })();
+    </script>
+  `;
+
   const html = `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -270,6 +307,7 @@ ${importMapJson}
     <script type="module">
 ${buildResult.code}
     </script>
+    ${sizeReporter}
   </body>
 </html>`;
 
