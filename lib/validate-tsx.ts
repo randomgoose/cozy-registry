@@ -60,7 +60,7 @@ export interface PropField {
 export function extractPropsFromTsx(code: string): PropField[] {
   try {
     const ast = parser.parse(code, PARSE_OPTIONS);
-    let propsInterface: parser.ParseResult<parser.ParseResultFile>["program"]["body"][0] | null = null;
+    let propsInterface: parser.TSInterfaceDeclaration | null = null;
     for (const node of ast.program.body) {
       if (node.type === "TSInterfaceDeclaration") {
         const name = node.id.type === "Identifier" ? node.id.name : "";
