@@ -1,13 +1,15 @@
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { db } from "./db";
 import {
   registryItems,
   registryFiles,
   registryItemVersions,
   registryFileVersions,
+  registryCollectionItems,
   user,
 } from "./db/schema";
 import { resolveOwner } from "@/lib/owner";
+import type { RegistryPolicy } from "@/lib/registry-policy";
 
 const INITIAL_VERSION = "0.1.0";
 
@@ -80,6 +82,100 @@ export async function getRegistryItems(userId?: string | null) {
     )
     .orderBy(registryItems.name);
 
+  return items;
+}
+
+export type RegistryScope = {
+  requestUserId: string | null;
+  policy: RegistryPolicy | null;
+};
+
+export async function getRegistryItemsScoped(scope: RegistryScope) {
+  const { requestUserId, policy } = scope;
+
+  // No policy row: keep existing behavior.
+  if (!policy) {
+    return getRegistryItems(requestUserId);
+  }
+
+  const allowedCollectionIds = policy.allowedCollectionIds ?? [];
+  const allowPublicOutsideCollections = !!policy.allowPublicOutsideCollections;
+
+  // Strict allowlist behavior:
+  // - If no collections are allowlisted and public-outside-collections is false, deny all.
+  if (allowedCollectionIds.length === 0 && !allowPublicOutsideCollections) {
+    return [];
+  }
+
+  const allowedTypes = (policy.allowedTypes ?? []).filter(Boolean);
+  const allowedOwners = (policy.allowedOwnerHandlesOrIds ?? []).filter(Boolean);
+
+  const allowedItemIds = (() => {
+    if (allowedCollectionIds.length === 0) return [] as string[];
+    return db
+      .select({ itemId: registryCollectionItems.itemId })
+      .from(registryCollectionItems)
+      .where(inArray(registryCollectionItems.collectionId, allowedCollectionIds));
+  })();
+
+  const visibleClause = requestUserId
+    ? or(
+        eq(registryItems.visibility, "public"),
+        and(
+          eq(registryItems.visibility, "private"),
+          eq(registryItems.userId, requestUserId),
+        ),
+      )
+    : eq(registryItems.visibility, "public");
+
+  const base = db
+    .select({
+      id: registryItems.id,
+      userId: registryItems.userId,
+      ownerHandle: user.handle,
+      name: registryItems.name,
+      type: registryItems.type,
+      title: registryItems.title,
+      description: registryItems.description,
+      visibility: registryItems.visibility,
+      createdAt: registryItems.createdAt,
+      updatedAt: registryItems.updatedAt,
+      currentVersion: registryItems.currentVersion,
+      meta: registryItems.meta,
+    })
+    .from(registryItems)
+    .leftJoin(user, eq(registryItems.userId, user.id));
+
+  const clauses = [visibleClause] as ReturnType<typeof and>[];
+
+  if (allowedTypes.length > 0) {
+    clauses.push(inArray(registryItems.type, allowedTypes));
+  }
+
+  if (allowedOwners.length > 0) {
+    clauses.push(
+      or(
+        inArray(registryItems.userId, allowedOwners),
+        inArray(user.handle, allowedOwners),
+      ),
+    );
+  }
+
+  if (allowedCollectionIds.length > 0) {
+    if (allowPublicOutsideCollections) {
+      // Public items may be outside collections; non-public items must be in an allowed collection.
+      clauses.push(
+        or(
+          eq(registryItems.visibility, "public"),
+          inArray(registryItems.id, allowedItemIds),
+        ),
+      );
+    } else {
+      clauses.push(inArray(registryItems.id, allowedItemIds));
+    }
+  }
+
+  const items = await base.where(and(...clauses)).orderBy(registryItems.name);
   return items;
 }
 
@@ -203,6 +299,63 @@ export async function getRegistryItemByOwnerNameAndVersion(
       type: f.type,
     })),
   };
+}
+
+export async function getRegistryItemByOwnerNameAndVersionScoped(
+  scope: RegistryScope & {
+    ownerId: string;
+    name: string;
+    version: string | null | undefined;
+  },
+) {
+  const item = await getRegistryItemByOwnerNameAndVersion(
+    scope.ownerId,
+    scope.name,
+    scope.version,
+    scope.requestUserId,
+  );
+  if (!item) return null;
+
+  const policy = scope.policy;
+  if (!policy) return item;
+
+  const allowedTypes = (policy.allowedTypes ?? []).filter(Boolean);
+  if (allowedTypes.length > 0 && !allowedTypes.includes(item.type)) return null;
+
+  const allowedOwners = (policy.allowedOwnerHandlesOrIds ?? []).filter(Boolean);
+  if (allowedOwners.length > 0) {
+    const ownerHandle = (await resolveOwner(item.userId ?? "legacy"))?.handle ?? null;
+    const matches =
+      (item.userId != null && allowedOwners.includes(item.userId)) ||
+      (ownerHandle != null && allowedOwners.includes(ownerHandle));
+    if (!matches) return null;
+  }
+
+  const allowedCollectionIds = policy.allowedCollectionIds ?? [];
+  const allowPublicOutsideCollections = !!policy.allowPublicOutsideCollections;
+  if (allowedCollectionIds.length === 0) {
+    if (!allowPublicOutsideCollections) return null;
+    if (item.visibility !== "public") return null;
+    return item;
+  }
+
+  // If public outside collections is allowed, only require membership for non-public.
+  if (allowPublicOutsideCollections && item.visibility === "public") {
+    return item;
+  }
+
+  const [membership] = await db
+    .select({ itemId: registryCollectionItems.itemId })
+    .from(registryCollectionItems)
+    .where(
+      and(
+        eq(registryCollectionItems.itemId, item.id),
+        inArray(registryCollectionItems.collectionId, allowedCollectionIds),
+      ),
+    )
+    .limit(1);
+
+  return membership ? item : null;
 }
 
 /**

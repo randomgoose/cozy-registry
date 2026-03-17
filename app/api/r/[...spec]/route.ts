@@ -4,11 +4,12 @@ import { auth } from "@/lib/auth";
 import {
   getCurrentVersion,
   getRegistryItemByName,
-  getRegistryItemByOwnerNameAndVersion,
+  getRegistryItemByOwnerNameAndVersionScoped,
   toShadcnRegistryItem,
 } from "@/lib/registry";
-import { getUserIdFromToken } from "@/lib/auth-api";
+import { getAuthContextFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
+import { getRegistryPolicyForApiKey } from "@/lib/registry-policy";
 
 function parseOwnerAndName(spec: string[]): { owner: string | null; name: string | null } {
   if (spec.length >= 2) {
@@ -46,10 +47,18 @@ export async function GET(
   const url = new URL(request.url);
   const version = url.searchParams.get("v") ?? undefined;
   const session = await auth.api.getSession({ headers: await headers() });
-  const userId = session?.user?.id ?? (await getUserIdFromToken(request));
+  const tokenCtx = await getAuthContextFromToken(request);
+  const userId = tokenCtx?.userId ?? session?.user?.id ?? null;
+  const policy = tokenCtx ? await getRegistryPolicyForApiKey(tokenCtx.apiKeyId) : null;
 
   const item = owner
-    ? await getRegistryItemByOwnerNameAndVersion(owner, name, version || null, userId)
+    ? await getRegistryItemByOwnerNameAndVersionScoped({
+        ownerId: owner,
+        name,
+        version: version || null,
+        requestUserId: userId,
+        policy,
+      })
     : await getRegistryItemByName(name, userId);
 
   if (!item) {

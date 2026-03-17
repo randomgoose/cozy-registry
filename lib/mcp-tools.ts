@@ -2,9 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import path from "path";
 import {
-  getRegistryItems,
+  getRegistryItemsScoped,
   getRegistryItemByName,
   getRegistryItemByOwnerNameAndVersion,
+  getRegistryItemByOwnerNameAndVersionScoped,
   getRegistryItemVersions,
   getCurrentVersion,
   createRegistryItem,
@@ -13,8 +14,9 @@ import {
   toShadcnRegistryItem,
 } from "./registry";
 import { validateTsx, extractDependencies } from "./validate-tsx";
-import { getUserIdFromToken } from "./auth-api";
+import { getAuthContextFromToken } from "./auth-api";
 import { resolveOwner } from "./owner";
+import { getRegistryPolicyForApiKey } from "./registry-policy";
 
 export function createRegistryMcpServer(request?: Request) {
   const server = new McpServer({
@@ -28,8 +30,12 @@ export function createRegistryMcpServer(request?: Request) {
     description: "List all components and modules available in the registry. Use this to discover what's available before fetching a specific component. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>.",
     inputSchema: z.object({}).describe("No input required"),
   }, async () => {
-    const userId = request ? await getUserIdFromToken(request) : null;
-    const items = await getRegistryItems(userId);
+    const ctx = request ? await getAuthContextFromToken(request) : null;
+    const policy = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
+    const items = await getRegistryItemsScoped({
+      requestUserId: ctx?.userId ?? null,
+      policy,
+    });
     const summary = items
       .map(
         (i) => {
@@ -70,9 +76,18 @@ export function createRegistryMcpServer(request?: Request) {
     },
     async ({ name, owner }) => {
       try {
-        const userId = request ? await getUserIdFromToken(request) : null;
+        const ctx = request ? await getAuthContextFromToken(request) : null;
+        const policy = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
+        const userId = ctx?.userId ?? null;
+
         const item = owner
-          ? await getRegistryItemByOwnerNameAndVersion(owner, name, null, userId)
+          ? await getRegistryItemByOwnerNameAndVersionScoped({
+              ownerId: owner,
+              name,
+              version: null,
+              requestUserId: userId,
+              policy,
+            })
           : await getRegistryItemByName(name, userId);
 
         if (!item) {
@@ -80,7 +95,7 @@ export function createRegistryMcpServer(request?: Request) {
             content: [
               {
                 type: "text" as const,
-                text: `Component "${name}" not found.`,
+                text: `Component "${name}" not found (or not allowed by your token scope).`,
               },
             ],
             isError: true,
@@ -205,7 +220,29 @@ ${fileContent}
     },
     async ({ name, owner }) => {
       try {
-        const userId = request ? await getUserIdFromToken(request) : null;
+        const ctx = request ? await getAuthContextFromToken(request) : null;
+        const policy = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
+        const userId = ctx?.userId ?? null;
+
+        // Enforce token scope: if the item itself is not allowed, don't leak version history.
+        const allowed = await getRegistryItemByOwnerNameAndVersionScoped({
+          ownerId: owner,
+          name,
+          version: null,
+          requestUserId: userId,
+          policy,
+        });
+        if (!allowed) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Component @${owner}/${name} not found (or not allowed by your token scope).`,
+              },
+            ],
+            isError: true,
+          };
+        }
 
         const versions = await getRegistryItemVersions(owner, name, userId);
         if (!versions.length) {
@@ -289,7 +326,8 @@ ${fileContent}
     }),
   }, async ({ name, owner }) => {
     try {
-      const userId = request ? await getUserIdFromToken(request) : null;
+      const ctx = request ? await getAuthContextFromToken(request) : null;
+      const userId = ctx?.userId ?? null;
       if (!userId) {
         return {
           content: [
@@ -565,7 +603,8 @@ ${fileContent}
         }
       }
 
-      const userId = request ? await getUserIdFromToken(request) : null;
+      const ctx = request ? await getAuthContextFromToken(request) : null;
+      const userId = ctx?.userId ?? null;
       if (!userId) {
         return {
           content: [

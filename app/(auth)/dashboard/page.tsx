@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { getRegistryItemsByUserId } from "@/lib/registry";
 import { ComponentCard } from "@/app/components/ComponentCard";
+import { CollectionsPanel } from "./CollectionsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,15 @@ export default async function DashboardPage() {
             ))}
           </div>
         )}
+
+        <CollectionsPanel
+          items={items.map((i) => ({
+            id: i.id,
+            name: i.name,
+            title: i.title,
+            type: i.type,
+          }))}
+        />
       </main>
     </div>
   );

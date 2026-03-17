@@ -8,6 +8,7 @@ import {
   integer,
   index,
   unique,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 // --- Better Auth tables ---
@@ -205,3 +206,83 @@ export const registryFileVersions = pgTable("registry_file_versions", {
   content: text("content").notNull(),
   type: text("type").notNull(),
 });
+
+// --- Registry organization & AI scope tables ---
+
+export const registryCollections = pgTable(
+  "registry_collections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    visibility: text("visibility").default("private").notNull(), // "public" | "private"
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("registry_collections_ownerUserId_idx").on(table.ownerUserId),
+    unique("registry_collections_owner_slug_key").on(table.ownerUserId, table.slug),
+  ],
+);
+
+export const registryCollectionItems = pgTable(
+  "registry_collection_items",
+  {
+    collectionId: uuid("collection_id")
+      .notNull()
+      .references(() => registryCollections.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => registryItems.id, { onDelete: "cascade" }),
+    addedAt: timestamp("added_at").defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.collectionId, table.itemId] }),
+    index("registry_collection_items_collectionId_idx").on(table.collectionId),
+    index("registry_collection_items_itemId_idx").on(table.itemId),
+  ],
+);
+
+export type RegistryApiKeyPolicy = {
+  allowedCollectionIds: string[];
+  allowedTypes: string[];
+  allowedOwnerHandlesOrIds?: string[];
+  allowPublicOutsideCollections: boolean;
+};
+
+export const registryApiKeyPolicies = pgTable(
+  "registry_api_key_policies",
+  {
+    apiKeyId: text("api_key_id")
+      .primaryKey()
+      .references(() => apiKey.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    allowedCollectionIds: jsonb("allowed_collection_ids")
+      .$type<string[]>()
+      .default([]),
+    allowedTypes: jsonb("allowed_types").$type<string[]>().default([]),
+    allowedOwnerHandlesOrIds: jsonb("allowed_owner_handles_or_ids")
+      .$type<string[]>()
+      .default([]),
+    allowPublicOutsideCollections: boolean("allow_public_outside_collections")
+      .default(false)
+      .notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("registry_api_key_policies_ownerUserId_idx").on(table.ownerUserId),
+  ],
+);

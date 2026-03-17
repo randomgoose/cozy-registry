@@ -1,10 +1,17 @@
 import { auth } from "./auth";
 
+export type TokenAuthContext = {
+  userId: string;
+  apiKeyId: string;
+};
+
 /**
  * Validate Bearer token from Authorization header or x-api-key.
- * Returns { userId } if valid, null otherwise.
+ * Returns { userId, apiKeyId } if valid, null otherwise.
  */
-export async function getUserIdFromToken(request: Request): Promise<string | null> {
+export async function getAuthContextFromToken(
+  request: Request,
+): Promise<TokenAuthContext | null> {
   const authHeader = request.headers.get("authorization");
   const token =
     authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : request.headers.get("x-api-key");
@@ -15,10 +22,21 @@ export async function getUserIdFromToken(request: Request): Promise<string | nul
       body: { key: token },
     });
     if (result.valid && result.key) {
-      return result.key.referenceId;
+      const apiKeyId = (result.key as unknown as { id?: string }).id;
+      const userId = result.key.referenceId;
+      if (!apiKeyId || !userId) return null;
+      return { userId, apiKeyId };
     }
   } catch {
     // ignore
   }
   return null;
+}
+
+/**
+ * Backward-compatible helper for callers that only need userId.
+ */
+export async function getUserIdFromToken(request: Request): Promise<string | null> {
+  const ctx = await getAuthContextFromToken(request);
+  return ctx?.userId ?? null;
 }

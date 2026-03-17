@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
-import { getRegistryItems, toShadcnRegistryItemSummary } from "@/lib/registry";
-import { getUserIdFromToken } from "@/lib/auth-api";
+import { getRegistryItemsScoped, toShadcnRegistryItemSummary } from "@/lib/registry";
+import { getAuthContextFromToken } from "@/lib/auth-api";
+import { getRegistryPolicyForApiKey } from "@/lib/registry-policy";
 
 export async function GET(request: Request) {
-  const userId = await getUserIdFromToken(request);
-  const items = await getRegistryItems(userId);
+  const ctx = await getAuthContextFromToken(request);
+  const policy = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
+  const items = await getRegistryItemsScoped({
+    requestUserId: ctx?.userId ?? null,
+    policy,
+  });
 
   const registry = {
     $schema: "https://ui.shadcn.com/schema/registry.json",

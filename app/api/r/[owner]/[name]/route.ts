@@ -3,11 +3,12 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import {
   getCurrentVersion,
-  getRegistryItemByOwnerNameAndVersion,
+  getRegistryItemByOwnerNameAndVersionScoped,
   toShadcnRegistryItem,
 } from "@/lib/registry";
-import { getUserIdFromToken } from "@/lib/auth-api";
+import { getAuthContextFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
+import { getRegistryPolicyForApiKey } from "@/lib/registry-policy";
 
 export async function GET(
   request: Request,
@@ -17,13 +18,17 @@ export async function GET(
   const url = new URL(request.url);
   const version = url.searchParams.get("v") ?? undefined;
   const session = await auth.api.getSession({ headers: await headers() });
-  const userId = session?.user?.id ?? (await getUserIdFromToken(request));
-  const item = await getRegistryItemByOwnerNameAndVersion(
-    owner,
+  const tokenCtx = await getAuthContextFromToken(request);
+  const userId = tokenCtx?.userId ?? session?.user?.id ?? null;
+  const policy = tokenCtx ? await getRegistryPolicyForApiKey(tokenCtx.apiKeyId) : null;
+
+  const item = await getRegistryItemByOwnerNameAndVersionScoped({
+    ownerId: owner,
     name,
-    version || null,
-    userId,
-  );
+    version: version || null,
+    requestUserId: userId,
+    policy,
+  });
 
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

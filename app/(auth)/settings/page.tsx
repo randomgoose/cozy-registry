@@ -12,6 +12,16 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
+  const [collections, setCollections] = useState<Array<{ id: string; slug: string; title: string }>>([]);
+  const [policyKeyId, setPolicyKeyId] = useState<string | null>(null);
+  const [policyLoading, setPolicyLoading] = useState(false);
+  const [policySaving, setPolicySaving] = useState(false);
+  const [policy, setPolicy] = useState<{
+    allowedCollectionIds: string[];
+    allowedTypes: string[];
+    allowPublicOutsideCollections: boolean;
+  } | null>(null);
+
   useEffect(() => {
     authClient.getSession().then(({ data }) => setSession(data ?? null));
   }, []);
@@ -23,6 +33,69 @@ export default function SettingsPage() {
       setLoading(false);
     });
   }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+    fetch("/api/collections", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        const cols = (data?.collections ?? []) as Array<{ id: string; slug: string; title: string }>;
+        setCollections(cols);
+      })
+      .catch(() => {});
+  }, [session]);
+
+  async function openPolicy(keyId: string) {
+    setPolicyKeyId(keyId);
+    setPolicyLoading(true);
+    try {
+      const res = await fetch(`/api/apikeys/${keyId}/policy`, { cache: "no-store" });
+      const data = (await res.json().catch(() => null)) as
+        | {
+            policy:
+              | {
+                  allowedCollectionIds?: unknown;
+                  allowedTypes?: unknown;
+                  allowPublicOutsideCollections?: unknown;
+                }
+              | null;
+          }
+        | null;
+      const p = data?.policy ?? null;
+      setPolicy({
+        allowedCollectionIds: Array.isArray(p?.allowedCollectionIds)
+          ? (p.allowedCollectionIds as string[])
+          : [],
+        allowedTypes: Array.isArray(p?.allowedTypes)
+          ? (p.allowedTypes as string[])
+          : ["registry:block", "registry:theme"],
+        allowPublicOutsideCollections: !!p?.allowPublicOutsideCollections,
+      });
+    } finally {
+      setPolicyLoading(false);
+    }
+  }
+
+  async function savePolicy() {
+    if (!policyKeyId || !policy) return;
+    setPolicySaving(true);
+    try {
+      const res = await fetch(`/api/apikeys/${policyKeyId}/policy`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(policy),
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null;
+        alert(err?.error ?? "Failed to save policy");
+        return;
+      }
+      setPolicyKeyId(null);
+      setPolicy(null);
+    } finally {
+      setPolicySaving(false);
+    }
+  }
 
   async function handleCreateKey(e: React.FormEvent) {
     e.preventDefault();
@@ -162,14 +235,26 @@ export default function SettingsPage() {
                         {key.start}...
                       </span>
                     )}
+                    <div className="mt-1 text-xs text-zinc-500">
+                      可用范围：可配置 Collections / 类型，用于限制 AI 能看到与使用的资源
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteKey(key.id)}
-                    className="text-sm text-red-600 hover:underline dark:text-red-400"
-                  >
-                    删除
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => openPolicy(key.id)}
+                      className="text-sm text-zinc-700 hover:underline dark:text-zinc-300"
+                    >
+                      配置范围
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteKey(key.id)}
+                      className="text-sm text-red-600 hover:underline dark:text-red-400"
+                    >
+                      删除
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -177,6 +262,117 @@ export default function SettingsPage() {
             <p className="mt-4 text-sm text-zinc-500">暂无 Token</p>
           )}
         </section>
+
+        {policyKeyId && (
+          <div className="mt-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                Token 可用范围配置
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setPolicyKeyId(null);
+                  setPolicy(null);
+                }}
+                className="text-sm text-zinc-600 hover:underline dark:text-zinc-400"
+              >
+                关闭
+              </button>
+            </div>
+
+            {policyLoading || !policy ? (
+              <p className="mt-3 text-sm text-zinc-500">加载中...</p>
+            ) : (
+              <div className="mt-4 space-y-6">
+                <div>
+                  <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    允许的资源类型
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                    {["registry:block", "registry:component", "registry:theme"].map((t) => (
+                      <label key={t} className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={policy.allowedTypes.includes(t)}
+                          onChange={(e) => {
+                            setPolicy((p) => {
+                              if (!p) return p;
+                              const next = new Set(p.allowedTypes);
+                              if (e.target.checked) next.add(t);
+                              else next.delete(t);
+                              return { ...p, allowedTypes: Array.from(next) };
+                            });
+                          }}
+                        />
+                        {t}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    允许访问的 Collections
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    只会列出/获取这些集合内的条目（除非开启“允许 public 不在集合内”）。
+                  </p>
+                  {collections.length === 0 ? (
+                    <p className="mt-2 text-sm text-zinc-500">暂无 Collections（可先去 Dashboard 创建）</p>
+                  ) : (
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {collections.map((c) => (
+                        <label key={c.id} className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                          <input
+                            type="checkbox"
+                            checked={policy.allowedCollectionIds.includes(c.id)}
+                            onChange={(e) => {
+                              setPolicy((p) => {
+                                if (!p) return p;
+                                const next = new Set(p.allowedCollectionIds);
+                                if (e.target.checked) next.add(c.id);
+                                else next.delete(c.id);
+                                return { ...p, allowedCollectionIds: Array.from(next) };
+                              });
+                            }}
+                          />
+                          <span className="truncate">{c.title}</span>
+                          <span className="text-xs text-zinc-500">({c.slug})</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={policy.allowPublicOutsideCollections}
+                      onChange={(e) => setPolicy((p) => (p ? { ...p, allowPublicOutsideCollections: e.target.checked } : p))}
+                    />
+                    允许访问 public 条目（即使不在 allowlist collections 中）
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={policySaving}
+                    onClick={savePolicy}
+                    className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                  >
+                    {policySaving ? "保存中..." : "保存"}
+                  </button>
+                  <span className="text-xs text-zinc-500">
+                    提示：MCP / AI 使用该 Token 时会被强制限制在这里配置的范围内。
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-8">
           <button
