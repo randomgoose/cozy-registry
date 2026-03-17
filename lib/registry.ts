@@ -9,6 +9,25 @@ import {
 
 const INITIAL_VERSION = "0.1.0";
 
+function withCozyHeader(params: {
+  ownerId: string | null | undefined;
+  name: string;
+  version: string;
+  content: string;
+  /** 为 theme 等非 JS 文件使用 CSS 注释头，避免破坏语法 */
+  format?: "js" | "css";
+}) {
+  const owner = params.ownerId ?? "legacy";
+  const isCss = params.format === "css";
+  const header = isCss
+    ? `/* cozy-registry: @${owner}/${params.name} v${params.version} */\n`
+    : `// cozy-registry: @${owner}/${params.name} v${params.version}\n`;
+  if (params.content.startsWith("// cozy-registry:") || params.content.startsWith("/* cozy-registry:")) {
+    return params.content;
+  }
+  return `${header}${params.content}`;
+}
+
 /** 根据 bump 类型计算下一版本号（简单 semver） */
 export function bumpVersion(
   current: string,
@@ -83,6 +102,41 @@ export async function getRegistryItemByOwnerAndName(
 /** 当前展示版本号（兼容旧数据无 currentVersion） */
 export function getCurrentVersion(item: { currentVersion?: string | null }): string {
   return item.currentVersion ?? INITIAL_VERSION;
+}
+
+/**
+ * 从 theme 条目中取入口样式内容（STYLE_AND_THEME_SPEC §4.2）。
+ * 顺序：meta.entryPath 指定文件 → 首个 .css 文件 → 首个文件。
+ */
+export function getThemeEntryCss(item: {
+  files: { path: string; content: string }[];
+  meta?: Record<string, unknown> | null;
+}): string {
+  const files = item.files ?? [];
+  if (files.length === 0) return "";
+
+  const meta = item.meta && typeof item.meta === "object" ? item.meta : {};
+  const entryPath = meta.entryPath as string | undefined;
+  if (entryPath && typeof entryPath === "string") {
+    const f = files.find((x) => x.path === entryPath || x.path.endsWith(entryPath));
+    if (f) return stripCozyHeader(f.content);
+  }
+
+  const firstCss = files.find((f) => f.path.toLowerCase().endsWith(".css"));
+  if (firstCss) return stripCozyHeader(firstCss.content);
+  return stripCozyHeader(files[0].content);
+}
+
+function stripCozyHeader(content: string): string {
+  if (content.startsWith("// cozy-registry:")) {
+    const i = content.indexOf("\n");
+    return i >= 0 ? content.slice(i + 1).trimStart() : "";
+  }
+  if (content.startsWith("/* cozy-registry:")) {
+    const end = content.indexOf("*/");
+    return end >= 0 ? content.slice(end + 2).trimStart() : content;
+  }
+  return content;
 }
 
 /**
@@ -194,6 +248,14 @@ export async function createRegistryItemVersion(params: {
   const currentVer = getCurrentVersion(item);
   const nextVersion = bumpVersion(currentVer, params.bump);
 
+  const contentWithHeader = withCozyHeader({
+    ownerId: params.ownerId,
+    name: params.name,
+    version: nextVersion,
+    content: params.content,
+    format: item.type === "registry:theme" ? "css" : "js",
+  });
+
   const [itemVersion] = await db
     .insert(registryItemVersions)
     .values({
@@ -225,13 +287,13 @@ export async function createRegistryItemVersion(params: {
   await db.insert(registryFileVersions).values({
     itemVersionId: itemVersion.id,
     path: item.files[0]?.path ?? `registry/modules/${params.name}.tsx`,
-    content: params.content,
+    content: contentWithHeader,
     type: item.type,
   });
 
   await db
     .update(registryFiles)
-    .set({ content: params.content })
+    .set({ content: contentWithHeader })
     .where(eq(registryFiles.itemId, item.id));
 
   await db
@@ -307,7 +369,7 @@ export function toShadcnRegistryItem(
 
   const base = {
     name: item.name,
-    type: item.type as "registry:block" | "registry:component",
+    type: item.type as "registry:block" | "registry:component" | "registry:theme",
     title: item.title,
     description: item.description ?? undefined,
     dependencies: (item.dependencies ?? []) as string[],
@@ -317,7 +379,7 @@ export function toShadcnRegistryItem(
   const files = item.files.map((f) => ({
     path: f.path,
     content: f.content,
-    type: f.type as "registry:block" | "registry:component",
+    type: f.type as "registry:block" | "registry:component" | "registry:theme",
   }));
 
   return { ...base, files };
@@ -368,11 +430,21 @@ export async function createRegistryItem(data: {
 
   if (!item) throw new Error("Failed to create registry item");
 
-  const filePath = `registry/modules/${data.name}.tsx`;
+  const filePath =
+    data.type === "registry:theme"
+      ? "theme.css"
+      : `registry/modules/${data.name}.tsx`;
+  const contentWithHeader = withCozyHeader({
+    ownerId: data.userId,
+    name: data.name,
+    version: INITIAL_VERSION,
+    content: data.content,
+    format: data.type === "registry:theme" ? "css" : "js",
+  });
   await db.insert(registryFiles).values({
     itemId: item.id,
     path: filePath,
-    content: data.content,
+    content: contentWithHeader,
     type: data.type,
   });
 
@@ -394,7 +466,7 @@ export async function createRegistryItem(data: {
     await db.insert(registryFileVersions).values({
       itemVersionId: itemVersion.id,
       path: filePath,
-      content: data.content,
+      content: contentWithHeader,
       type: data.type,
     });
   }
@@ -440,12 +512,16 @@ export function toShadcnRegistryItemSummary(item: {
   userId?: string | null;
 }) {
   const owner = item.userId ?? "legacy";
+  const path =
+    item.type === "registry:theme"
+      ? "theme.css"
+      : `registry/modules/${item.name}.tsx`;
   return {
     name: item.name,
     owner,
     type: item.type,
     title: item.title,
     description: item.description ?? undefined,
-    files: [{ path: `registry/modules/${item.name}.tsx`, type: item.type }],
+    files: [{ path, type: item.type }],
   };
 }

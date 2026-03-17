@@ -28,10 +28,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const validation = validateTsx(content);
-    if (!validation.valid) {
+    const isTheme = type === "registry:theme";
+    if (!isTheme) {
+      const validation = validateTsx(content);
+      if (!validation.valid) {
+        return NextResponse.json(
+          { error: `Invalid TSX: ${validation.error}` },
+          { status: 400 }
+        );
+      }
+    } else if (typeof content !== "string" || content.trim().length === 0) {
       return NextResponse.json(
-        { error: `Invalid TSX: ${validation.error}` },
+        { error: "Theme content (CSS) is required" },
         { status: 400 }
       );
     }
@@ -44,16 +52,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const validTypes = ["registry:block", "registry:component"];
+    const validTypes = ["registry:block", "registry:component", "registry:theme"];
     if (!validTypes.includes(type)) {
       return NextResponse.json(
-        { error: "Type must be registry:block or registry:component" },
+        { error: "Type must be registry:block, registry:component, or registry:theme" },
         { status: 400 }
       );
     }
 
     const validVisibility = visibility === "private" ? "private" : "public";
-    const dependencies = extractDependencies(content);
+    const dependencies = isTheme ? [] : extractDependencies(content);
     const item = await createRegistryItem({
       name,
       type,

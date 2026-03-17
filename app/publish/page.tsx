@@ -113,6 +113,7 @@ export default function PublishPage() {
             >
               <option value="registry:block">Block (模块)</option>
               <option value="registry:component">Component (组件)</option>
+              <option value="registry:theme">Theme (主题)</option>
             </select>
           </div>
 
@@ -177,19 +178,28 @@ export default function PublishPage() {
               htmlFor="content"
               className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
             >
-              TSX 代码 *
+              {type === "registry:theme" ? "CSS 代码 *" : "TSX 代码 *"}
             </label>
             <textarea
               id="content"
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder={`"use client";
+              placeholder={
+                type === "registry:theme"
+                  ? `:root {
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --radius-md: 0.5rem;
+  --spacing-unit: 0.25rem;
+}`
+                  : `"use client";
 
 import React from "react";
 
 export function MyComponent({ title }: { title: string }) {
   return <div>{title}</div>;
-}`}
+}`
+              }
               required
               rows={16}
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-zinc-50 font-mono text-sm text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"

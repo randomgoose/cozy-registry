@@ -76,7 +76,12 @@ export function ComponentDetail({
     setTimeout(() => setCopiedCmd(false), 2000);
   }
 
-  const typeLabel = type.replace("registry:", "") === "block" ? "模块" : "组件";
+  const typeLabel =
+    type === "registry:theme"
+      ? "主题"
+      : type.replace("registry:", "") === "block"
+        ? "模块"
+        : "组件";
   const previewHref =
     localSelectedVersion && localSelectedVersion !== currentVersion
       ? `/preview/${owner}/${name}?v=${encodeURIComponent(
@@ -331,7 +336,7 @@ export function ComponentDetail({
               {copied ? "已复制" : "复制"}
             </button>
           </div>
-          <CodeBlock code={code} />
+          <CodeBlock code={code} language={type === "registry:theme" ? "css" : "tsx"} />
         </section>
       </main>
     </div>

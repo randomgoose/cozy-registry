@@ -15,7 +15,7 @@ type ComponentBundle = {
 };
 
 export type PreviewBuildResult =
-  | { ok: true; code: string }
+  | { ok: true; code: string; css?: string }
   | {
       ok: false;
       error: {
@@ -121,6 +121,24 @@ root.render(<App />);
 
     await fs.writeFile(previewEntryPath, previewEntryContent, "utf8");
 
+    // 收集组件 bundle 内 import 的 .css 文件，单独产出供 Preview 注入（STYLE_AND_THEME_SPEC §3.2）
+    const collectedCss: string[] = [];
+    const cssPlugin: import("esbuild").Plugin = {
+      name: "extract-css",
+      setup(build: import("esbuild").PluginBuild) {
+        build.onLoad({ filter: /\.css$/ }, async (args: import("esbuild").OnLoadArgs) => {
+          try {
+            const content = await fs.readFile(args.path, "utf8");
+            collectedCss.push(content);
+            // 返回空模块，避免 esbuild 报错且不把 CSS 打进 JS
+            return { contents: "export {}", loader: "js" };
+          } catch {
+            return null; // 交给 esbuild 默认处理
+          }
+        });
+      },
+    };
+
     // Run esbuild to bundle the preview entry into a single ESM file.
     const result = await esbuild.build({
       entryPoints: [previewEntryPath],
@@ -131,6 +149,7 @@ root.render(<App />);
       outfile: "preview.js",
       target: ["es2018"],
       sourcemap: false,
+      plugins: [cssPlugin],
       // React 相关始终由 runtime import map 提供
       external: [
         "react",
@@ -152,7 +171,9 @@ root.render(<App />);
       };
     }
 
-    return { ok: true, code: output };
+    const css =
+      collectedCss.length > 0 ? collectedCss.join("\n\n") : undefined;
+    return { ok: true, code: output, css };
   } catch (err) {
     if (err && typeof err === "object" && "errors" in err) {
       const first = Array.isArray((err as any).errors)

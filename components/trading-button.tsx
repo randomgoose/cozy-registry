@@ -13,7 +13,7 @@ export function TradingButton({
   variant = "primary",
   size = "md",
   loading = false,
-  icon = <ArrowUp size={16} />,
+  icon,
   children,
   className = "",
   disabled,
@@ -45,7 +45,9 @@ export function TradingButton({
     >
       {loading ? (
         <Loader2 className="animate-spin" size={iconSize} />
-      ) : icon}
+      ) : (
+        icon && <span className="inline-flex">{icon}</span>
+      )}
       {children}
     </button>
   );

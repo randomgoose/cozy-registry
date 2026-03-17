@@ -3,9 +3,28 @@ import { auth } from "@/lib/auth";
 import {
   getRegistryItemByOwnerNameAndVersion,
   toShadcnRegistryItem,
+  getThemeEntryCss,
 } from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
 import { buildPreviewBundle } from "@/lib/preview-build";
+
+/** 解析 registryDependencies 项，如 "@owner/name" 或 "@owner/name@1.0.0" */
+function parseRegistryDep(dep: string): { owner: string; name: string; version: string | null } | null {
+  const m = dep.trim().match(/^@([^/@]+)\/([^@]+)(?:@(.+))?$/);
+  if (!m) return null;
+  return { owner: m[1], name: m[2], version: m[3] ?? null };
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function escapeHtmlCss(css: string): string {
+  return css.replace(/<\/style/gi, "<\\/style");
+}
 
 const DEMO_PROPS: Record<string, unknown> = {
   "hero-section": {
@@ -61,6 +80,33 @@ export async function GET(
 
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Theme 条目：仅注入主题 CSS，展示简易预览页（STYLE_AND_THEME_SPEC §5.1 可选）
+  if (item.type === "registry:theme") {
+    const themeCss = getThemeEntryCss(item);
+    const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Theme: ${item.title ?? name}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>${escapeHtmlCss(themeCss)}</style>
+  </head>
+  <body class="min-h-screen bg-white p-8 font-sans">
+    <h1 class="text-lg font-semibold text-gray-900">Theme: ${escapeHtml(item.title ?? name)}</h1>
+    <p class="mt-2 text-sm text-gray-600">CSS variables are loaded. Use this theme as a registryDependency in components.</p>
+    <div class="mt-6 flex gap-4 flex-wrap">
+      <div class="h-16 w-32 rounded-lg shadow" style="background: var(--color-primary, #2563eb);"></div>
+      <div class="h-16 w-32 rounded-lg shadow" style="background: var(--color-primary-hover, #1d4ed8);"></div>
+      <div class="h-16 w-32 rounded-lg border border-gray-300" style="border-radius: var(--radius-md, 0.5rem);"></div>
+    </div>
+  </body>
+</html>`;
+    return new NextResponse(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
 
   const shadcnItem = toShadcnRegistryItem(item);
@@ -156,13 +202,42 @@ export async function GET(
 
   const importMapJson = JSON.stringify({ imports: importMap }, null, 2);
 
+  // 按 SPEC §5.1：先注入依赖的 theme CSS（Tailwind 之后、preview.js 之前）
+  const registryDeps = (item.registryDependencies ?? []) as string[];
+  const seenThemeKey = new Set<string>();
+  const themeCssChunks: string[] = [];
+  for (const dep of registryDeps) {
+    const parsed = parseRegistryDep(dep);
+    if (!parsed) continue;
+    const key = `${parsed.owner}/${parsed.name}`;
+    if (seenThemeKey.has(key)) continue;
+    const depItem = await getRegistryItemByOwnerNameAndVersion(
+      parsed.owner,
+      parsed.name,
+      parsed.version,
+      userId,
+    );
+    if (!depItem || depItem.type !== "registry:theme") continue;
+    seenThemeKey.add(key);
+    const css = getThemeEntryCss(depItem);
+    if (css) themeCssChunks.push(css);
+  }
+  const themeStyles =
+    themeCssChunks.length > 0
+      ? `\n    <style>${escapeHtmlCss(themeCssChunks.join("\n\n"))}</style>`
+      : "";
+  const bundleStyles =
+    buildResult.css != null && buildResult.css !== ""
+      ? `\n    <style>${escapeHtmlCss(buildResult.css)}</style>`
+      : "";
+
   const html = `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <title>Component Preview</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com"></script>${themeStyles}${bundleStyles}
     <script type="importmap">
 ${importMapJson}
     </script>

@@ -350,15 +350,15 @@ ${fileContent}
 
   server.registerTool("publish_component", {
     title: "Publish or update component",
-    description: "Publish or update a design-layer UI component in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). If the current user already owns a component with the same name, this will create a NEW VERSION instead of a new component. Otherwise it creates a new component. Requires: name (kebab-case), type (registry:block or registry:component), title, and content (TSX source code). Requires Bearer token. Future versions may accept multi-file bundles; for now, keep dependencies within a single entry file or simple relative imports.",
+    description: "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:component, or registry:theme), title, and content (TSX for block/component, CSS for theme). Requires Bearer token.",
     inputSchema: z.object({
       name: z
         .string()
         .describe("Component name in kebab-case, e.g. my-hero-section"),
       type: z
-        .enum(["registry:block", "registry:component"])
+        .enum(["registry:block", "registry:component", "registry:theme"])
         .describe(
-          "registry:block for modules, registry:component for components",
+          "registry:block for modules, registry:component for components, registry:theme for CSS theme/tokens",
         ),
       title: z.string().describe("Display title, e.g. Hero Section"),
       description: z
@@ -374,11 +374,11 @@ ${fileContent}
       content: z
         .string()
         .optional()
-        .describe("Full TSX/React source code"),
+        .describe("Full TSX/React source (block/component) or CSS (theme)"),
       code: z
         .string()
         .optional()
-        .describe("Alternative to content: TSX source code"),
+        .describe("Alternative to content: TSX or CSS source"),
       visibility: z
         .enum(["public", "private"])
         .optional()
@@ -396,7 +396,7 @@ ${fileContent}
     const content = args.content ?? args.code;
     if (!content) {
       return {
-        content: [{ type: "text" as const, text: "Missing required field: content or code (TSX source)" }],
+        content: [{ type: "text" as const, text: "Missing required field: content or code (TSX or CSS for theme)" }],
         isError: true,
       };
     }

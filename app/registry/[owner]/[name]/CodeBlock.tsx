@@ -36,7 +36,12 @@ export function CodeBlock({
     void (async () => {
       const prismMod = await import("prismjs");
       const Prism = prismMod.default ?? prismMod;
-      await import("prismjs/components/prism-tsx");
+      if (language === "css") {
+        // @ts-expect-error prism-css has no types in @types/prismjs
+        await import("prismjs/components/prism-css");
+      } else {
+        await import("prismjs/components/prism-tsx");
+      }
       if (cancelled) return;
 
       const langs = Prism.languages;
