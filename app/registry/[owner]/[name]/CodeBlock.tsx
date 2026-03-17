@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import "prismjs/themes/prism-tomorrow.css";
 import { Button } from "@/components/ui/button";
 
 const LINES_TO_SHOW = 14;
