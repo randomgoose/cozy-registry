@@ -449,6 +449,7 @@ ${fileContent}
       // 入口校验 + 本地依赖校验：
       // - 单文件：若出现相对 import（./ ../），强制要求改用 files 方式提交
       // - 多文件：校验所有相对 import 都能在 files 中解析到对应文件，否则报缺失列表
+      // - 同时检查是否包含 app hooks / Provider（如 useLanguage / LanguageProvider），若有则拒绝发布
       if (content) {
         const validation = validateTsx(content);
         if (!validation.valid) {
@@ -480,6 +481,31 @@ ${fileContent}
             isError: true,
           };
         }
+
+        const appUsages = findAppSpecificUsage([content]);
+        if (appUsages.length > 0) {
+          const list = appUsages.slice(0, 10).map((u) => `- ${u}`).join("\n");
+          const more =
+            appUsages.length > 10
+              ? `\n- ... and ${appUsages.length - 10} more`
+              : "";
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  "This component uses app-specific hooks/providers (e.g. i18n, auth, routing). Registry components must be pure UI and receive data via props.\n\nDetected app-specific usage:\n" +
+                  list +
+                  more +
+                  "\n\nPlease:\n" +
+                  "1. Keep your existing container component inside your app that uses these hooks/providers.\n" +
+                  "2. Extract a presentational component that only depends on props (texts, callbacks, flags).\n" +
+                  "3. Publish that presentational component instead (no app hooks or Providers inside).",
+              },
+            ],
+            isError: true,
+          };
+        }
       }
 
       if (files) {
@@ -495,6 +521,35 @@ ${fileContent}
                   "Multi-file bundle is missing local import targets. Please include these files in `files` (paths must match relative imports):\n" +
                   list +
                   more,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const appUsages = findAppSpecificUsage(
+          Object.values(files).filter(
+            (v): v is string => typeof v === "string",
+          ),
+        );
+        if (appUsages.length > 0) {
+          const list = appUsages.slice(0, 10).map((u) => `- ${u}`).join("\n");
+          const more =
+            appUsages.length > 10
+              ? `\n- ... and ${appUsages.length - 10} more`
+              : "";
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  "This component bundle uses app-specific hooks/providers (e.g. i18n, auth, routing). Registry components must be pure UI and receive data via props.\n\nDetected app-specific usage:\n" +
+                  list +
+                  more +
+                  "\n\nPlease:\n" +
+                  "1. Wrap these hooks/providers in your own container component inside your app.\n" +
+                  "2. Export a presentational component that only depends on props (texts, callbacks, flags).\n" +
+                  "3. Publish that presentational component instead (no app hooks or Providers inside).",
               },
             ],
             isError: true,
@@ -647,4 +702,42 @@ function findMissingRelativeImports(files: Record<string, string>): string[] {
   }
 
   return Array.from(missing).sort();
+}
+
+const APP_HOOK_PATTERNS = [
+  "useLanguage(",
+  "useI18n(",
+  "useTranslations(",
+  "useAuth(",
+  "useSession(",
+  "useWallet(",
+  "useRouter(",
+  "useSearchParams(",
+  "useQueryClient(",
+  "useQuery(",
+  "useMutation(",
+];
+
+const APP_PROVIDER_PATTERNS = [
+  "LanguageProvider",
+  "I18nProvider",
+  "AuthProvider",
+  "SessionProvider",
+  "WalletProvider",
+  "QueryClientProvider",
+  "RouterProvider",
+];
+
+function findAppSpecificUsage(sources: string[]): string[] {
+  const hits = new Set<string>();
+  for (const src of sources) {
+    if (typeof src !== "string") continue;
+    for (const p of APP_HOOK_PATTERNS) {
+      if (src.includes(p)) hits.add(p.replace("(", ""));
+    }
+    for (const p of APP_PROVIDER_PATTERNS) {
+      if (src.includes(`<${p}`) || src.includes(p + " ")) hits.add(p);
+    }
+  }
+  return Array.from(hits).sort();
 }
