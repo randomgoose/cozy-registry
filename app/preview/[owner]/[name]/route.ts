@@ -8,13 +8,7 @@ import {
 import { getUserIdFromToken } from "@/lib/auth-api";
 import { buildPreviewBundle } from "@/lib/preview-build";
 import { extractDependencies } from "@/lib/validate-tsx";
-
-/** 解析 registryDependencies 项，如 "@owner/name" 或 "@owner/name@1.0.0" */
-function parseRegistryDep(dep: string): { owner: string; name: string; version: string | null } | null {
-  const m = dep.trim().match(/^@([^/@]+)\/([^@]+)(?:@(.+))?$/);
-  if (!m) return null;
-  return { owner: m[1], name: m[2], version: m[3] ?? null };
-}
+import { resolveTransitiveThemeCss } from "@/lib/registry-resolver";
 
 function escapeHtml(s: string): string {
   return s
@@ -228,30 +222,22 @@ export async function GET(
 
   const importMapJson = JSON.stringify({ imports: importMap }, null, 2);
 
-  // 按 SPEC §5.1：先注入依赖的 theme CSS（Tailwind 之后、preview.js 之前）
-  const registryDeps = (item.registryDependencies ?? []) as string[];
-  const seenThemeKey = new Set<string>();
-  const themeCssChunks: string[] = [];
-  for (const dep of registryDeps) {
-    const parsed = parseRegistryDep(dep);
-    if (!parsed) continue;
-    const key = `${parsed.owner}/${parsed.name}`;
-    if (seenThemeKey.has(key)) continue;
-    const depItem = await getRegistryItemByOwnerNameAndVersion(
-      parsed.owner,
-      parsed.name,
-      parsed.version,
-      userId,
-    );
-    if (!depItem || depItem.type !== "registry:theme") continue;
-    seenThemeKey.add(key);
-    const css = getThemeEntryCss(depItem);
-    if (css) themeCssChunks.push(css);
+  // 按 SPEC §5.5：递归解析 registryDependencies，先注入所有 theme CSS（Tailwind 之后、preview.js 之前）
+  let themeStyles = "";
+  try {
+    const { css } = await resolveTransitiveThemeCss({
+      owner,
+      name,
+      version,
+      requestUserId: userId,
+    });
+    if (css && css.trim().length > 0) {
+      themeStyles = `\n    <style>${escapeHtmlCss(css)}</style>`;
+    }
+  } catch {
+    // Theme deps failure should not block preview rendering.
+    themeStyles = "";
   }
-  const themeStyles =
-    themeCssChunks.length > 0
-      ? `\n    <style>${escapeHtmlCss(themeCssChunks.join("\n\n"))}</style>`
-      : "";
   const bundleStyles =
     buildResult.css != null && buildResult.css !== ""
       ? `\n    <style>${escapeHtmlCss(buildResult.css)}</style>`
