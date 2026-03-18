@@ -81,10 +81,19 @@ export async function POST(
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
 
-  await db.insert(registryCollectionItems).values({
-    collectionId: id,
-    itemId: body.itemId,
-  });
+  try {
+    await db.insert(registryCollectionItems).values({
+      collectionId: id,
+      itemId: body.itemId,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to add item";
+    const isUnique = /\bduplicate key\b|\bunique constraint\b|23505/.test(msg);
+    if (isUnique) {
+      return NextResponse.json({ error: "Item already exists in this collection" }, { status: 409 });
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 
   return NextResponse.json({ success: true });
 }

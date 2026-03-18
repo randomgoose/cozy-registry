@@ -3,8 +3,17 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PreviewFrame } from "./PreviewFrame";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 interface ComponentCardProps {
+  itemId: string;
   owner: string;
   name: string;
   title: string;
@@ -13,6 +22,7 @@ interface ComponentCardProps {
 }
 
 export function ComponentCard({
+  itemId,
   owner,
   name,
   title,
@@ -20,6 +30,11 @@ export function ComponentCard({
   type,
 }: ComponentCardProps) {
   const [copied, setCopied] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [collections, setCollections] = useState<Array<{ id: string; title: string; slug: string }>>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string>("");
+  const [adding, setAdding] = useState(false);
 
   async function handleCopy() {
     try {
@@ -32,6 +47,42 @@ export function ComponentCard({
       setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
+    }
+  }
+
+  async function ensureCollectionsLoaded() {
+    if (collectionsLoading) return;
+    if (collections.length > 0) return;
+    setCollectionsLoading(true);
+    try {
+      const res = await fetch("/api/collections", { cache: "no-store" });
+      const data = (await res.json().catch(() => null)) as
+        | { collections?: Array<{ id: string; title: string; slug: string }> }
+        | null;
+      setCollections(Array.isArray(data?.collections) ? data!.collections! : []);
+    } finally {
+      setCollectionsLoading(false);
+    }
+  }
+
+  async function addToCollection() {
+    if (!selectedCollectionId || adding) return;
+    setAdding(true);
+    try {
+      const res = await fetch(`/api/collections/${selectedCollectionId}/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId }),
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null;
+        alert(err?.error ?? "Failed to add to collection");
+        return;
+      }
+      setAddOpen(false);
+      setSelectedCollectionId("");
+    } finally {
+      setAdding(false);
     }
   }
 
@@ -57,14 +108,68 @@ export function ComponentCard({
             {description || "—"}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="lg"
-          className="shrink-0"
-          onClick={handleCopy}
-        >
-          {copied ? "已复制" : "复制代码"}
-        </Button>
+        <div className="flex shrink-0 flex-col gap-2">
+          <Button
+            variant="outline"
+            size="lg"
+            className="shrink-0"
+            onClick={handleCopy}
+          >
+            {copied ? "已复制" : "复制代码"}
+          </Button>
+
+          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <DialogTrigger
+              onClick={() => {
+                void ensureCollectionsLoaded();
+              }}
+              render={
+                <Button variant="outline" size="lg" className="shrink-0" />
+              }
+            >
+              加入 Collection
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>加入 Collection</DialogTitle>
+              </DialogHeader>
+
+              {collectionsLoading ? (
+                <p className="text-sm text-zinc-500">加载中...</p>
+              ) : collections.length === 0 ? (
+                <p className="text-sm text-zinc-500">你还没有 Collections（先去 Collections 页面创建）</p>
+              ) : (
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    选择一个 Collection
+                  </label>
+                  <select
+                    value={selectedCollectionId}
+                    onChange={(e) => setSelectedCollectionId(e.target.value)}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                  >
+                    <option value="">请选择…</option>
+                    {collections.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title} ({c.slug})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button
+                  variant="default"
+                  disabled={!selectedCollectionId || adding || collectionsLoading || collections.length === 0}
+                  onClick={addToCollection}
+                >
+                  {adding ? "加入中..." : "加入"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
       <a
         href={`/registry/${owner}/${name}`}

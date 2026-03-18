@@ -27,7 +27,7 @@ type CollectionItem = {
   addedAt: string;
 };
 
-export function CollectionsPanel(props: { items: ItemSummary[] }) {
+export function CollectionsPanel(props: { items: ItemSummary[]; className?: string }) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -134,7 +134,7 @@ export function CollectionsPanel(props: { items: ItemSummary[] }) {
   }
 
   return (
-    <section className="mt-12">
+    <section className={props.className ?? ""}>
       <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
         Collections
       </h2>
@@ -169,21 +169,21 @@ export function CollectionsPanel(props: { items: ItemSummary[] }) {
       ) : collections.length === 0 ? (
         <p className="mt-4 text-sm text-zinc-500">暂无 Collections</p>
       ) : (
-        <div className="mt-4 grid gap-4 lg:grid-cols-[320px_1fr]">
+        <div className="mt-4 grid gap-4">
           <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
             <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
               我的 Collections
             </div>
-            <div className="mt-2 space-y-1">
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {collections.map((c) => (
                 <button
                   key={c.id}
                   type="button"
                   onClick={() => setSelectedId(c.id)}
-                  className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                  className={`w-full rounded-xl border px-3 py-3 text-left text-sm transition-colors ${
                     selectedId === c.id
-                      ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
-                      : "hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                      ? "border-zinc-300 bg-zinc-100 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                      : "border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/60"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -209,7 +209,7 @@ export function CollectionsPanel(props: { items: ItemSummary[] }) {
                   <select
                     value={addItemId}
                     onChange={(e) => setAddItemId(e.target.value)}
-                    className="min-w-[260px] rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                    className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
                   >
                     <option value="">选择要添加的条目…</option>
                     {availableToAdd.map((i) => (
@@ -237,7 +237,7 @@ export function CollectionsPanel(props: { items: ItemSummary[] }) {
                   ) : collectionItems.length === 0 ? (
                     <p className="mt-2 text-sm text-zinc-500">暂无条目</p>
                   ) : (
-                    <ul className="mt-2 space-y-2">
+                    <ul className="mt-2 max-h-[45vh] space-y-2 overflow-auto pr-1">
                       {collectionItems.map((it) => (
                         <li
                           key={it.itemId}

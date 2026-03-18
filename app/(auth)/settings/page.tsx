@@ -145,123 +145,100 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
-      <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
-            >
-              ← 返回
-            </Link>
-            <Link
-              href="/dashboard"
-              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-            >
-              我的组件
-            </Link>
-          </div>
-          <span className="text-sm text-zinc-600 dark:text-zinc-400">
-            {session.user?.email}
-          </span>
-        </div>
-      </header>
+    <>
+      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+        设置
+      </h1>
 
-      <main className="mx-auto max-w-3xl px-6 py-10">
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-          设置
-        </h1>
+      <section className="mt-8">
+        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+          API Token（用于 Figma Make）
+        </h2>
+        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+          创建 Token 后，在 Figma Make Connector 的 Additional headers 中添加：<br />
+          <code className="mt-1 block rounded bg-zinc-100 px-2 py-1 font-mono text-xs dark:bg-zinc-800">
+            Authorization: Bearer &lt;你的Token&gt;
+          </code>
+        </p>
 
-        <section className="mt-8">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-            API Token（用于 Figma Make）
-          </h2>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-            创建 Token 后，在 Figma Make Connector 的 Additional headers 中添加：<br />
-            <code className="mt-1 block rounded bg-zinc-100 px-2 py-1 font-mono text-xs dark:bg-zinc-800">
-              Authorization: Bearer &lt;你的Token&gt;
+        {newKey && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+              新 Token 已创建，请立即复制保存（只显示一次）：
+            </p>
+            <code className="mt-2 block break-all rounded bg-amber-100 px-2 py-2 font-mono text-sm dark:bg-amber-900/50">
+              {newKey}
             </code>
-          </p>
-
-          {newKey && (
-            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                新 Token 已创建，请立即复制保存（只显示一次）：
-              </p>
-              <code className="mt-2 block break-all rounded bg-amber-100 px-2 py-2 font-mono text-sm dark:bg-amber-900/50">
-                {newKey}
-              </code>
-              <button
-                type="button"
-                onClick={() => setNewKey(null)}
-                className="mt-2 text-sm text-amber-700 hover:underline dark:text-amber-300"
-              >
-                已保存，关闭
-              </button>
-            </div>
-          )}
-
-          <form onSubmit={handleCreateKey} className="mt-4 flex gap-2">
-            <input
-              type="text"
-              value={newKeyName}
-              onChange={(e) => setNewKeyName(e.target.value)}
-              placeholder="Token 名称，如 Figma Make"
-              className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-            />
             <button
-              type="submit"
-              disabled={creating}
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              type="button"
+              onClick={() => setNewKey(null)}
+              className="mt-2 text-sm text-amber-700 hover:underline dark:text-amber-300"
             >
-              {creating ? "创建中..." : "创建"}
+              已保存，关闭
             </button>
-          </form>
+          </div>
+        )}
 
-          {loading ? (
-            <p className="mt-4 text-sm text-zinc-500">加载中...</p>
-          ) : apiKeys.length > 0 ? (
-            <ul className="mt-4 space-y-2">
-              {apiKeys.map((key) => (
-                <li
-                  key={key.id}
-                  className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800"
-                >
-                  <div>
-                    <span className="font-medium">{key.name || "未命名"}</span>
-                    {key.start && (
-                      <span className="ml-2 font-mono text-xs text-zinc-500">
-                        {key.start}...
-                      </span>
-                    )}
-                    <div className="mt-1 text-xs text-zinc-500">
-                      可用范围：可配置 Collections / 类型，用于限制 AI 能看到与使用的资源
-                    </div>
+        <form onSubmit={handleCreateKey} className="mt-4 flex gap-2">
+          <input
+            type="text"
+            value={newKeyName}
+            onChange={(e) => setNewKeyName(e.target.value)}
+            placeholder="Token 名称，如 Figma Make"
+            className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+          />
+          <button
+            type="submit"
+            disabled={creating}
+            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          >
+            {creating ? "创建中..." : "创建"}
+          </button>
+        </form>
+
+        {loading ? (
+          <p className="mt-4 text-sm text-zinc-500">加载中...</p>
+        ) : apiKeys.length > 0 ? (
+          <ul className="mt-4 space-y-2">
+            {apiKeys.map((key) => (
+              <li
+                key={key.id}
+                className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800"
+              >
+                <div>
+                  <span className="font-medium">{key.name || "未命名"}</span>
+                  {key.start && (
+                    <span className="ml-2 font-mono text-xs text-zinc-500">
+                      {key.start}...
+                    </span>
+                  )}
+                  <div className="mt-1 text-xs text-zinc-500">
+                    可用范围：可配置 Collections / 类型，用于限制 AI 能看到与使用的资源
                   </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => openPolicy(key.id)}
-                      className="text-sm text-zinc-700 hover:underline dark:text-zinc-300"
-                    >
-                      配置范围
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteKey(key.id)}
-                      className="text-sm text-red-600 hover:underline dark:text-red-400"
-                    >
-                      删除
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-4 text-sm text-zinc-500">暂无 Token</p>
-          )}
-        </section>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => openPolicy(key.id)}
+                    className="text-sm text-zinc-700 hover:underline dark:text-zinc-300"
+                  >
+                    配置范围
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteKey(key.id)}
+                    className="text-sm text-red-600 hover:underline dark:text-red-400"
+                  >
+                    删除
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-4 text-sm text-zinc-500">暂无 Token</p>
+        )}
+      </section>
 
         {policyKeyId && (
           <div className="mt-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -374,19 +351,18 @@ export default function SettingsPage() {
           </div>
         )}
 
-        <div className="mt-8">
-          <button
-            type="button"
-            onClick={async () => {
-              await authClient.signOut();
-              window.location.href = "/";
-            }}
-            className="text-sm text-zinc-600 hover:underline dark:text-zinc-400"
-          >
-            退出登录
-          </button>
-        </div>
-      </main>
-    </div>
+      <div className="mt-8">
+        <button
+          type="button"
+          onClick={async () => {
+            await authClient.signOut();
+            window.location.href = "/";
+          }}
+          className="text-sm text-zinc-600 hover:underline dark:text-zinc-400"
+        >
+          退出登录
+        </button>
+      </div>
+    </>
   );
 }

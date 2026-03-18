@@ -149,6 +149,7 @@ export default async function Home() {
             {items.map((item) => (
               <ComponentCard
                 key={item.id}
+                itemId={item.id}
                 owner={item.ownerHandle ?? item.userId ?? "legacy"}
                 name={item.name}
                 title={item.title}

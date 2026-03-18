@@ -134,4 +134,3 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
-

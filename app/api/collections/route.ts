@@ -45,18 +45,42 @@ export async function POST(request: Request) {
 
   const visibility = body.visibility === "public" ? "public" : "private";
 
-  const [created] = await db
-    .insert(registryCollections)
-    .values({
-      ownerUserId: userId,
-      slug: body.slug,
-      title: body.title,
-      description: body.description ?? null,
-      visibility,
-    })
-    .returning();
+  try {
+    const [created] = await db
+      .insert(registryCollections)
+      .values({
+        ownerUserId: userId,
+        slug: body.slug,
+        title: body.title,
+        description: body.description ?? null,
+        visibility,
+      })
+      .returning();
 
-  return NextResponse.json({ collection: created });
+    return NextResponse.json({ collection: created });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to create collection";
+    // Postgres unique violation (owner_user_id, slug)
+    const isUnique = /\bduplicate key\b|\bunique constraint\b|23505/.test(msg);
+    if (isUnique) {
+      return NextResponse.json(
+        { error: "Collection slug already exists" },
+        { status: 409 },
+      );
+    }
+    // Common when migrations haven't been applied
+    const isMissingTable = /\brelation\b.*\bdoes not exist\b/i.test(msg);
+    if (isMissingTable) {
+      return NextResponse.json(
+        {
+          error:
+            "Database schema is missing. Run migrations (e.g. pnpm db:push) against this environment's database.",
+        },
+        { status: 500 },
+      );
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
 
 export async function GET(request: Request) {
