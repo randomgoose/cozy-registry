@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import path from "path";
+import { and, eq } from "drizzle-orm";
 import {
   getRegistryItemsScoped,
   getRegistryItemByName,
@@ -17,6 +18,9 @@ import { validateTsx, extractDependencies } from "./validate-tsx";
 import { getAuthContextFromToken } from "./auth-api";
 import { resolveOwner } from "./owner";
 import { getRegistryPolicyForApiKey } from "./registry-policy";
+import { db } from "./db";
+import { registryCollections } from "./db/schema";
+import type { RegistryPolicy } from "./registry-policy";
 
 export function createRegistryMcpServer(request?: Request) {
   const server = new McpServer({
@@ -24,16 +28,94 @@ export function createRegistryMcpServer(request?: Request) {
     version: "1.0.0",
   });
 
+  async function getAdhocPolicyForCollectionSlug(collectionSlug: string, requestUserId: string) {
+    const [row] = await db
+      .select({ id: registryCollections.id })
+      .from(registryCollections)
+      .where(and(eq(registryCollections.ownerUserId, requestUserId), eq(registryCollections.slug, collectionSlug)))
+      .limit(1);
+    if (!row?.id) return null;
+
+    const policy: RegistryPolicy = {
+      apiKeyId: "__adhoc__",
+      ownerUserId: requestUserId,
+      allowedCollectionIds: [row.id],
+      allowedTypes: [],
+      allowedOwnerHandlesOrIds: [],
+      allowPublicOutsideCollections: false,
+    };
+    return policy;
+  }
+
+  server.registerTool(
+    "list_collections",
+    {
+      title: "List collections",
+      description:
+        "List your Collections (slug + title). Use this to decide a scope like 'dashboard-blocks' before listing or fetching components within that collection.",
+      inputSchema: z.object({}).describe("No input required"),
+    },
+    async () => {
+      const ctx = request ? await getAuthContextFromToken(request) : null;
+      const userId = ctx?.userId ?? null;
+      if (!userId) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Authentication required. Add Authorization: Bearer <token>.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const rows = await db
+        .select({
+          id: registryCollections.id,
+          slug: registryCollections.slug,
+          title: registryCollections.title,
+          visibility: registryCollections.visibility,
+        })
+        .from(registryCollections)
+        .where(eq(registryCollections.ownerUserId, userId))
+        .orderBy(registryCollections.slug);
+
+      const lines = rows.map((c) => `- **${c.slug}**: ${c.title} (${c.visibility})`).join("\n");
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: rows.length ? `Your collections (${rows.length}):\n\n${lines}` : "You have no collections yet.",
+          },
+        ],
+      };
+    },
+  );
 
   server.registerTool("list_components", {
     title: "List components",
     description: "List all components and modules available in the registry. Use this to discover what's available before fetching a specific component. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>.",
-    inputSchema: z.object({}).describe("No input required"),
-  }, async () => {
+    inputSchema: z
+      .object({
+        collection: z
+          .string()
+          .optional()
+          .describe(
+            "Optional collection slug to scope results (e.g. dashboard-blocks). This is an ad-hoc scope for this call (not token policy).",
+          ),
+      })
+      .describe("Optional collection scope"),
+  }, async ({ collection }) => {
     const ctx = request ? await getAuthContextFromToken(request) : null;
-    const policy = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
+    const userId = ctx?.userId ?? null;
+    const policyFromToken = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
+    const policy =
+      collection && userId
+        ? await getAdhocPolicyForCollectionSlug(collection, userId)
+        : policyFromToken;
     const items = await getRegistryItemsScoped({
-      requestUserId: ctx?.userId ?? null,
+      requestUserId: userId,
       policy,
     });
     const summary = items
@@ -196,6 +278,144 @@ ${fileContent}
           isError: true,
         };
       }
+    },
+  );
+
+  // Scoped variant: force the component to be in a specific collection (by slug)
+  server.registerTool(
+    "get_component_in_collection",
+    {
+      title: "Get component (scoped to collection)",
+      description:
+        "Get a specific component, but ONLY if it belongs to the given collection slug. Use this when you want to build a page using only components from a certain collection (e.g. dashboard-blocks).",
+      inputSchema: z.object({
+        collection: z.string().describe("Collection slug, e.g. dashboard-blocks"),
+        name: z.string().describe("Component name, e.g. hero-section, faq"),
+        owner: z
+          .string()
+          .optional()
+          .describe("Owner handle (preferred) or legacy userId (from list_components)."),
+      }),
+    },
+    async ({ collection, name, owner }) => {
+      const ctx = request ? await getAuthContextFromToken(request) : null;
+      const userId = ctx?.userId ?? null;
+      if (!userId) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Authentication required. Add Authorization: Bearer <token>.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const adhoc = await getAdhocPolicyForCollectionSlug(collection, userId);
+      if (!adhoc) {
+        return {
+          content: [{ type: "text" as const, text: `Collection "${collection}" not found.` }],
+          isError: true,
+        };
+      }
+
+      const item = owner
+        ? await getRegistryItemByOwnerNameAndVersionScoped({
+            ownerId: owner,
+            name,
+            version: null,
+            requestUserId: userId,
+            policy: adhoc,
+          })
+        : await getRegistryItemByOwnerNameAndVersionScoped({
+            ownerId: userId,
+            name,
+            version: null,
+            requestUserId: userId,
+            policy: adhoc,
+          });
+
+      if (!item) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Component "${name}" not found in collection "${collection}" (or not allowed).`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Reuse existing get_component rendering by delegating to the same conversion logic
+      const canonicalOwner =
+        (await resolveOwner(item.userId ?? owner ?? "legacy"))?.handle ??
+        item.userId ??
+        owner ??
+        "legacy";
+      const currentVersion = getCurrentVersion(item);
+      const resolvedForVersions = item.userId ? await resolveOwner(item.userId) : null;
+      const versions = await getRegistryItemVersions(
+        resolvedForVersions?.userId ?? item.userId ?? "legacy",
+        name,
+        userId,
+      );
+      const latestVersion = versions[0]?.version ?? currentVersion;
+
+      const shadcnItem = toShadcnRegistryItem(item);
+      const mainFile = shadcnItem?.files?.[0];
+      const rawFileContent = mainFile?.content ?? "";
+      const installVersion = latestVersion || currentVersion;
+      const headerComment = `// cozy-registry: @${canonicalOwner}/${item.name} v${installVersion}\n`;
+      const isCodeFile = mainFile
+        ? [".tsx", ".ts", ".jsx", ".js"].some((ext) =>
+            mainFile.path.toLowerCase().endsWith(ext),
+          )
+        : false;
+      const fileContent =
+        isCodeFile && !rawFileContent.startsWith("// cozy-registry:")
+          ? `${headerComment}${rawFileContent}`
+          : rawFileContent;
+
+      const lockEntry = {
+        name: item.name,
+        owner: canonicalOwner,
+        version: installVersion,
+        type: item.type,
+      };
+      const lockSnippet = JSON.stringify(
+        { components: { [`@${canonicalOwner}/${item.name}`]: lockEntry } },
+        null,
+        2,
+      );
+
+      const headerLines = [
+        `## ${item.title} (@${canonicalOwner}/${item.name})`,
+        "",
+        item.description || "",
+        "",
+        `- Current version: v${currentVersion}`,
+        `- Latest available: v${latestVersion}`,
+        `- Scoped to collection: ${collection}`,
+        "",
+      ];
+
+      const text = `${headerLines.join("\n")}### Usage
+Import and use in your React component. Props are defined in the interface.
+
+### Suggested lockfile entry
+\`\`\`json
+${lockSnippet}
+\`\`\`
+
+### Source code
+\`\`\`tsx
+${fileContent}
+\`\`\`
+`;
+
+      return { content: [{ type: "text" as const, text }] };
     },
   );
 

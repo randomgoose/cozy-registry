@@ -128,3 +128,29 @@ export async function PUT(
   return NextResponse.json({ policy: created });
 }
 
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const userId = await requireUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+  const { id } = await params;
+
+  const [keyRow] = await db
+    .select({ id: apiKey.id, referenceId: apiKey.referenceId })
+    .from(apiKey)
+    .where(eq(apiKey.id, id))
+    .limit(1);
+  if (!keyRow || keyRow.referenceId !== userId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  await db
+    .delete(registryApiKeyPolicies)
+    .where(and(eq(registryApiKeyPolicies.apiKeyId, id), eq(registryApiKeyPolicies.ownerUserId, userId)));
+
+  return NextResponse.json({ policy: null });
+}
+

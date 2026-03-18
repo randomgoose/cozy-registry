@@ -10,8 +10,98 @@ export default function PublishPage() {
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [content, setContent] = useState("");
+  const [tokensJson, setTokensJson] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [error, setError] = useState("");
+
+  function convertTokensJsonToCss(raw: string): string {
+    let data: unknown;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      throw new Error("Tokens JSON 解析失败，请检查格式是否为合法 JSON");
+    }
+
+    // Detect Figma variables vs W3C-ish tokens
+    const obj = data as any;
+    const tokens: { path: string[]; value: string; type?: string }[] = [];
+
+    // W3C style: nested { token: { value, type } }
+    function walkW3C(node: any, path: string[]) {
+      if (!node || typeof node !== "object") return;
+      const hasValue = Object.prototype.hasOwnProperty.call(node, "value");
+      const hasType = Object.prototype.hasOwnProperty.call(node, "type");
+      if (hasValue && (typeof node.value === "string" || typeof node.value === "number")) {
+        tokens.push({
+          path,
+          value: String(node.value),
+          type: hasType ? String(node.type) : undefined,
+        });
+        return;
+      }
+      for (const key of Object.keys(node)) {
+        walkW3C(node[key], [...path, key]);
+      }
+    }
+
+    // Figma variables: prefer variables + modes
+    function collectFromFigma(node: any) {
+      if (!node || typeof node !== "object") return false;
+      const variables = node.variables;
+      const modes = node.modes;
+      if (!variables || !modes || typeof variables !== "object") return false;
+
+      // Pick first mode as default
+      const modeIds: string[] = Array.isArray(modes)
+        ? modes.map((m: any) => String(m.modeId ?? m.id)).filter(Boolean)
+        : Object.keys(modes);
+      const defaultMode = modeIds[0];
+      if (!defaultMode) return false;
+
+      for (const varId of Object.keys(variables)) {
+        const v = variables[varId];
+        if (!v) continue;
+        const name: string = v.name ?? v.key ?? varId;
+        let value: any;
+        const valuesByMode = v.valuesByMode ?? v.resolvedValuesByMode;
+        if (valuesByMode && typeof valuesByMode === "object") {
+          value = valuesByMode[defaultMode] ?? Object.values(valuesByMode)[0];
+        }
+        if (value == null) continue;
+        tokens.push({
+          path: name.split(/[\/.]/g).filter(Boolean),
+          value: typeof value === "string" ? value : JSON.stringify(value),
+          type: v.type ? String(v.type) : undefined,
+        });
+      }
+      return tokens.length > 0;
+    }
+
+    const isFigma = collectFromFigma(obj);
+    if (!isFigma) {
+      walkW3C(obj, []);
+    }
+
+    if (tokens.length === 0) {
+      throw new Error("未能从 JSON 中解析出任何 tokens（既不像 W3C Design Tokens，也不像 Figma Variables 导出）");
+    }
+
+    const lines: string[] = [];
+    lines.push(":root {");
+    for (const t of tokens) {
+      const safePath = t.path.length ? t.path : ["token"];
+      const varName =
+        "--" +
+        safePath
+          .join("-")
+          .replace(/[^a-zA-Z0-9-_]/g, "-")
+          .replace(/--+/g, "-")
+          .toLowerCase();
+      lines.push(`  ${varName}: ${t.value};`);
+    }
+    lines.push("}");
+    return lines.join("\n");
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -19,17 +109,29 @@ export default function PublishPage() {
     setError("");
 
     try {
+      let body: any = {
+        name,
+        type,
+        title,
+        description: description || null,
+        visibility,
+      };
+
+      if (type === "registry:theme" && tokensJson.trim()) {
+        // 从 tokens JSON 生成 CSS，并以多文件 bundle 形式提交（theme.css + tokens.json）
+        const css = convertTokensJsonToCss(tokensJson);
+        body.files = {
+          "theme.css": css,
+          "tokens.json": tokensJson,
+        } as Record<string, string>;
+      } else {
+        body.content = content;
+      }
+
       const res = await fetch("/api/registry/items", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          type,
-          title,
-          description: description || null,
-          content,
-          visibility,
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -216,6 +318,33 @@ export function MyComponent({ title }: { title: string }) {
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-zinc-50 font-mono text-sm text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
             />
           </div>
+
+          {type === "registry:theme" && (
+            <div>
+              <label
+                htmlFor="tokens-json"
+                className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              >
+                可选：从 Tokens JSON 生成（Figma Variables / W3C Design Tokens）
+              </label>
+              <textarea
+                id="tokens-json"
+                value={tokensJson}
+                onChange={(e) => setTokensJson(e.target.value)}
+                placeholder={`{
+  "color": {
+    "primary": { "value": "#2563eb", "type": "color" }
+  }
+}
+// 或粘贴 Figma Variables 导出的 JSON`}
+                rows={10}
+                className="mt-1 block w-full rounded-lg border border-zinc-300 bg-zinc-50 font-mono text-xs text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                若填写此项，将自动从 JSON 生成 <code>theme.css</code> 和 <code>tokens.json</code> 一并发布；无需手写 CSS。
+              </p>
+            </div>
+          )}
 
           {error && (
             <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">

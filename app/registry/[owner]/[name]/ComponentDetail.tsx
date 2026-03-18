@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { PropField } from "@/lib/validate-tsx";
+import { ThemeTokensTable } from "./ThemeTokensTable";
 
 interface VersionInfo {
   version: string;
@@ -317,6 +318,8 @@ export function ComponentDetail({
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-8">
+        {type === "registry:theme" && <ThemeTokensTable files={files} />}
+
         {files.length > 0 && (
           <section className="mb-8">
             <h2 className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
@@ -363,7 +366,7 @@ export function ComponentDetail({
           </section>
         )}
 
-        {propsFromCode.length > 0 && (
+        {propsFromCode.length > 0 && type !== "registry:theme" && (
           <section className="mb-8">
             <h2 className="mb-3 text-sm font-medium text-zinc-500 dark:text-zinc-400">
               Props

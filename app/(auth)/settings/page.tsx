@@ -97,6 +97,25 @@ export default function SettingsPage() {
     }
   }
 
+  async function clearPolicy() {
+    if (!policyKeyId) return;
+    if (!confirm("清除该 Token 的范围限制？清除后将恢复为默认：可访问你有权限访问的所有资源。")) return;
+    setPolicySaving(true);
+    try {
+      const res = await fetch(`/api/apikeys/${policyKeyId}/policy`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null;
+        alert(err?.error ?? "Failed to clear policy");
+        return;
+      }
+      // Reset UI to "unrestricted"
+      setPolicy(null);
+      setPolicyKeyId(null);
+    } finally {
+      setPolicySaving(false);
+    }
+  }
+
   async function handleCreateKey(e: React.FormEvent) {
     e.preventDefault();
     if (!newKeyName.trim()) return;
@@ -341,6 +360,14 @@ export default function SettingsPage() {
                     className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
                   >
                     {policySaving ? "保存中..." : "保存"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={policySaving}
+                    onClick={clearPolicy}
+                    className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800/60"
+                  >
+                    清除限制
                   </button>
                   <span className="text-xs text-zinc-500">
                     提示：MCP / AI 使用该 Token 时会被强制限制在这里配置的范围内。
