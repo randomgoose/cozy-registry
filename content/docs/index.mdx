@@ -1,0 +1,42 @@
+---
+title: Cozy Registry Docs
+description: Connect Figma Make, Cursor, and other AI tools to Cozy Registry.
+---
+
+# Cozy Registry Docs
+
+Cozy Registry is an AI-native registry for Web development.
+
+It helps designers and AI tools:
+
+- publish `block`, `component`, and `theme` assets
+- retrieve source bundles through MCP
+- generate install and upgrade plans
+- keep project install state in `cozy-registry.lock.json`
+
+## Start Here
+
+- [Connect Figma Make](/docs/connecting-figma-make)
+- [Connect Cursor](/docs/connecting-cursor)
+- [Install and Upgrade](/docs/install-and-upgrade)
+- [Prompt Library](/docs/prompt-library)
+
+## Recommended Workflow
+
+For most AI clients, the safest flow is:
+
+1. Use `get_component_bundle`
+2. Use `plan_component_install` or `plan_component_upgrade`
+3. Only execute `install_component_bundle` or `upgrade_component_in_project` when a real writable project root is available
+
+## Core MCP Tools
+
+| Tool | Purpose |
+| --- | --- |
+| `list_components` | Discover available registry items |
+| `get_component_bundle` | Fetch the complete source bundle for a block or component |
+| `plan_component_install` | Generate install paths and a lockfile entry without writing files |
+| `get_project_registry_status` | Read current install state from a local project |
+| `plan_component_upgrade` | Generate an upgrade plan before writing files |
+| `install_component_bundle` | Write files and update `cozy-registry.lock.json` in a local project |
+| `upgrade_component_in_project` | Upgrade an installed item in a local project |

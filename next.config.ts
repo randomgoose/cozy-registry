@@ -1,6 +1,10 @@
-import type { NextConfig } from "next";
+import nextra from "nextra";
 
-const nextConfig: NextConfig = {
+const withNextra = nextra({
+  contentDirBasePath: "/docs",
+});
+
+const nextConfig = {
   async rewrites() {
     return [
       { source: "/.well-known/oauth-protected-resource", destination: "/api/well-known/oauth-protected-resource" },
@@ -10,4 +14,4 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["esbuild"],
 };
 
-export default nextConfig;
+export default withNextra(nextConfig);

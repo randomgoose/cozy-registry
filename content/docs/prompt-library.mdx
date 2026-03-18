@@ -1,0 +1,47 @@
+---
+title: Prompt Library
+description: Reusable prompts for Figma Make, Cursor, and generic MCP clients.
+---
+
+# Prompt Library
+
+## Figma Make
+
+```text
+Use Cozy Registry to install or upgrade components safely.
+
+Rules:
+1. Prefer get_component_bundle for source retrieval.
+2. Use plan_component_install before install.
+3. Use get_project_registry_status before plan_component_upgrade.
+4. Use plan_component_upgrade before upgrade_component_in_project.
+5. Do not call install_component_bundle or upgrade_component_in_project unless a real writable project root is available.
+6. Never use "/" as projectRoot.
+7. Summarize the result with coordinate, version, targetDir, installedFiles, and lockfile change.
+```
+
+## Cursor
+
+```text
+Use Cozy Registry as the source of truth for this component workflow.
+
+Workflow:
+1. Read the bundle with get_component_bundle.
+2. If this is a new install, run plan_component_install first.
+3. If this project already has Cozy Registry items, run get_project_registry_status first.
+4. Before any upgrade, run plan_component_upgrade.
+5. Only after the plan is clear, execute install_component_bundle or upgrade_component_in_project.
+6. Keep cozy-registry.lock.json updated.
+```
+
+## Generic MCP Client
+
+```text
+Connect to Cozy Registry via MCP.
+
+Prefer this order:
+1. list_components
+2. get_component_bundle
+3. plan_component_install or plan_component_upgrade
+4. Only execute install/upgrade when the environment has a real writable project root.
+```

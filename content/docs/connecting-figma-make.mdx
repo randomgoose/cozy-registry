@@ -1,0 +1,60 @@
+---
+title: Connect Figma Make
+description: Set up Cozy Registry as a custom MCP connector in Figma Make.
+---
+
+# Connect Figma Make
+
+Figma Make can connect to Cozy Registry through a custom MCP connector.
+
+## Requirements
+
+- A deployed Cozy Registry instance over HTTPS
+- A paid Figma plan with Make access
+
+## Connector Setup
+
+1. Open **Add context**
+2. Open **Connectors**
+3. Create a custom MCP connector
+4. Set the MCP server URL to:
+
+```text
+https://<your-domain>/api/mcp
+```
+
+## Authentication
+
+### Recommended: OAuth 2.0
+
+- Authentication: `OAuth 2.0`
+- Client ID: `cozy-figma-make`
+
+After clicking **Connect**, Figma Make should redirect to Cozy Registry for sign-in and authorization.
+
+### Alternative: Custom request headers
+
+If needed, you can use:
+
+```text
+Authorization: Bearer <token>
+```
+
+## Recommended Tool Flow in Figma Make
+
+Use these tools in order:
+
+1. `get_component_bundle`
+2. `plan_component_install`
+3. `get_project_registry_status` when project state is available
+4. `plan_component_upgrade` before upgrades
+
+Use `install_component_bundle` only when the environment has a real writable project root.
+
+## Important Limitation
+
+Figma Make does not always have a usable local filesystem context.
+
+If the AI passes `projectRoot: "/"`, it means the environment does not actually have access to the target project.
+
+In that case, stay on the `plan_*` workflow and let a local tool execute the install later.

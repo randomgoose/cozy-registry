@@ -1,0 +1,75 @@
+---
+title: Install and Upgrade
+description: Recommended install and upgrade workflow for Cozy Registry items.
+---
+
+# Install and Upgrade
+
+Cozy Registry supports two layers of workflow:
+
+- **planning**
+- **execution**
+
+## Install
+
+### Plan First
+
+Use:
+
+- `get_component_bundle`
+- `plan_component_install`
+
+This gives you:
+
+- target version
+- target directory
+- installed file list
+- lockfile entry
+
+### Execute When Filesystem Access Exists
+
+Use:
+
+- `install_component_bundle`
+
+This will:
+
+- write files into the project
+- create or update `cozy-registry.lock.json`
+
+## Upgrade
+
+### Read Current Project State
+
+Use:
+
+- `get_project_registry_status`
+
+### Plan the Upgrade
+
+Use:
+
+- `plan_component_upgrade`
+
+This gives you:
+
+- current version
+- target version
+- next lockfile entry
+- whether the lockfile would change
+
+### Execute the Upgrade
+
+Use:
+
+- `upgrade_component_in_project`
+
+## Source of Truth
+
+The source of truth for installed Cozy Registry items is:
+
+```text
+cozy-registry.lock.json
+```
+
+If an AI can read or write files but does not update this lockfile, the install workflow is incomplete.

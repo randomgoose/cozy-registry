@@ -1,0 +1,27 @@
+---
+title: Connect Cursor
+description: Use Cozy Registry MCP inside Cursor with local project context.
+---
+
+# Connect Cursor
+
+Cursor is a strong fit for Cozy Registry because it usually has access to your local project files.
+
+## Recommended Flow
+
+1. Read the source bundle with `get_component_bundle`
+2. Generate an install plan with `plan_component_install`
+3. If the project already uses Cozy Registry, read state with `get_project_registry_status`
+4. Before any upgrade, generate a plan with `plan_component_upgrade`
+5. Execute `install_component_bundle` or `upgrade_component_in_project`
+
+## Why Cursor Works Well
+
+Unlike a remote AI environment, Cursor can often:
+
+- read the project directory
+- write source files
+- update `cozy-registry.lock.json`
+- detect local install state before upgrades
+
+That makes it suitable for both planning and execution.
