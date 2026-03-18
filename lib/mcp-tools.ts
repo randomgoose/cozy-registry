@@ -702,6 +702,141 @@ ${fileContent}
   );
 
   server.registerTool(
+    "plan_component_install",
+    {
+      title: "Plan component install",
+      description:
+        "Plan how a Cozy registry item should be installed without writing to the local filesystem. Use this in remote AI environments like Figma Make when you need the target paths, lockfile entry, and whether the item appears already installed based on an optional project status snapshot.",
+      inputSchema: z.object({
+        name: z.string().describe("Component name in kebab-case, e.g. hero-section"),
+        owner: z
+          .string()
+          .describe("Owner handle (preferred) or legacy userId."),
+        version: z
+          .string()
+          .optional()
+          .describe("Optional target version. Defaults to the current latest version."),
+        projectStatus: z
+          .object({
+            lockfileExists: z.boolean().optional(),
+            items: z
+              .array(
+                z.object({
+                  coordinate: z.string(),
+                  type: z.string().optional(),
+                  version: z.string().optional(),
+                  source: z.string().optional(),
+                  installedFiles: z.array(z.string()).optional(),
+                }),
+              )
+              .optional(),
+          })
+          .optional()
+          .describe(
+            "Optional install-state snapshot, usually from get_project_registry_status, used only to determine whether this would be a first install or a lockfile update.",
+          ),
+      }),
+    },
+    async ({ name, owner, version, projectStatus }) => {
+      try {
+        const { userId, policy } = await getScopedToolContext();
+        const item = await getRegistryItemByOwnerNameAndVersionScoped({
+          ownerId: owner,
+          name,
+          version: version ?? null,
+          requestUserId: userId,
+          policy,
+        });
+
+        if (!item) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Component @${owner}/${name}${version ? `@${version}` : ""} not found (or not allowed by your token scope).`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const canonicalOwner = await getCanonicalOwner(item.userId ?? owner);
+        const selectedVersion = version?.trim() || getCurrentVersion(item);
+        const shadcnItem = toShadcnRegistryItem(item);
+        const baseUrl =
+          process.env.NEXT_PUBLIC_APP_URL ??
+          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+        const coordinate = `@${canonicalOwner}/${item.name}` as RegistryCoordinate;
+        const installedFiles = (shadcnItem?.files ?? []).map(
+          (file) => `src/registry/${canonicalOwner}/${item.name}/${file.path}`,
+        );
+        const existingItem =
+          projectStatus?.items?.find((entry) => entry.coordinate === coordinate) ?? null;
+        const alreadyInstalled = !!existingItem;
+        const registeredVersion = existingItem?.version ?? null;
+        const installMode = !alreadyInstalled
+          ? "first_install"
+          : registeredVersion === selectedVersion
+            ? "already_installed_same_version"
+            : "update_lockfile_entry";
+        const wouldUpdateLockfile =
+          !alreadyInstalled || registeredVersion !== selectedVersion;
+
+        const payload = {
+          ok: true,
+          action: "plan_install",
+          coordinate,
+          type: item.type,
+          version: selectedVersion,
+          installMode,
+          source: baseUrl
+            ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`
+            : `/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`,
+          targetDir: `src/registry/${canonicalOwner}/${item.name}`,
+          installedFiles,
+          files: shadcnItem?.files ?? [],
+          lockfileEntry: buildLockfileEntry({
+            owner: canonicalOwner,
+            name: item.name,
+            type: item.type,
+            version: selectedVersion,
+            baseUrl,
+            files: shadcnItem?.files,
+          }),
+          lockfileCheck: {
+            providedStatus: !!projectStatus,
+            lockfileExists: projectStatus?.lockfileExists ?? null,
+            alreadyInstalled,
+            registeredVersion,
+            wouldUpdateLockfile,
+          },
+          summary:
+            installMode === "first_install"
+              ? `Plan a first install for ${coordinate} at v${selectedVersion}.`
+              : installMode === "already_installed_same_version"
+                ? `${coordinate} already appears installed at v${selectedVersion}.`
+                : `Plan to update the lockfile entry for ${coordinate} from v${registeredVersion} to v${selectedVersion}.`,
+        };
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to plan install for @${owner}/${name}${version ? `@${version}` : ""}: ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
     "install_component_bundle",
     {
       title: "Install component bundle",

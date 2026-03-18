@@ -62,6 +62,7 @@ https://cozy-registry.vercel.app
 | `list_components` | Read | 列出所有可用组件 |
 | `get_component` | Read | 获取指定组件的完整源码和元数据 |
 | `get_component_bundle` | Read | 获取指定版本的完整 bundle，供安装与升级使用 |
+| `plan_component_install` | Read | 返回安装计划、默认目标路径和 lockfile 条目，不直接写文件系统 |
 | `check_component_update` | Read | 检查某个已安装版本是否存在更新 |
 | `install_component_bundle` | Write | 将 bundle 安装到本地项目并写入 lockfile（需要 MCP 运行环境可写项目目录） |
 | `get_project_registry_status` | Read | 检查项目是否存在 lockfile，以及某个组件是否真的已登记到 lockfile |
