@@ -22,7 +22,7 @@ function shouldShowSidebar(pathname: string, email: string | null) {
   if (pathname.startsWith("/sign-up")) return false;
   if (pathname.startsWith("/onboarding")) return false;
   // Only show on these app pages for now.
-  return pathname === "/dashboard" || pathname === "/collections" || pathname === "/settings";
+  return pathname === "/dashboard" || pathname === "/collections" || pathname === "/settings" || pathname === "/docs";
 }
 
 export function AppShell(props: { email: string | null; children: React.ReactNode }) {
@@ -78,6 +78,13 @@ function AppShellInner(props: { pathname: string; email: string | null; children
                   </SidebarMenuButton>
                 </Link>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <Link href="/docs" className="block">
+                  <SidebarMenuButton isActive={props.pathname === "/docs"}>
+                    文档
+                  </SidebarMenuButton>
+                </Link>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarContent>
       </Sidebar>
@@ -106,4 +113,3 @@ function AppShellInner(props: { pathname: string; email: string | null; children
     </div>
   );
 }
-

@@ -7,6 +7,10 @@ Source of truth: yes
 
 这套文档按 6 层组织，目的是把“稳定事实”和“当前推进项”分开。
 
+对外或给最终用户看的快速上手文档：
+
+- [`user-guide/figma-make-quickstart.md`](./user-guide/figma-make-quickstart.md)
+
 ## 目录
 
 ### `00-overview`

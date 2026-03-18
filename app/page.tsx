@@ -100,6 +100,12 @@ export default async function Home() {
               浏览
             </Link>
             <Link
+              href="/docs"
+              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+            >
+              文档
+            </Link>
+            <Link
               href="/publish"
               className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
@@ -136,6 +142,24 @@ export default async function Home() {
         <p className="mb-8 text-zinc-600 dark:text-zinc-400">
           团队组件库，支持复制代码到项目中使用。AI 可通过 MCP 发现并引用这些组件。
         </p>
+        <div className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                Figma Make、Cursor 和 MCP 接入指南
+              </h2>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                查看如何连接 Cozy Registry、生成安装计划，以及在本地项目里写入 lockfile。
+              </p>
+            </div>
+            <Link
+              href="/docs"
+              className="inline-flex rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              打开文档
+            </Link>
+          </div>
+        </div>
 
         {items.length === 0 ? (
           <div className="rounded-xl border border-dashed border-zinc-300 py-16 text-center text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">

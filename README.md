@@ -55,6 +55,7 @@ pnpm db:seed
 ## 文档
 
 - [文档总览](docs/README.md)
+- [Figma Make Quickstart](docs/user-guide/figma-make-quickstart.md)
 - [产品总览](docs/00-overview/product-summary.md)
 - [产品愿景](docs/10-product/vision.md)
 - [路线图](docs/10-product/roadmap.md)
