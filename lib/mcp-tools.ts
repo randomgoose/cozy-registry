@@ -28,6 +28,7 @@ import { registryCollections } from "./db/schema";
 import { parseTokensFromJson, tokensToRootCss } from "./theme-tokens";
 import {
   checkInstalledItemUpdate,
+  getProjectRegistryStatus,
   installRegistryBundle,
   readLockfile,
   upgradeInstalledItem,
@@ -705,7 +706,7 @@ ${fileContent}
     {
       title: "Install component bundle",
       description:
-        "Install a registry block/component bundle into a local project, write files under the default install path, and update cozy-registry.lock.json. This requires a projectRoot that is writable by the MCP runtime.",
+        "Install a registry block/component bundle into a local project, write files under the default install path, and update cozy-registry.lock.json. Use this instead of manually copying files when you need Cozy install tracking. This requires a projectRoot that is writable by the MCP runtime.",
       inputSchema: z.object({
         projectRoot: z
           .string()
@@ -772,6 +773,48 @@ ${fileContent}
             {
               type: "text" as const,
               text: `Failed to install component bundle: ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_project_registry_status",
+    {
+      title: "Get project registry status",
+      description:
+        "Inspect a local project's Cozy install state. Use this to verify whether cozy-registry.lock.json exists and whether a component is actually registered there after installation.",
+      inputSchema: z.object({
+        projectRoot: z
+          .string()
+          .describe("Absolute path to the target project root."),
+        coordinate: z
+          .string()
+          .optional()
+          .describe("Optional specific coordinate to inspect, e.g. @acme/hero-section."),
+      }),
+    },
+    async ({ projectRoot, coordinate }) => {
+      try {
+        const payload = await getProjectRegistryStatus({
+          projectRoot,
+          coordinate: coordinate as RegistryCoordinate | undefined,
+        });
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+          isError: !payload.lockfileExists,
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to read project registry status: ${msg}`,
             },
           ],
           isError: true,

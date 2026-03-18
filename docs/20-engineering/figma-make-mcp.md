@@ -64,6 +64,7 @@ https://cozy-registry.vercel.app
 | `get_component_bundle` | Read | 获取指定版本的完整 bundle，供安装与升级使用 |
 | `check_component_update` | Read | 检查某个已安装版本是否存在更新 |
 | `install_component_bundle` | Write | 将 bundle 安装到本地项目并写入 lockfile（需要 MCP 运行环境可写项目目录） |
+| `get_project_registry_status` | Read | 检查项目是否存在 lockfile，以及某个组件是否真的已登记到 lockfile |
 | `check_project_updates` | Read | 读取项目 lockfile，检查所有已安装项是否可升级 |
 | `upgrade_component_in_project` | Write | 在项目中执行升级，并按冲突策略更新文件与 lockfile |
 | `publish_component` | Write | 发布新组件到 Cozy Registry（需在 Connector 设置中启用） |

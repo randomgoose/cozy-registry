@@ -166,6 +166,14 @@ Phase 1 定义 3 个核心动作：
 3. 在入口文件写注释头
 4. 更新 `cozy-registry.lock.json`
 
+`install_component_bundle` 的返回结果至少应明确包含：
+
+- `protocolApplied`
+- `lockfileUpdated`
+- `lockfilePath`
+- `entryCoordinate`
+- `installedFiles`
+
 当前 MCP 工具对应：
 
 - `install_component_bundle`
@@ -192,6 +200,7 @@ Phase 1 定义 3 个核心动作：
 
 当前 MCP 工具对应：
 
+- `get_project_registry_status`
 - `check_component_update`
 - `check_project_updates`
 

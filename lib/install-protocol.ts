@@ -40,8 +40,30 @@ export type InstallRegistryItemResult = {
   coordinate: RegistryCoordinate;
   version: string;
   status: "installed";
+  projectRoot: string;
+  lockfilePath: string;
+  lockfileUpdated: true;
+  protocolApplied: true;
+  entryCoordinate: RegistryCoordinate;
+  installedFiles: string[];
   changedFiles: string[];
   unchangedFiles: string[];
+};
+
+export type ProjectRegistryStatusResult = {
+  ok: true;
+  projectRoot: string;
+  lockfilePath: string;
+  lockfileExists: boolean;
+  itemCount: number;
+  items: Array<{
+    coordinate: RegistryCoordinate;
+    type: string;
+    version: string;
+    source: string;
+    installedFiles: string[];
+  }>;
+  summary: string;
 };
 
 export type UpgradeInstalledItemResult =
@@ -89,8 +111,32 @@ export function getLockfilePath(projectRoot: string): string {
   return path.join(projectRoot, LOCKFILE_NAME);
 }
 
+export function validateProjectRoot(projectRoot: string): string {
+  const trimmed = projectRoot.trim();
+  if (!trimmed) {
+    throw new Error(
+      "projectRoot is required and must point to the target project's absolute root path.",
+    );
+  }
+
+  if (!path.isAbsolute(trimmed)) {
+    throw new Error(
+      `projectRoot must be an absolute path. Received: ${projectRoot}`,
+    );
+  }
+
+  if (trimmed === path.parse(trimmed).root) {
+    throw new Error(
+      "projectRoot cannot be the filesystem root. Pass the actual writable project directory, for example /workspace/my-app.",
+    );
+  }
+
+  return trimmed;
+}
+
 export async function readLockfile(projectRoot: string): Promise<CozyLockfile> {
-  const lockfilePath = getLockfilePath(projectRoot);
+  const validatedProjectRoot = validateProjectRoot(projectRoot);
+  const lockfilePath = getLockfilePath(validatedProjectRoot);
   try {
     const raw = await fs.readFile(lockfilePath, "utf8");
     const parsed = JSON.parse(raw) as Partial<CozyLockfile>;
@@ -103,11 +149,25 @@ export async function readLockfile(projectRoot: string): Promise<CozyLockfile> {
   }
 }
 
+export async function lockfileExists(projectRoot: string): Promise<boolean> {
+  const validatedProjectRoot = validateProjectRoot(projectRoot);
+  try {
+    await fs.access(getLockfilePath(validatedProjectRoot));
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw err;
+  }
+}
+
 export async function writeLockfile(
   projectRoot: string,
   lockfile: CozyLockfile,
 ): Promise<void> {
-  const lockfilePath = getLockfilePath(projectRoot);
+  const validatedProjectRoot = validateProjectRoot(projectRoot);
+  const lockfilePath = getLockfilePath(validatedProjectRoot);
   const next = normalizeLockfile(lockfile);
   await fs.writeFile(lockfilePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
 }
@@ -170,6 +230,7 @@ export async function installRegistryBundle(params: {
   source: string;
   files: RegistryBundleFile[];
 }): Promise<InstallRegistryItemResult> {
+  const validatedProjectRoot = validateProjectRoot(params.projectRoot);
   const { owner, name } = parseCoordinate(params.coordinate);
   const installBaseDir = getDefaultInstallDir({ owner, name });
   const changedFiles: string[] = [];
@@ -179,7 +240,7 @@ export async function installRegistryBundle(params: {
     const projectRelative = normalizePosix(
       path.posix.join(installBaseDir, normalizePosix(file.path)),
     );
-    const absolutePath = path.join(params.projectRoot, projectRelative);
+    const absolutePath = path.join(validatedProjectRoot, projectRelative);
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
 
     let previous = "";
@@ -199,7 +260,7 @@ export async function installRegistryBundle(params: {
   }
 
   await upsertLockfileItem({
-    projectRoot: params.projectRoot,
+    projectRoot: validatedProjectRoot,
     coordinate: params.coordinate,
     item: buildLockfileItem({
       type: params.type,
@@ -217,8 +278,52 @@ export async function installRegistryBundle(params: {
     coordinate: params.coordinate,
     version: params.version,
     status: "installed",
+    projectRoot: validatedProjectRoot,
+    lockfilePath: getLockfilePath(validatedProjectRoot),
+    lockfileUpdated: true,
+    protocolApplied: true,
+    entryCoordinate: params.coordinate,
+    installedFiles: params.files.map((file) =>
+      normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path))),
+    ),
     changedFiles,
     unchangedFiles,
+  };
+}
+
+export async function getProjectRegistryStatus(params: {
+  projectRoot: string;
+  coordinate?: RegistryCoordinate;
+}): Promise<ProjectRegistryStatusResult> {
+  const validatedProjectRoot = validateProjectRoot(params.projectRoot);
+  const exists = await lockfileExists(validatedProjectRoot);
+  const lockfile = await readLockfile(validatedProjectRoot);
+  const items = Object.entries(lockfile.items)
+    .filter(([coordinate]) =>
+      params.coordinate ? coordinate === params.coordinate : true,
+    )
+    .map(([coordinate, item]) => ({
+      coordinate: coordinate as RegistryCoordinate,
+      type: item.type,
+      version: item.version,
+      source: item.source,
+      installedFiles: item.installedFiles,
+    }));
+
+  const summary = !exists
+    ? "cozy-registry.lock.json is missing."
+    : items.length === 0
+      ? "cozy-registry.lock.json exists but no installed items are registered."
+      : `Found ${items.length} installed item${items.length === 1 ? "" : "s"} in cozy-registry.lock.json.`;
+
+  return {
+    ok: true,
+    projectRoot: validatedProjectRoot,
+    lockfilePath: getLockfilePath(validatedProjectRoot),
+    lockfileExists: exists,
+    itemCount: items.length,
+    items,
+    summary,
   };
 }
 
@@ -230,8 +335,9 @@ export async function upgradeInstalledItem(params: {
   fetchImpl?: FetchLike;
   force?: boolean;
 }): Promise<UpgradeInstalledItemResult> {
+  const validatedProjectRoot = validateProjectRoot(params.projectRoot);
   const fetchImpl = params.fetchImpl ?? fetch;
-  const lockfile = await readLockfile(params.projectRoot);
+  const lockfile = await readLockfile(validatedProjectRoot);
   const lockItem = lockfile.items[params.coordinate];
   if (!lockItem) {
     throw new Error(`Installed item not found in lockfile: ${params.coordinate}`);
@@ -276,7 +382,7 @@ export async function upgradeInstalledItem(params: {
   });
 
   const conflictCheck = await detectUpgradeConflicts({
-    projectRoot: params.projectRoot,
+    projectRoot: validatedProjectRoot,
     coordinate: params.coordinate,
     installedFiles: lockItem.installedFiles,
     baselineBundle,
@@ -304,7 +410,7 @@ export async function upgradeInstalledItem(params: {
 
   for (const file of targetBundle.files) {
     const projectRelative = normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path)));
-    const absolutePath = path.join(params.projectRoot, projectRelative);
+    const absolutePath = path.join(validatedProjectRoot, projectRelative);
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
 
     let previous = "";
@@ -324,7 +430,7 @@ export async function upgradeInstalledItem(params: {
   }
 
   await upsertLockfileItem({
-    projectRoot: params.projectRoot,
+    projectRoot: validatedProjectRoot,
     coordinate: params.coordinate,
     item: {
       ...lockItem,
@@ -364,6 +470,7 @@ export async function detectUpgradeConflicts(params: {
   conflictedFiles: string[];
   safeToReplaceFiles: string[];
 }> {
+  const validatedProjectRoot = validateProjectRoot(params.projectRoot);
   const { owner, name } = parseCoordinate(params.coordinate);
   const installBaseDir = getDefaultInstallDir({ owner, name });
   const baselineMap = new Map(
@@ -384,7 +491,7 @@ export async function detectUpgradeConflicts(params: {
       continue;
     }
 
-    const absolutePath = path.join(params.projectRoot, normalizedInstalled);
+    const absolutePath = path.join(validatedProjectRoot, normalizedInstalled);
     let current = "";
     try {
       current = await fs.readFile(absolutePath, "utf8");

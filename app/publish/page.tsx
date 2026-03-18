@@ -2,6 +2,17 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
+
+type PublishRequestBody = {
+  name: string;
+  type: string;
+  title: string;
+  description: string | null;
+  visibility: "public" | "private";
+  content?: string;
+  files?: Record<string, string>;
+};
 
 export default function PublishPage() {
   const [name, setName] = useState("");
@@ -15,92 +26,15 @@ export default function PublishPage() {
   const [error, setError] = useState("");
 
   function convertTokensJsonToCss(raw: string): string {
-    let data: unknown;
-    try {
-      data = JSON.parse(raw);
-    } catch {
+    const tokens = parseTokensFromJson(raw);
+    if (tokens.length === 0) {
       throw new Error("Tokens JSON 解析失败，请检查格式是否为合法 JSON");
     }
-
-    // Detect Figma variables vs W3C-ish tokens
-    const obj = data as any;
-    const tokens: { path: string[]; value: string; type?: string }[] = [];
-
-    // W3C style: nested { token: { value, type } }
-    function walkW3C(node: any, path: string[]) {
-      if (!node || typeof node !== "object") return;
-      const hasValue = Object.prototype.hasOwnProperty.call(node, "value");
-      const hasType = Object.prototype.hasOwnProperty.call(node, "type");
-      if (hasValue && (typeof node.value === "string" || typeof node.value === "number")) {
-        tokens.push({
-          path,
-          value: String(node.value),
-          type: hasType ? String(node.type) : undefined,
-        });
-        return;
-      }
-      for (const key of Object.keys(node)) {
-        walkW3C(node[key], [...path, key]);
-      }
-    }
-
-    // Figma variables: prefer variables + modes
-    function collectFromFigma(node: any) {
-      if (!node || typeof node !== "object") return false;
-      const variables = node.variables;
-      const modes = node.modes;
-      if (!variables || !modes || typeof variables !== "object") return false;
-
-      // Pick first mode as default
-      const modeIds: string[] = Array.isArray(modes)
-        ? modes.map((m: any) => String(m.modeId ?? m.id)).filter(Boolean)
-        : Object.keys(modes);
-      const defaultMode = modeIds[0];
-      if (!defaultMode) return false;
-
-      for (const varId of Object.keys(variables)) {
-        const v = variables[varId];
-        if (!v) continue;
-        const name: string = v.name ?? v.key ?? varId;
-        let value: any;
-        const valuesByMode = v.valuesByMode ?? v.resolvedValuesByMode;
-        if (valuesByMode && typeof valuesByMode === "object") {
-          value = valuesByMode[defaultMode] ?? Object.values(valuesByMode)[0];
-        }
-        if (value == null) continue;
-        tokens.push({
-          path: name.split(/[\/.]/g).filter(Boolean),
-          value: typeof value === "string" ? value : JSON.stringify(value),
-          type: v.type ? String(v.type) : undefined,
-        });
-      }
-      return tokens.length > 0;
-    }
-
-    const isFigma = collectFromFigma(obj);
-    if (!isFigma) {
-      walkW3C(obj, []);
-    }
-
-    if (tokens.length === 0) {
+    const css = tokensToRootCss(tokens);
+    if (!css) {
       throw new Error("未能从 JSON 中解析出任何 tokens（既不像 W3C Design Tokens，也不像 Figma Variables 导出）");
     }
-
-    const lines: string[] = [];
-    lines.push(":root {");
-    for (const t of tokens) {
-      const safePath = t.path.length ? t.path : ["token"];
-      const varName =
-        "--" +
-        safePath
-          .join("-")
-          .replace(/[^a-zA-Z0-9-_]/g, "-")
-          .replace(/--+/g, "-")
-          .toLowerCase();
-      lines.push(`  ${varName}: ${t.value};`);
-    }
-    lines.push("}");
-    return lines.join("\n");
+    return css;
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -109,7 +43,7 @@ export default function PublishPage() {
     setError("");
 
     try {
-      let body: any = {
+      const body: PublishRequestBody = {
         name,
         type,
         title,
@@ -123,7 +57,7 @@ export default function PublishPage() {
         body.files = {
           "theme.css": css,
           "tokens.json": tokensJson,
-        } as Record<string, string>;
+        };
       } else {
         body.content = content;
       }
