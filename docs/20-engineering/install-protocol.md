@@ -177,6 +177,7 @@ Phase 1 定义 3 个核心动作：
 当前 MCP 工具对应：
 
 - `plan_component_install`
+- `plan_component_upgrade`
 - `install_component_bundle`
 
 ### `check`

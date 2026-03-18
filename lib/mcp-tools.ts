@@ -837,6 +837,149 @@ ${fileContent}
   );
 
   server.registerTool(
+    "plan_component_upgrade",
+    {
+      title: "Plan component upgrade",
+      description:
+        "Plan how an installed Cozy registry item should be upgraded without writing to the local filesystem. Use this in remote AI environments to compare the registered version with a target version and preview the next lockfile entry.",
+      inputSchema: z.object({
+        coordinate: z
+          .string()
+          .describe("Installed coordinate to upgrade, e.g. @acme/hero-section."),
+        toVersion: z
+          .string()
+          .optional()
+          .describe("Optional target version. Defaults to the current latest version."),
+        projectStatus: z
+          .object({
+            lockfileExists: z.boolean().optional(),
+            items: z
+              .array(
+                z.object({
+                  coordinate: z.string(),
+                  type: z.string().optional(),
+                  version: z.string().optional(),
+                  source: z.string().optional(),
+                  installedFiles: z.array(z.string()).optional(),
+                }),
+              )
+              .optional(),
+          })
+          .describe(
+            "Install-state snapshot, usually from get_project_registry_status. This is required so the planner knows which version is currently registered.",
+          ),
+      }),
+    },
+    async ({ coordinate, toVersion, projectStatus }) => {
+      try {
+        const slash = coordinate.indexOf("/");
+        if (!coordinate.startsWith("@") || slash <= 1 || slash === coordinate.length - 1) {
+          throw new Error(`Invalid coordinate: ${coordinate}`);
+        }
+
+        const owner = coordinate.slice(1, slash);
+        const name = coordinate.slice(slash + 1);
+        const existingItem =
+          projectStatus.items?.find((entry) => entry.coordinate === coordinate) ?? null;
+
+        if (!existingItem?.version) {
+          throw new Error(
+            `Registered version not found for ${coordinate}. Provide projectStatus from get_project_registry_status first.`,
+          );
+        }
+
+        const { userId, policy } = await getScopedToolContext();
+        const item = await getRegistryItemByOwnerNameAndVersionScoped({
+          ownerId: owner,
+          name,
+          version: toVersion ?? null,
+          requestUserId: userId,
+          policy,
+        });
+
+        if (!item) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Component ${coordinate}${toVersion ? `@${toVersion}` : ""} not found (or not allowed by your token scope).`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const canonicalOwner = await getCanonicalOwner(item.userId ?? owner);
+        const latestVersion = getCurrentVersion(item);
+        const targetVersion = toVersion?.trim() || latestVersion;
+        const shadcnItem = toShadcnRegistryItem(item);
+        const baseUrl =
+          process.env.NEXT_PUBLIC_APP_URL ??
+          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+        const canonicalCoordinate =
+          `@${canonicalOwner}/${item.name}` as RegistryCoordinate;
+        const installedFiles =
+          existingItem.installedFiles?.length
+            ? existingItem.installedFiles
+            : (shadcnItem?.files ?? []).map(
+                (file) => `src/registry/${canonicalOwner}/${item.name}/${file.path}`,
+              );
+        const alreadyUpToDate = existingItem.version === targetVersion;
+
+        const payload = {
+          ok: true,
+          action: "plan_upgrade",
+          coordinate: canonicalCoordinate,
+          type: item.type,
+          installedVersion: existingItem.version,
+          latestVersion,
+          targetVersion,
+          upgradeMode: alreadyUpToDate ? "already_up_to_date" : "upgrade_available",
+          source: baseUrl
+            ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}?v=${targetVersion}`
+            : `/api/r/${canonicalOwner}/${item.name}?v=${targetVersion}`,
+          targetDir: `src/registry/${canonicalOwner}/${item.name}`,
+          installedFiles,
+          files: shadcnItem?.files ?? [],
+          nextLockfileEntry: buildLockfileEntry({
+            owner: canonicalOwner,
+            name: item.name,
+            type: item.type,
+            version: targetVersion,
+            baseUrl,
+            files: shadcnItem?.files,
+          }),
+          lockfileCheck: {
+            providedStatus: true,
+            lockfileExists: projectStatus.lockfileExists ?? null,
+            alreadyInstalled: true,
+            registeredVersion: existingItem.version,
+            wouldUpdateLockfile: !alreadyUpToDate,
+          },
+          summary: alreadyUpToDate
+            ? `${canonicalCoordinate} already appears up to date at v${targetVersion}.`
+            : `Plan to upgrade ${canonicalCoordinate} from v${existingItem.version} to v${targetVersion}.`,
+        };
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to plan upgrade for ${coordinate}: ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
     "install_component_bundle",
     {
       title: "Install component bundle",
