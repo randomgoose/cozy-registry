@@ -241,6 +241,8 @@ root.render(<App />);
         message: err instanceof Error ? err.message : String(err),
       },
     };
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -257,4 +259,3 @@ function isEsbuildBuildError(err: unknown): err is EsbuildBuildErrorLike {
   if (!Array.isArray(rec.errors)) return false;
   return true;
 }
-

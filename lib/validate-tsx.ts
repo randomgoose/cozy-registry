@@ -1,8 +1,14 @@
+import path from "path";
 import * as parser from "@babel/parser";
 
 export interface ValidateResult {
   valid: boolean;
   error?: string;
+}
+
+export interface BundleValidateResult extends ValidateResult {
+  missingImports?: string[];
+  invalidFiles?: string[];
 }
 
 const PARSE_OPTIONS: parser.ParserOptions = {
@@ -48,6 +54,104 @@ export function extractDependencies(code: string): string[] {
   } catch {
     return [];
   }
+}
+
+export function isRelativeImport(specifier: string): boolean {
+  return (
+    specifier.startsWith("./") ||
+    specifier.startsWith("../") ||
+    specifier === "." ||
+    specifier === ".."
+  );
+}
+
+function normalizePosix(p: string): string {
+  return p.replaceAll("\\", "/");
+}
+
+function isCodeFile(filePath: string): boolean {
+  return /\.(tsx?|jsx?)$/i.test(filePath);
+}
+
+function resolveRelativeImport(importerPath: string, spec: string): string[] {
+  const importer = normalizePosix(importerPath);
+  const dir = path.posix.dirname(importer);
+  const base = normalizePosix(path.posix.normalize(path.posix.join(dir, spec)));
+
+  const hasExt = /\.[a-z0-9]+$/i.test(base);
+  if (hasExt) return [base];
+
+  return [
+    `${base}.ts`,
+    `${base}.tsx`,
+    `${base}.js`,
+    `${base}.jsx`,
+    path.posix.join(base, "index.ts"),
+    path.posix.join(base, "index.tsx"),
+    path.posix.join(base, "index.js"),
+    path.posix.join(base, "index.jsx"),
+  ];
+}
+
+export function findMissingRelativeImports(files: Record<string, string>): string[] {
+  const keys = new Set(Object.keys(files).map(normalizePosix));
+  const missing = new Set<string>();
+
+  for (const [filePathRaw, content] of Object.entries(files)) {
+    const filePath = normalizePosix(filePathRaw);
+    if (!isCodeFile(filePath) || typeof content !== "string") continue;
+    const imports = extractDependencies(content);
+    for (const spec of imports) {
+      if (!isRelativeImport(spec)) continue;
+      const candidates = resolveRelativeImport(filePath, spec);
+      const ok = candidates.some((candidate) => keys.has(candidate));
+      if (!ok) missing.add(`${filePath} -> ${spec}`);
+    }
+  }
+
+  return Array.from(missing).sort();
+}
+
+export function validateComponentBundle(
+  files: Record<string, string>,
+): BundleValidateResult {
+  const codeEntries = Object.entries(files).filter(
+    ([filePath, content]) => isCodeFile(filePath) && typeof content === "string",
+  );
+
+  if (codeEntries.length === 0) {
+    return {
+      valid: false,
+      error: "Component bundle must include at least one .ts, .tsx, .js, or .jsx file",
+    };
+  }
+
+  const invalidFiles: string[] = [];
+  for (const [filePath, content] of codeEntries) {
+    const validation = validateTsx(content);
+    if (!validation.valid) {
+      invalidFiles.push(`${normalizePosix(filePath)}: ${validation.error ?? "Invalid source"}`);
+    }
+  }
+
+  if (invalidFiles.length > 0) {
+    return {
+      valid: false,
+      error: "Component bundle contains invalid source files",
+      invalidFiles,
+    };
+  }
+
+  const missingImports = findMissingRelativeImports(files);
+  if (missingImports.length > 0) {
+    return {
+      valid: false,
+      error: "Component bundle is missing local import targets",
+      missingImports,
+    };
+  }
+
+  return { valid: true };
 }
 
 function isFigmaAssetSpecifier(spec: string): boolean {

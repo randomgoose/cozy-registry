@@ -11,7 +11,7 @@
 - 支持两种互补的样式使用方式：
   1. **组件级样式**：设计师创作的、与单个组件强绑定的样式（如多状态输入框），随组件一起打包与预览。
   2. **全局样式变量 / 主题**：跨组件复用的 design tokens（颜色、间距、圆角等），作为独立 registry 条目发布与引用。
-- 与现有 [Component Preview Runtime](./COMPONENT_PREVIEW_RUNTIME.md) 和 [Resource Types](./RESOURCE_TYPES.md) 兼容，并明确扩展点。
+- 与现有 [Component Preview Runtime](./component-preview-runtime.md) 和 [Resource Types](./resource-types.md) 兼容，并明确扩展点。
 
 **范围**
 
@@ -71,7 +71,7 @@
 - **Registry 类型**：`registry:theme`。
 - **语义**：一条 theme 条目表示「一套可复用的全局样式变量（design tokens）或少量全局规则」，供多个组件或整站使用。例如 `theme-default`、`theme-dark`、`tokens-mobile`。
 
-与 [RESOURCE_TYPES.md](./RESOURCE_TYPES.md) 中「按主题管理、单条目单文件（或少数文件）」的建议一致；不按「单个 token」拆条目。
+与 [resource-types.md](./resource-types.md) 中「按主题管理、单条目单文件（或少数文件）」的建议一致；不按「单个 token」拆条目。
 
 ### 4.2 数据与文件结构
 
@@ -167,8 +167,8 @@
 
 ## 8. 与现有文档的关系
 
-- **[COMPONENT_PREVIEW_RUNTIME.md](./COMPONENT_PREVIEW_RUNTIME.md)**：本 SPEC 扩展「Preview Runtime HTML」的职责（增加 theme CSS 注入顺序与条件），不改变 ComponentBundle、esbuild 入口与错误处理等已有约定。
-- **[RESOURCE_TYPES.md](./RESOURCE_TYPES.md)**：本 SPEC 将「样式」拆成两类（组件内 bundle + 独立 theme 条目），并细化 theme 的存储、发布与消费，与其中「按主题发布、registry:theme」建议一致。
+- **[component-preview-runtime.md](./component-preview-runtime.md)**：本 SPEC 扩展「Preview Runtime HTML」的职责（增加 theme CSS 注入顺序与条件），不改变 ComponentBundle、esbuild 入口与错误处理等已有约定。
+- **[resource-types.md](./resource-types.md)**：本 SPEC 将「样式」拆成两类（组件内 bundle + 独立 theme 条目），并细化 theme 的存储、发布与消费，与其中「按主题发布、registry:theme」建议一致。
 
 ---
 

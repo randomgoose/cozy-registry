@@ -13,7 +13,7 @@
 | **组件** | 单组件为单位（可多文件） | 当前 item + `files[]` | 按「个」发布，Copy 进项目 | 保持 registry:component；组件库场景更强调依赖化 |
 | **Block** | 场景块（通常多文件 bundle） | 当前 item + `files[]` | 按「个」发布，Copy 进项目 | 保持 registry:block；允许自包含与重复 |
 
-> 延伸规范：Block vs 组件库（Library）的发布/依赖解析/覆盖策略，见 `docs/NAMESPACE_LIBRARY_AND_BLOCK_SPEC.md`。
+> 延伸规范：Block vs 组件库（Library）的发布/依赖解析/覆盖策略，见 `docs/30-rules/namespace-library-and-block-spec.md`。
 
 ---
 

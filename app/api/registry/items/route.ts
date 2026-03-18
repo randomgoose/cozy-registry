@@ -1,14 +1,27 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { createRegistryItem } from "@/lib/registry";
-import { validateTsx, extractDependencies } from "@/lib/validate-tsx";
+import {
+  validateTsx,
+  extractDependencies,
+  validateComponentBundle,
+} from "@/lib/validate-tsx";
+import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
 import { auth } from "@/lib/auth";
 import { getUserIdFromToken } from "@/lib/auth-api";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, type, title, description, content, files, visibility } = body;
+    const { name, type, title, description, content, files, visibility } = body as {
+      name?: string;
+      type?: string;
+      title?: string;
+      description?: string | null;
+      content?: string | null;
+      files?: Record<string, unknown> | null;
+      visibility?: string | null;
+    };
 
     const hasFiles =
       files &&
@@ -38,7 +51,7 @@ export async function POST(request: Request) {
     if (!hasFiles) {
       // 单文件模式校验
       if (!isTheme) {
-        const validation = validateTsx(content);
+        const validation = validateTsx(content as string);
         if (!validation.valid) {
           return NextResponse.json(
             { error: `Invalid TSX: ${validation.error}` },
@@ -47,23 +60,32 @@ export async function POST(request: Request) {
         }
       } else if (typeof content !== "string" || content.trim().length === 0) {
         return NextResponse.json(
-          { error: "Theme content (CSS) is required" },
+          { error: "Theme content is required (either CSS or tokens JSON)" },
           { status: 400 }
         );
       }
     } else {
-      // 多文件模式：theme 允许只有 css；component/block 仅做最轻量的入口校验（如存在 index.tsx）
+      // 多文件模式：theme 允许仅包含样式/tokens；component/block 必须保证代码文件可解析且本地 import 完整
       if (!isTheme) {
-        const record = files as Record<string, unknown>;
-        const index = record["index.tsx"];
-        if (typeof index === "string" && index.trim()) {
-          const validation = validateTsx(index);
-          if (!validation.valid) {
-            return NextResponse.json(
-              { error: `Invalid TSX (index.tsx): ${validation.error}` },
-              { status: 400 }
-            );
-          }
+        const record = Object.fromEntries(
+          Object.entries(files as Record<string, unknown>).filter(
+            ([, value]) => typeof value === "string",
+          ),
+        ) as Record<string, string>;
+        const validation = validateComponentBundle(record);
+        if (!validation.valid) {
+          const details =
+            validation.invalidFiles?.length
+              ? validation.invalidFiles.slice(0, 10).join("\n")
+              : validation.missingImports?.slice(0, 20).join("\n");
+          return NextResponse.json(
+            {
+              error: details
+                ? `${validation.error}:\n${details}`
+                : validation.error ?? "Invalid component bundle",
+            },
+            { status: 400 }
+          );
         }
       }
     }
@@ -84,6 +106,41 @@ export async function POST(request: Request) {
       );
     }
 
+    // 规范化 theme：若 type === registry:theme，优先将 content 或 files 中的 JSON 视为 tokens.json，
+    // 并从中派生 theme.css（:root 视图）。
+    let normalizedFiles: Record<string, string> | undefined;
+    let normalizedContent: string | undefined | null = content ?? undefined;
+
+    if (isTheme) {
+      const asRecord =
+        files && typeof files === "object" && !Array.isArray(files)
+          ? (files as Record<string, unknown>)
+          : null;
+      let tokensJson = "";
+
+      if (asRecord && typeof asRecord["tokens.json"] === "string") {
+        tokensJson = asRecord["tokens.json"] as string;
+      } else if (typeof content === "string" && content.trim().startsWith("{")) {
+        tokensJson = content;
+      }
+
+      if (tokensJson) {
+        const tokens = parseTokensFromJson(tokensJson);
+        const css = tokensToRootCss(tokens);
+        if (!css) {
+          return NextResponse.json(
+            { error: "Failed to derive CSS from tokens.json (no tokens found)" },
+            { status: 400 }
+          );
+        }
+        normalizedFiles = {
+          "theme.css": css,
+          "tokens.json": tokensJson,
+        };
+        normalizedContent = undefined;
+      }
+    }
+
     const validVisibility = visibility === "private" ? "private" : "public";
     // 仅保留裸模块依赖（npm 包），忽略相对路径 import
     const dependencies = (() => {
@@ -99,31 +156,32 @@ export async function POST(request: Request) {
         }
       };
 
-      if (hasFiles) {
+      if (hasFiles && !normalizedFiles) {
         for (const src of Object.values(files as Record<string, unknown>)) {
           if (typeof src !== "string") continue;
           addDepsFromSource(src);
         }
       } else {
-        addDepsFromSource(content);
+        addDepsFromSource(normalizedContent ?? content);
       }
 
       return Array.from(all).sort();
     })();
 
-    const normalizedFiles = hasFiles
-      ? (Object.fromEntries(
-          Object.entries(files as Record<string, unknown>)
-            .filter(([, v]) => typeof v === "string")
-            .map(([k, v]) => [k, v as string])
-        ) as Record<string, string>)
-      : undefined;
+    if (!normalizedFiles && hasFiles) {
+      normalizedFiles = Object.fromEntries(
+        Object.entries(files as Record<string, unknown>)
+          .filter(([, v]) => typeof v === "string")
+          .map(([k, v]) => [k, v as string])
+      ) as Record<string, string>;
+    }
+
     const item = await createRegistryItem({
       name,
       type,
       title,
       description: description || null,
-      content: hasFiles ? undefined : content,
+      content: normalizedFiles ? undefined : normalizedContent,
       files: normalizedFiles,
       userId,
       visibility: validVisibility,

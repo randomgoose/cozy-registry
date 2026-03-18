@@ -7,8 +7,16 @@ import {
   getCurrentVersion,
 } from "@/lib/registry";
 import { resolveOwner } from "@/lib/owner";
+import { validateComponentBundle, validateTsx } from "@/lib/validate-tsx";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
+
+type VersionRequestBody = {
+  content?: string;
+  files?: Record<string, unknown>;
+  bump?: "patch" | "minor" | "major";
+  message?: string;
+};
 
 /** 获取组件的版本列表 + 当前版本 */
 export async function GET(request: Request, { params }: Params) {
@@ -53,7 +61,7 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { content?: string; bump?: "patch" | "minor" | "major"; message?: string };
+  let body: VersionRequestBody;
   try {
     body = await request.json();
   } catch {
@@ -63,12 +71,51 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  const { content, bump, message } = body;
-  if (typeof content !== "string" || !content.trim()) {
+  const { content, files, bump, message } = body;
+  const normalizedFiles =
+    files && typeof files === "object" && !Array.isArray(files)
+      ? Object.fromEntries(
+          Object.entries(files).filter(([, value]) => typeof value === "string"),
+        )
+      : undefined;
+  const hasFiles = !!normalizedFiles && Object.keys(normalizedFiles).length > 0;
+  const normalizedContent =
+    typeof content === "string" && content.trim().length > 0
+      ? content.trim()
+      : undefined;
+
+  if (!hasFiles && !normalizedContent) {
     return NextResponse.json(
-      { error: "content is required" },
+      { error: "content or files is required" },
       { status: 400 }
     );
+  }
+  if (hasFiles) {
+    const validation = validateComponentBundle(
+      normalizedFiles as Record<string, string>,
+    );
+    if (!validation.valid) {
+      const details =
+        validation.invalidFiles?.length
+          ? validation.invalidFiles.slice(0, 10).join("\n")
+          : validation.missingImports?.slice(0, 20).join("\n");
+      return NextResponse.json(
+        {
+          error: details
+            ? `${validation.error}:\n${details}`
+            : validation.error ?? "Invalid component bundle",
+        },
+        { status: 400 }
+      );
+    }
+  } else if (normalizedContent) {
+    const validation = validateTsx(normalizedContent);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: `Invalid TSX: ${validation.error}` },
+        { status: 400 }
+      );
+    }
   }
   const bumpType = bump ?? "patch";
   if (!["patch", "minor", "major"].includes(bumpType)) {
@@ -86,7 +133,8 @@ export async function POST(request: Request, { params }: Params) {
     const result = await createRegistryItemVersion({
       ownerId: resolved.userId,
       name,
-      content: content.trim(),
+      content: normalizedContent,
+      files: hasFiles ? (normalizedFiles as Record<string, string>) : undefined,
       bump: bumpType,
       userId,
       message: typeof message === "string" ? message : undefined,

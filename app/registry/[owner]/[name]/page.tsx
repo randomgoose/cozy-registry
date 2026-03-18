@@ -75,7 +75,7 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
 
   let versions: { version: string; createdAt: Date; createdBy: string | null }[] = [];
   try {
-    versions = await getRegistryItemVersions(owner, name, requestUserId);
+    versions = await getRegistryItemVersions(item.userId ?? owner, name, requestUserId);
   } catch {
     // 无版本历史时仅显示当前
   }

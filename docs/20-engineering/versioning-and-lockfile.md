@@ -1,6 +1,15 @@
-## Component Updates & Lockfile Convention
+Status: draft
+Owner: engineering
+Last updated: 2025-02-14
+Source of truth: no
+
+# Component Updates & Lockfile Convention
 
 This document describes how projects can keep track of which registry components they are using, and how to check for updates.
+
+> Note:
+> This document is now a supporting reference.
+> The current source-of-truth install protocol is [install-protocol.md](./install-protocol.md).
 
 The goal is to support:
 
@@ -11,7 +20,8 @@ The goal is to support:
 
 ## 1. Lockfile: `cozy-registry.lock.json`
 
-When you install a component into a project, we recommend writing a small lockfile at the project root:
+When you install a component into a project, we recommend writing a small lockfile at the project root.
+The shape below is an earlier minimal draft; the current protocol is being refined in `install-protocol.md`.
 
 ```jsonc
 {
@@ -157,4 +167,3 @@ Tools can combine:
 - `get_component_versions` or the REST versions API
 
 to implement `check_updates`-style flows and guide users to upgrade components when newer versions are available.
-

@@ -1,6 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import path from "path";
 import { and, eq } from "drizzle-orm";
 import {
   getRegistryItemsScoped,
@@ -14,12 +13,27 @@ import {
   deleteRegistryItem,
   toShadcnRegistryItem,
 } from "./registry";
-import { validateTsx, extractDependencies } from "./validate-tsx";
+import {
+  validateTsx,
+  extractDependencies,
+  findMissingRelativeImports,
+  isRelativeImport,
+  validateComponentBundle,
+} from "./validate-tsx";
 import { getAuthContextFromToken } from "./auth-api";
 import { resolveOwner } from "./owner";
 import { getRegistryPolicyForApiKey } from "./registry-policy";
 import { db } from "./db";
 import { registryCollections } from "./db/schema";
+import { parseTokensFromJson, tokensToRootCss } from "./theme-tokens";
+import {
+  checkInstalledItemUpdate,
+  installRegistryBundle,
+  readLockfile,
+  upgradeInstalledItem,
+  type RegistryCoordinate,
+} from "./install-protocol";
+import { getBaseUrl } from "./oauth";
 import type { RegistryPolicy } from "./registry-policy";
 
 export function createRegistryMcpServer(request?: Request) {
@@ -27,6 +41,73 @@ export function createRegistryMcpServer(request?: Request) {
     name: "cozy",
     version: "1.0.0",
   });
+
+  async function getScopedToolContext() {
+    const ctx = request ? await getAuthContextFromToken(request) : null;
+    const userId = ctx?.userId ?? null;
+    const policy = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
+    return { ctx, userId, policy };
+  }
+
+  async function getCanonicalOwner(owner: string | null | undefined) {
+    if (!owner) return "legacy";
+    return (await resolveOwner(owner))?.handle ?? owner;
+  }
+
+  async function getLatestVersionForItem(params: {
+    owner: string;
+    name: string;
+    userId: string | null;
+  }) {
+    const versions = await getRegistryItemVersions(
+      params.owner,
+      params.name,
+      params.userId,
+    );
+    return versions[0]?.version ?? null;
+  }
+
+  function buildLockfileEntry(params: {
+    owner: string;
+    name: string;
+    type: string;
+    version: string;
+    baseUrl?: string | null;
+    files?: { path: string }[];
+  }) {
+    const sourceBase = params.baseUrl ?? "";
+    const source = sourceBase
+      ? `${sourceBase}/api/r/${params.owner}/${params.name}?v=${params.version}`
+      : `/api/r/${params.owner}/${params.name}?v=${params.version}`;
+    return {
+      version: 1,
+      items: {
+        [`@${params.owner}/${params.name}`]: {
+          type: params.type,
+          version: params.version,
+          source,
+          installedFiles: (params.files ?? []).map(
+            (f) => `src/registry/${params.owner}/${params.name}/${f.path}`,
+          ),
+        },
+      },
+    };
+  }
+
+  function getRegistryFetch(): typeof fetch {
+    const authHeader = request?.headers.get("authorization");
+    const apiKey = request?.headers.get("x-api-key");
+    return (input, init) => {
+      const headers = new Headers(init?.headers);
+      if (authHeader && !headers.has("authorization")) {
+        headers.set("authorization", authHeader);
+      }
+      if (apiKey && !headers.has("x-api-key")) {
+        headers.set("x-api-key", apiKey);
+      }
+      return fetch(input, { ...init, headers });
+    };
+  }
 
   async function getAdhocPolicyForCollectionSlug(collectionSlug: string, requestUserId: string) {
     const [row] = await db
@@ -158,9 +239,7 @@ export function createRegistryMcpServer(request?: Request) {
     },
     async ({ name, owner }) => {
       try {
-        const ctx = request ? await getAuthContextFromToken(request) : null;
-        const policy = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
-        const userId = ctx?.userId ?? null;
+        const { userId, policy } = await getScopedToolContext();
 
         const item = owner
           ? await getRegistryItemByOwnerNameAndVersionScoped({
@@ -184,19 +263,16 @@ export function createRegistryMcpServer(request?: Request) {
           };
         }
 
-        const canonicalOwner =
-          (await resolveOwner(item.userId ?? owner ?? "legacy"))?.handle ??
-          item.userId ??
-          owner ??
-          "legacy";
-        const currentVersion = getCurrentVersion(item);
-        const resolvedForVersions = item.userId ? await resolveOwner(item.userId) : null;
-        const versions = await getRegistryItemVersions(
-          resolvedForVersions?.userId ?? item.userId ?? "legacy",
-          name,
-          userId,
+        const canonicalOwner = await getCanonicalOwner(
+          item.userId ?? owner ?? "legacy",
         );
-        const latestVersion = versions[0]?.version ?? currentVersion;
+        const currentVersion = getCurrentVersion(item);
+        const latestVersion =
+          (await getLatestVersionForItem({
+            owner: item.userId ?? "legacy",
+            name,
+            userId,
+          })) ?? currentVersion;
 
         const shadcnItem = toShadcnRegistryItem(item);
         const mainFile = shadcnItem?.files?.[0];
@@ -218,19 +294,18 @@ export function createRegistryMcpServer(request?: Request) {
             : rawFileContent;
 
         // 生成一个推荐的「锁文件条目」片段，方便用户粘贴到自己的 lock/registry 配置中
-        const lockEntry = {
-          name: item.name,
-          owner: canonicalOwner,
-          version: installVersion,
-          type: item.type,
-        };
-
+        const baseUrl =
+          process.env.NEXT_PUBLIC_APP_URL ??
+          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
         const lockSnippet = JSON.stringify(
-          {
-            components: {
-              [`@${canonicalOwner}/${item.name}`]: lockEntry,
-            },
-          },
+          buildLockfileEntry({
+            owner: canonicalOwner,
+            name: item.name,
+            type: item.type,
+            version: installVersion,
+            baseUrl,
+            files: shadcnItem?.files,
+          }),
           null,
           2,
         );
@@ -298,8 +373,7 @@ ${fileContent}
       }),
     },
     async ({ collection, name, owner }) => {
-      const ctx = request ? await getAuthContextFromToken(request) : null;
-      const userId = ctx?.userId ?? null;
+      const { userId } = await getScopedToolContext();
       if (!userId) {
         return {
           content: [
@@ -355,13 +429,12 @@ ${fileContent}
         owner ??
         "legacy";
       const currentVersion = getCurrentVersion(item);
-      const resolvedForVersions = item.userId ? await resolveOwner(item.userId) : null;
-      const versions = await getRegistryItemVersions(
-        resolvedForVersions?.userId ?? item.userId ?? "legacy",
-        name,
-        userId,
-      );
-      const latestVersion = versions[0]?.version ?? currentVersion;
+      const latestVersion =
+        (await getLatestVersionForItem({
+          owner: item.userId ?? "legacy",
+          name,
+          userId,
+        })) ?? currentVersion;
 
       const shadcnItem = toShadcnRegistryItem(item);
       const mainFile = shadcnItem?.files?.[0];
@@ -378,14 +451,18 @@ ${fileContent}
           ? `${headerComment}${rawFileContent}`
           : rawFileContent;
 
-      const lockEntry = {
-        name: item.name,
-        owner: canonicalOwner,
-        version: installVersion,
-        type: item.type,
-      };
+      const baseUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
       const lockSnippet = JSON.stringify(
-        { components: { [`@${canonicalOwner}/${item.name}`]: lockEntry } },
+        buildLockfileEntry({
+          owner: canonicalOwner,
+          name: item.name,
+          type: item.type,
+          version: installVersion,
+          baseUrl,
+          files: shadcnItem?.files,
+        }),
         null,
         2,
       );
@@ -464,13 +541,31 @@ ${fileContent}
           };
         }
 
-        const versions = await getRegistryItemVersions(owner, name, userId);
+        const resolvedOwner = await resolveOwner(owner);
+        if (!resolvedOwner) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Component owner "${owner}" not found.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const canonicalOwner = resolvedOwner.handle ?? owner;
+        const versions = await getRegistryItemVersions(
+          resolvedOwner.userId,
+          name,
+          userId,
+        );
         if (!versions.length) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: `No versions found for @${owner}/${name}.`,
+                text: `No versions found for @${canonicalOwner}/${name}.`,
               },
             ],
             isError: true,
@@ -478,7 +573,7 @@ ${fileContent}
         }
 
         const lines: string[] = [];
-        lines.push(`## Versions for @${owner}/${name}`);
+        lines.push(`## Versions for @${canonicalOwner}/${name}`);
         lines.push("");
         lines.push("All versions (newest first):");
         lines.push("");
@@ -529,6 +624,408 @@ ${fileContent}
       }
     },
   );
+
+  server.registerTool(
+    "check_component_update",
+    {
+      title: "Check component update",
+      description:
+        "Check whether an installed registry item has a newer version available. Use this when a project already has an installed version and you want to know if it can be upgraded.",
+      inputSchema: z.object({
+        name: z.string().describe("Component name in kebab-case, e.g. hero-section"),
+        owner: z
+          .string()
+          .describe("Owner handle (preferred) or legacy userId for the installed item."),
+        installedVersion: z
+          .string()
+          .describe("Currently installed version in the project, e.g. 0.3.0"),
+      }),
+    },
+    async ({ name, owner, installedVersion }) => {
+      try {
+        const { userId, policy } = await getScopedToolContext();
+        const item = await getRegistryItemByOwnerNameAndVersionScoped({
+          ownerId: owner,
+          name,
+          version: null,
+          requestUserId: userId,
+          policy,
+        });
+
+        if (!item) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Component @${owner}/${name} not found (or not allowed by your token scope).`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const canonicalOwner = await getCanonicalOwner(item.userId ?? owner);
+        const latestVersion = getCurrentVersion(item);
+        const upgradable = installedVersion !== latestVersion;
+        const payload = {
+          ok: true,
+          item: {
+            coordinate: `@${canonicalOwner}/${item.name}`,
+            type: item.type,
+            installedVersion,
+            latestVersion,
+            upgradable,
+            hasConflicts: false,
+          },
+          summary: upgradable
+            ? `Upgradable from v${installedVersion} to v${latestVersion}.`
+            : `Already up to date at v${installedVersion}.`,
+        };
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to check updates for @${owner}/${name}: ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "install_component_bundle",
+    {
+      title: "Install component bundle",
+      description:
+        "Install a registry block/component bundle into a local project, write files under the default install path, and update cozy-registry.lock.json. This requires a projectRoot that is writable by the MCP runtime.",
+      inputSchema: z.object({
+        projectRoot: z
+          .string()
+          .describe("Absolute path to the target project root where files should be installed."),
+        name: z.string().describe("Component name in kebab-case, e.g. hero-section"),
+        owner: z
+          .string()
+          .describe("Owner handle (preferred) or legacy userId."),
+        version: z
+          .string()
+          .optional()
+          .describe("Optional target version. Defaults to the current latest version."),
+      }),
+    },
+    async ({ projectRoot, name, owner, version }) => {
+      try {
+        const { userId, policy } = await getScopedToolContext();
+        const item = await getRegistryItemByOwnerNameAndVersionScoped({
+          ownerId: owner,
+          name,
+          version: version ?? null,
+          requestUserId: userId,
+          policy,
+        });
+
+        if (!item) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Component @${owner}/${name}${version ? `@${version}` : ""} not found (or not allowed by your token scope).`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const canonicalOwner = await getCanonicalOwner(item.userId ?? owner);
+        const selectedVersion = version?.trim() || getCurrentVersion(item);
+        const shadcnItem = toShadcnRegistryItem(item);
+        const coordinate = `@${canonicalOwner}/${item.name}` as RegistryCoordinate;
+        const source = `${getBaseUrl()}/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`;
+        const result = await installRegistryBundle({
+          projectRoot,
+          coordinate,
+          type: item.type,
+          version: selectedVersion,
+          source,
+          files: shadcnItem?.files ?? [],
+        });
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to install component bundle: ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "check_project_updates",
+    {
+      title: "Check project updates",
+      description:
+        "Read cozy-registry.lock.json from a local project and report which installed registry items can be upgraded.",
+      inputSchema: z.object({
+        projectRoot: z
+          .string()
+          .describe("Absolute path to the target project root containing cozy-registry.lock.json."),
+        coordinate: z
+          .string()
+          .optional()
+          .describe("Optional specific coordinate to check, e.g. @acme/hero-section."),
+      }),
+    },
+    async ({ projectRoot, coordinate }) => {
+      try {
+        const lockfile = await readLockfile(projectRoot);
+        const coordinates = coordinate
+          ? [coordinate as RegistryCoordinate]
+          : (Object.keys(lockfile.items) as RegistryCoordinate[]);
+        const fetchImpl = getRegistryFetch();
+        const items = [];
+        for (const itemCoordinate of coordinates) {
+          const result = await checkInstalledItemUpdate({
+            projectRoot,
+            coordinate: itemCoordinate,
+            registryBaseUrl: getBaseUrl(),
+            fetchImpl,
+          });
+          items.push(result.item);
+        }
+
+        const payload = {
+          ok: true,
+          items,
+          summary: {
+            total: items.length,
+            upgradable: items.filter((item) => item.upgradable).length,
+            blockedByConflicts: items.filter((item) => item.hasConflicts).length,
+          },
+        };
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to check project updates: ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "upgrade_component_in_project",
+    {
+      title: "Upgrade component in project",
+      description:
+        "Upgrade an installed Cozy registry item inside a local project. This reads cozy-registry.lock.json, checks for conflicts, and updates files plus the lockfile.",
+      inputSchema: z.object({
+        projectRoot: z
+          .string()
+          .describe("Absolute path to the target project root containing cozy-registry.lock.json."),
+        coordinate: z
+          .string()
+          .describe("Installed coordinate to upgrade, e.g. @acme/hero-section."),
+        toVersion: z
+          .string()
+          .optional()
+          .describe("Optional explicit target version. Defaults to latest."),
+        force: z
+          .boolean()
+          .optional()
+          .describe("Whether to overwrite locally modified files when conflicts are detected."),
+      }),
+    },
+    async ({ projectRoot, coordinate, toVersion, force }) => {
+      try {
+        const result = await upgradeInstalledItem({
+          projectRoot,
+          coordinate: coordinate as RegistryCoordinate,
+          toVersion,
+          force,
+          registryBaseUrl: getBaseUrl(),
+          fetchImpl: getRegistryFetch(),
+        });
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+          isError: !result.ok,
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to upgrade installed component: ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_component_bundle",
+    {
+      title: "Get component bundle",
+      description:
+        "Get the full source bundle for a specific component or block version. Use this for install and upgrade flows, especially for multi-file registry:block bundles.",
+      inputSchema: z.object({
+        name: z.string().describe("Component name in kebab-case, e.g. hero-section"),
+        owner: z
+          .string()
+          .describe("Owner handle (preferred) or legacy userId."),
+        version: z
+          .string()
+          .optional()
+          .describe("Optional target version. Defaults to the current latest version."),
+      }),
+    },
+    async ({ name, owner, version }) => {
+      try {
+        const { userId, policy } = await getScopedToolContext();
+        const item = await getRegistryItemByOwnerNameAndVersionScoped({
+          ownerId: owner,
+          name,
+          version: version ?? null,
+          requestUserId: userId,
+          policy,
+        });
+
+        if (!item) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Component @${owner}/${name}${version ? `@${version}` : ""} not found (or not allowed by your token scope).`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const canonicalOwner = await getCanonicalOwner(item.userId ?? owner);
+        const selectedVersion = version?.trim() || getCurrentVersion(item);
+        const shadcnItem = toShadcnRegistryItem(item);
+        const baseUrl =
+          process.env.NEXT_PUBLIC_APP_URL ??
+          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+        const payload = {
+          ok: true,
+          item: {
+            coordinate: `@${canonicalOwner}/${item.name}`,
+            type: item.type,
+            version: selectedVersion,
+            source: baseUrl
+              ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`
+              : `/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`,
+            files: shadcnItem?.files ?? [],
+          },
+          lockfileEntry: buildLockfileEntry({
+            owner: canonicalOwner,
+            name: item.name,
+            type: item.type,
+            version: selectedVersion,
+            baseUrl,
+            files: shadcnItem?.files,
+          }),
+        };
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to fetch bundle for @${owner}/${name}${version ? `@${version}` : ""}: ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  function normalizeThemeArgs(args: {
+    type: string;
+    files?: Record<string, string> | null;
+    content?: string;
+    code?: string;
+  }): { files?: Record<string, string>; content?: string | undefined } {
+    if (args.type !== "registry:theme") {
+      return { files: args.files as Record<string, string> | undefined, content: args.content ?? args.code };
+    }
+
+    const rawFiles = (args.files || {}) as Record<string, unknown>;
+    const hasFiles = rawFiles && Object.keys(rawFiles).length > 0;
+    let tokensJson = "";
+
+    if (hasFiles && typeof rawFiles["tokens.json"] === "string") {
+      tokensJson = rawFiles["tokens.json"] as string;
+    } else if (typeof args.content === "string" && args.content.trim().startsWith("{")) {
+      tokensJson = args.content;
+    } else if (typeof args.code === "string" && args.code.trim().startsWith("{")) {
+      tokensJson = args.code;
+    }
+
+    if (!tokensJson) {
+      // Fallback: treat content/code as CSS as before
+      return {
+        files: hasFiles
+          ? (Object.fromEntries(
+              Object.entries(rawFiles).filter(([, v]) => typeof v === "string"),
+            ) as Record<string, string>)
+          : undefined,
+        content: args.content ?? args.code,
+      };
+    }
+
+    const tokens = parseTokensFromJson(tokensJson);
+    const css = tokensToRootCss(tokens);
+    if (!css) {
+      throw new Error("Failed to derive CSS from tokens.json (no tokens found)");
+    }
+
+    const files: Record<string, string> = {
+      "theme.css": css,
+      "tokens.json": tokensJson,
+    };
+    return { files, content: undefined };
+  }
 
   server.registerTool("delete_component", {
     title: "Delete component",
@@ -775,7 +1272,31 @@ ${fileContent}
       }
 
       if (files) {
-        const missing = findMissingRelativeImports(files);
+        const bundleValidation = validateComponentBundle(files);
+        if (bundleValidation.invalidFiles?.length) {
+          const list = bundleValidation.invalidFiles
+            .slice(0, 20)
+            .map((x) => `- ${x}`)
+            .join("\n");
+          const more =
+            bundleValidation.invalidFiles.length > 20
+              ? `\n- ... and ${bundleValidation.invalidFiles.length - 20} more`
+              : "";
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  "Multi-file bundle contains invalid code files. Please fix these files before publishing:\n" +
+                  list +
+                  more,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        const missing = bundleValidation.missingImports ?? findMissingRelativeImports(files);
         if (missing.length > 0) {
           const list = missing.slice(0, 20).map((x) => `- ${x}`).join("\n");
           const more = missing.length > 20 ? `\n- ... and ${missing.length - 20} more` : "";
@@ -837,6 +1358,10 @@ ${fileContent}
         };
       }
 
+      // 归一化 theme：若 type === registry:theme，优先将 content / files 中的 JSON 视为 tokens.json，
+      // 并从中派生 theme.css。
+      const normalizedTheme = normalizeThemeArgs(args);
+
       // 如果当前用户已经有同名组件，则视为「发布新版本」，而不是创建新组件。
       const existing = await getRegistryItemByOwnerNameAndVersion(
         userId,
@@ -850,8 +1375,8 @@ ${fileContent}
         const result = await createRegistryItemVersion({
           ownerId: userId,
           name,
-          content: content ?? undefined,
-          files,
+          content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
+          files: normalizedTheme.files ?? files,
           bump: bumpType,
           userId,
           message: description || undefined,
@@ -887,13 +1412,14 @@ ${fileContent}
           }
         };
 
-        if (files) {
-          for (const source of Object.values(files)) {
+        if (normalizedTheme.files ?? files) {
+          const srcFiles = (normalizedTheme.files ?? files) as Record<string, string>;
+          for (const source of Object.values(srcFiles)) {
             if (typeof source !== "string") continue;
             addDepsFromSource(source);
           }
-        } else if (content) {
-          addDepsFromSource(content);
+        } else if (normalizedTheme.content ?? content) {
+          addDepsFromSource(normalizedTheme.content ?? content);
         }
 
         return Array.from(allDeps).sort();
@@ -903,8 +1429,8 @@ ${fileContent}
         type,
         title,
         description: description || null,
-        content: content ?? undefined,
-        files,
+        content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
+        files: normalizedTheme.files ?? files,
         userId,
         visibility: visibility === "private" ? "private" : "public",
         dependencies,
@@ -935,58 +1461,6 @@ ${fileContent}
   });
 
   return server;
-}
-
-function isRelativeImport(specifier: string): boolean {
-  return (
-    specifier.startsWith("./") ||
-    specifier.startsWith("../") ||
-    specifier === "." ||
-    specifier === ".."
-  );
-}
-
-function normalizePosix(p: string): string {
-  return p.replaceAll("\\", "/");
-}
-
-function resolveRelativeImport(importerPath: string, spec: string): string[] {
-  const importer = normalizePosix(importerPath);
-  const dir = path.posix.dirname(importer);
-  const base = normalizePosix(path.posix.normalize(path.posix.join(dir, spec)));
-
-  const hasExt = /\.[a-z0-9]+$/i.test(base);
-  if (hasExt) return [base];
-
-  return [
-    `${base}.ts`,
-    `${base}.tsx`,
-    `${base}.js`,
-    `${base}.jsx`,
-    path.posix.join(base, "index.ts"),
-    path.posix.join(base, "index.tsx"),
-    path.posix.join(base, "index.js"),
-    path.posix.join(base, "index.jsx"),
-  ];
-}
-
-function findMissingRelativeImports(files: Record<string, string>): string[] {
-  const keys = new Set(Object.keys(files).map(normalizePosix));
-  const missing = new Set<string>();
-
-  for (const [filePathRaw, content] of Object.entries(files)) {
-    const filePath = normalizePosix(filePathRaw);
-    if (typeof content !== "string") continue;
-    const imports = extractDependencies(content);
-    for (const spec of imports) {
-      if (!isRelativeImport(spec)) continue;
-      const candidates = resolveRelativeImport(filePath, spec);
-      const ok = candidates.some((c) => keys.has(c));
-      if (!ok) missing.add(`${filePath} -> ${spec}`);
-    }
-  }
-
-  return Array.from(missing).sort();
 }
 
 const APP_HOOK_PATTERNS = [

@@ -4,8 +4,8 @@
 
 相关文档：
 
-- `docs/RESOURCE_TYPES.md`：资源类型总览（样式/图标/组件/Block 的定位与存储形态）
-- `docs/COMPONENT_UPDATES.md`：安装锁文件与升级约定（`cozy-registry.lock.json`、版本查询）
+- `docs/20-engineering/resource-types.md`：资源类型总览（样式/图标/组件/Block 的定位与存储形态）
+- `docs/20-engineering/versioning-and-lockfile.md`：安装锁文件与升级约定（`cozy-registry.lock.json`、版本查询）
 
 ---
 
@@ -196,4 +196,3 @@ resolver 合并输出时需同时合并：
 - 不要求设计师在提交阶段维护全局“唯一 Button”。
 - 不要求所有 Block 都依赖 Library；允许 Block 自包含长期存在。
 - 不在第一版强制实现“自动重写 import”（可以先做到覆盖询问 + 依赖约束）。
-
