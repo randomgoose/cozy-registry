@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "cozy": "tsx bin/cozy-registry.ts",
+    "cozy-registry": "tsx bin/cozy-registry.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
