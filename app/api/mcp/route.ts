@@ -1,5 +1,6 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createRegistryMcpServer } from "@/lib/mcp-tools";
+import { getAuthContextFromToken } from "@/lib/auth-api";
 
 function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null;
@@ -68,7 +69,30 @@ async function handleMcpRequest(request: Request): Promise<Response> {
       enableJsonResponse: true,
     });
     await server.connect(transport);
-    return transport.handleRequest(request);
+    const response = await transport.handleRequest(request);
+
+    // Figma auth probes may negotiate stream mode and receive 202, then spin on retries.
+    // For stateless serverless, convert this specific probe shape into a synchronous JSON success.
+    const isLikelyAuthProbe =
+      request.method === "POST" &&
+      accept.includes("application/json") &&
+      accept.includes("text/event-stream") &&
+      !request.headers.get("mcp-session-id");
+    if (response.status === 202 && isLikelyAuthProbe) {
+      const authCtx = await getAuthContextFromToken(request);
+      if (authCtx) {
+        return Response.json(
+          {
+            jsonrpc: "2.0",
+            result: { ok: true, authenticated: true },
+            id: null,
+          },
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
+
+    return response;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
