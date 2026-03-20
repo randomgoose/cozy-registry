@@ -2,7 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { getRegistryItems } from "@/lib/registry";
 import { auth } from "@/lib/auth";
-import { ConnectToolCard } from "./components/ConnectToolCard";
+import { ConnectToolsDialog } from "./components/ConnectToolsDialog";
 import { RegistryBrowser } from "./components/RegistryBrowser";
 
 export const dynamic = "force-dynamic";
@@ -148,24 +148,7 @@ export default async function Home() {
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-8">
-        <div className="mb-8 grid gap-3 md:grid-cols-2">
-          <ConnectToolCard
-            eyebrow="Figma Make"
-            title="Upload from Figma Make"
-            description="在 Figma Make 里连接 Cozy MCP，直接生成安装计划并把 block 发布到 registry。"
-            actionLabel="打开 Figma Make"
-            actionHref="https://www.figma.com/make/"
-            mcpUrl={mcpUrl}
-          />
-          <ConnectToolCard
-            eyebrow="Cursor"
-            title="Connect Cursor"
-            description="把 Cozy Registry 接进 Cursor，让 agent 能读取 bundle、分析项目状态并规划升级。"
-            actionLabel="打开 Cursor"
-            actionHref="https://www.cursor.com/"
-            mcpUrl={mcpUrl}
-          />
-        </div>
+        <ConnectToolsDialog mcpUrl={mcpUrl} isSignedIn={!!session} />
 
         <RegistryBrowser
           items={items.map((item) => ({
