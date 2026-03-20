@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { getRegistryItems } from "@/lib/registry";
 import { auth } from "@/lib/auth";
+import { ConnectToolCard } from "./components/ConnectToolCard";
 import { RegistryBrowser } from "./components/RegistryBrowser";
 
 export const dynamic = "force-dynamic";
@@ -88,10 +89,15 @@ export default async function Home() {
     );
   }
 
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+  const mcpUrl = appUrl ? `${appUrl}/api/mcp` : "/api/mcp";
+
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
-      <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_30%),linear-gradient(180deg,#fffdf9_0%,#ffffff_42%,#fbfbfc_100%)] dark:bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_22%),linear-gradient(180deg,#09090b_0%,#09090b_100%)]">
+      <header>
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
             Cozy Registry
           </h1>
@@ -141,27 +147,24 @@ export default async function Home() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-10">
-        <div className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                团队组件库，支持复制代码到项目中使用。AI 可通过 MCP 发现并引用这些组件。
-              </p>
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                Figma Make、Cursor 和 MCP 接入指南
-              </h2>
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                查看如何连接 Cozy Registry、生成安装计划，以及在本地项目里写入 lockfile。
-              </p>
-            </div>
-            <Link
-              href="/docs"
-              className="inline-flex rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              打开文档
-            </Link>
-          </div>
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        <div className="mb-8 grid gap-3 md:grid-cols-2">
+          <ConnectToolCard
+            eyebrow="Figma Make"
+            title="Upload from Figma Make"
+            description="在 Figma Make 里连接 Cozy MCP，直接生成安装计划并把 block 发布到 registry。"
+            actionLabel="打开 Figma Make"
+            actionHref="https://www.figma.com/make/"
+            mcpUrl={mcpUrl}
+          />
+          <ConnectToolCard
+            eyebrow="Cursor"
+            title="Connect Cursor"
+            description="把 Cozy Registry 接进 Cursor，让 agent 能读取 bundle、分析项目状态并规划升级。"
+            actionLabel="打开 Cursor"
+            actionHref="https://www.cursor.com/"
+            mcpUrl={mcpUrl}
+          />
         </div>
 
         <RegistryBrowser

@@ -97,8 +97,8 @@ export function ComponentCard({
   }
 
   return (
-    <article className="group overflow-hidden rounded-[24px] border border-zinc-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="relative h-40 w-full overflow-hidden border-b border-zinc-200 bg-[linear-gradient(135deg,rgba(255,247,237,1),rgba(255,255,255,1)_50%,rgba(241,245,249,1))] dark:border-zinc-700 dark:bg-[linear-gradient(135deg,rgba(39,39,42,1),rgba(9,9,11,1))]">
+    <article className="group overflow-hidden rounded-[24px] border border-zinc-200/80 bg-white transition duration-200 hover:-translate-y-0.5 hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700">
+      <div className="relative h-36 w-full overflow-hidden border-b border-zinc-200/80 bg-[linear-gradient(180deg,rgba(255,251,245,1),rgba(255,255,255,1))] dark:border-zinc-800 dark:bg-[linear-gradient(180deg,rgba(39,39,42,0.7),rgba(9,9,11,0.2))]">
         <PreviewFrame
           src={`/preview/${owner}/${name}`}
           title={`${title} 预览`}
@@ -106,10 +106,10 @@ export function ComponentCard({
           allowUpscale={false}
         />
         <div className="absolute inset-x-0 top-0 flex items-start justify-between p-3">
-          <span className="rounded-full border border-white/80 bg-white/85 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-zinc-700 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/80 dark:text-zinc-200">
+          <span className="rounded-full border border-white/80 bg-white/90 px-2.5 py-1 text-[11px] font-semibold tracking-wide text-zinc-700 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/85 dark:text-zinc-200">
             {typeLabel}
           </span>
-          <span className="rounded-full border border-white/80 bg-white/85 px-2.5 py-1 text-[11px] font-medium text-zinc-600 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/80 dark:text-zinc-300">
+          <span className="rounded-full border border-white/80 bg-white/90 px-2.5 py-1 text-[11px] font-medium text-zinc-600 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/85 dark:text-zinc-300">
             {visibility === "private" ? "Private" : "Public"}
           </span>
         </div>
@@ -120,15 +120,20 @@ export function ComponentCard({
           <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
             @{owner}/{name}
           </p>
-          <h2 className="mt-1 font-semibold text-zinc-900 dark:text-zinc-100">
+          <h2 className="mt-1 text-[15px] font-semibold text-zinc-900 dark:text-zinc-100">
             {title}
           </h2>
-          <p className="mt-2 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="mt-2 line-clamp-2 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
             {description || "—"}
           </p>
         </div>
         <div className="flex shrink-0 flex-col gap-2">
-          <Button variant="outline" size="lg" className="shrink-0" onClick={handleCopy}>
+          <Button
+            variant="outline"
+            size="lg"
+            className="shrink-0 rounded-full border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-950"
+            onClick={handleCopy}
+          >
             {copied ? "已复制" : "复制代码"}
           </Button>
 
@@ -137,7 +142,13 @@ export function ComponentCard({
               onClick={() => {
                 void ensureCollectionsLoaded();
               }}
-              render={<Button variant="outline" size="lg" className="shrink-0" />}
+              render={
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="shrink-0 rounded-full border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-950"
+                />
+              }
             >
               加入 Collection
             </DialogTrigger>
@@ -191,13 +202,13 @@ export function ComponentCard({
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-t border-zinc-200 px-5 py-3 text-sm dark:border-zinc-700">
+      <div className="flex items-center justify-between border-t border-zinc-200/80 px-5 py-3 text-sm dark:border-zinc-800">
         <span className="text-zinc-500 dark:text-zinc-400">
           预览、复制代码、查看接入方式
         </span>
         <a
           href={`/registry/${owner}/${name}`}
-          className="font-medium text-amber-700 transition group-hover:translate-x-0.5 hover:underline dark:text-amber-300"
+          className="font-medium text-zinc-900 transition group-hover:translate-x-0.5 hover:underline dark:text-zinc-100"
         >
           查看详情 →
         </a>

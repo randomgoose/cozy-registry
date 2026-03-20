@@ -10,7 +10,12 @@ const CODE_TTL_MS = 10 * 60 * 1000; // 10 min
 const API_KEY_PREFIX = "vbr_";
 
 export function getBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.APP_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined) ??
+    "http://localhost:3000"
+  );
 }
 
 export function getMcpResourceUrl(): string {
