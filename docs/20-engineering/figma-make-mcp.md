@@ -64,6 +64,7 @@ https://cozy-registry.vercel.app
 | `get_component_bundle` | Read | 获取指定版本的完整 bundle，供安装与升级使用 |
 | `plan_component_install` | Read | 返回安装计划、默认目标路径和 lockfile 条目，不直接写文件系统 |
 | `plan_component_upgrade` | Read | 返回升级计划、目标版本和下一版 lockfile 条目，不直接写文件系统 |
+| `analyze_project_registry` | Read | 汇总项目当前安装状态、可升级项和推荐下一步，支持直接传 `projectStatus` 快照 |
 | `check_component_update` | Read | 检查某个已安装版本是否存在更新 |
 | `install_component_bundle` | Write | 将 bundle 安装到本地项目并写入 lockfile（需要 MCP 运行环境可写项目目录） |
 | `get_project_registry_status` | Read | 检查项目是否存在 lockfile，以及某个组件是否真的已登记到 lockfile |
@@ -84,10 +85,16 @@ https://cozy-registry.vercel.app
 在 Figma Make 这类远程 AI 环境中，推荐优先使用：
 
 1. `get_component_bundle`
-2. `plan_component_install` 或 `plan_component_upgrade`
+2. `plan_component_install`、`plan_component_upgrade` 或 `analyze_project_registry`
 3. 只有在确认存在真实可写项目目录时，才调用 `install_component_bundle` 或 `upgrade_component_in_project`
 
 如果没有稳定的本地文件系统上下文，优先把 `plan_*` 结果交给本地 CLI、本地 MCP 或有 workspace root 的 agent 执行。
+
+当你想让 AI 回答“这个项目里已经装了什么、哪些值得优先升级”时，优先顺序建议是：
+
+1. `get_project_registry_status`（若能访问本地项目）
+2. `analyze_project_registry`
+3. 若发现某个条目可升级，再调用 `plan_component_upgrade`
 
 ---
 

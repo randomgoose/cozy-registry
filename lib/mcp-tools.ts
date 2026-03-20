@@ -28,10 +28,12 @@ import { registryCollections } from "./db/schema";
 import { parseTokensFromJson, tokensToRootCss } from "./theme-tokens";
 import {
   checkInstalledItemUpdate,
+  checkRegistryStatusItemUpdate,
   getProjectRegistryStatus,
   installRegistryBundle,
   readLockfile,
   upgradeInstalledItem,
+  type ProjectRegistryStatusItem,
   type RegistryCoordinate,
 } from "./install-protocol";
 import { getBaseUrl } from "./oauth";
@@ -1093,6 +1095,193 @@ ${fileContent}
             {
               type: "text" as const,
               text: `Failed to read project registry status: ${msg}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "analyze_project_registry",
+    {
+      title: "Analyze project registry",
+      description:
+        "Summarize a project's Cozy install state and upgrade opportunities in one response. This works either with a live projectRoot or with a previously captured projectStatus snapshot, so it is suitable for Figma Make and other remote AI tools.",
+      inputSchema: z.object({
+        projectRoot: z
+          .string()
+          .optional()
+          .describe("Optional absolute path to the target project root."),
+        projectStatus: z
+          .object({
+            projectRoot: z.string().optional(),
+            lockfilePath: z.string().optional(),
+            lockfileExists: z.boolean().optional(),
+            itemCount: z.number().optional(),
+            items: z
+              .array(
+                z.object({
+                  coordinate: z.string(),
+                  type: z.string(),
+                  version: z.string(),
+                  source: z.string(),
+                  installedFiles: z.array(z.string()),
+                }),
+              )
+              .optional(),
+            summary: z.string().optional(),
+          })
+          .optional()
+          .describe(
+            "Optional install-state snapshot, usually from get_project_registry_status. Use this in remote AI tools when projectRoot is not available.",
+          ),
+        coordinate: z
+          .string()
+          .optional()
+          .describe("Optional specific coordinate to focus on, e.g. @acme/hero-section."),
+      }),
+    },
+    async ({ projectRoot, projectStatus, coordinate }) => {
+      try {
+        let statusPayload:
+          | {
+              projectRoot: string;
+              lockfilePath: string;
+              lockfileExists: boolean;
+              itemCount: number;
+              items: ProjectRegistryStatusItem[];
+              summary: string;
+            }
+          | undefined;
+
+        if (projectRoot?.trim()) {
+          statusPayload = await getProjectRegistryStatus({
+            projectRoot,
+            coordinate: coordinate as RegistryCoordinate | undefined,
+          });
+        } else if (projectStatus) {
+          const items = (projectStatus.items ?? [])
+            .filter((item) =>
+              coordinate ? item.coordinate === coordinate : true,
+            )
+            .map((item) => ({
+              coordinate: item.coordinate as RegistryCoordinate,
+              type: item.type,
+              version: item.version,
+              source: item.source,
+              installedFiles: item.installedFiles,
+            }));
+
+          statusPayload = {
+            projectRoot: projectStatus.projectRoot ?? "",
+            lockfilePath: projectStatus.lockfilePath ?? "cozy-registry.lock.json",
+            lockfileExists: projectStatus.lockfileExists ?? false,
+            itemCount: items.length,
+            items,
+            summary:
+              projectStatus.summary ??
+              (items.length === 0
+                ? "No installed Cozy Registry items were provided."
+                : `Received ${items.length} installed item${items.length === 1 ? "" : "s"} from projectStatus.`),
+          };
+        }
+
+        if (!statusPayload) {
+          throw new Error(
+            "Provide either projectRoot or projectStatus so Cozy can analyze the install state.",
+          );
+        }
+
+        if (!statusPayload.lockfileExists || statusPayload.items.length === 0) {
+          const emptyPayload = {
+            ok: true,
+            state: statusPayload.lockfileExists ? "no_installed_items" : "missing_lockfile",
+            project: {
+              projectRoot: statusPayload.projectRoot,
+              lockfilePath: statusPayload.lockfilePath,
+              lockfileExists: statusPayload.lockfileExists,
+              itemCount: statusPayload.items.length,
+            },
+            items: [],
+            summary: statusPayload.summary,
+            recommendedActions: statusPayload.lockfileExists
+              ? [
+                  "Install a block first, then run this analysis again.",
+                  "If you are in Figma Make, ask for get_component_bundle and plan_component_install before attempting installation.",
+                ]
+              : [
+                  "Create or update cozy-registry.lock.json by installing a Cozy block into the project.",
+                  "If you are in a remote AI tool, use get_project_registry_status after installation and pass the result back into analyze_project_registry.",
+                ],
+          };
+
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(emptyPayload, null, 2) }],
+          };
+        }
+
+        const fetchImpl = getRegistryFetch();
+        const items = [];
+        for (const item of statusPayload.items) {
+          const update = await checkRegistryStatusItemUpdate({
+            item,
+            registryBaseUrl: getBaseUrl(),
+            fetchImpl,
+          });
+
+          items.push({
+            coordinate: update.item.coordinate,
+            type: update.item.type,
+            installedVersion: update.item.installedVersion,
+            latestVersion: update.item.latestVersion,
+            upgradable: update.item.upgradable,
+            installedFiles: update.item.installedFiles,
+            source: update.item.source,
+            recommendedAction: update.item.upgradable
+              ? `Plan an upgrade for ${update.item.coordinate}.`
+              : `Keep ${update.item.coordinate} at v${update.item.installedVersion}.`,
+          });
+        }
+
+        const upgradableItems = items.filter((item) => item.upgradable);
+        const payload = {
+          ok: true,
+          state: upgradableItems.length > 0 ? "updates_available" : "up_to_date",
+          project: {
+            projectRoot: statusPayload.projectRoot,
+            lockfilePath: statusPayload.lockfilePath,
+            lockfileExists: statusPayload.lockfileExists,
+            itemCount: items.length,
+          },
+          items,
+          summary:
+            upgradableItems.length > 0
+              ? `${upgradableItems.length} of ${items.length} installed item${items.length === 1 ? "" : "s"} can be upgraded.`
+              : `All ${items.length} installed item${items.length === 1 ? "" : "s"} are up to date.`,
+          recommendedActions:
+            upgradableItems.length > 0
+              ? [
+                  "Use plan_component_upgrade for the highest-priority item before attempting an upgrade.",
+                  "If you are in a local runtime with filesystem access, you can then run upgrade_component_in_project.",
+                ]
+              : [
+                  "No upgrade is required right now.",
+                  "If you are evaluating a new block, use get_component_bundle and plan_component_install for the next install.",
+                ],
+        };
+
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to analyze project registry status: ${msg}`,
             },
           ],
           isError: true,

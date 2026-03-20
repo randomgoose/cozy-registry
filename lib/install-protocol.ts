@@ -19,6 +19,14 @@ export type CozyLockfileItem = {
   meta?: Record<string, unknown>;
 };
 
+export type ProjectRegistryStatusItem = {
+  coordinate: RegistryCoordinate;
+  type: string;
+  version: string;
+  source: string;
+  installedFiles: string[];
+};
+
 export type CheckInstalledItemResult = {
   ok: true;
   item: {
@@ -56,13 +64,7 @@ export type ProjectRegistryStatusResult = {
   lockfilePath: string;
   lockfileExists: boolean;
   itemCount: number;
-  items: Array<{
-    coordinate: RegistryCoordinate;
-    type: string;
-    version: string;
-    source: string;
-    installedFiles: string[];
-  }>;
+  items: ProjectRegistryStatusItem[];
   summary: string;
 };
 
@@ -196,29 +198,49 @@ export async function checkInstalledItemUpdate(params: {
     throw new Error(`Installed item not found in lockfile: ${params.coordinate}`);
   }
 
+  return checkRegistryStatusItemUpdate({
+    item: {
+      coordinate: params.coordinate,
+      type: lockItem.type,
+      version: lockItem.version,
+      source: lockItem.source,
+      installedFiles: lockItem.installedFiles,
+    },
+    registryBaseUrl: params.registryBaseUrl,
+    fetchImpl,
+  });
+}
+
+export async function checkRegistryStatusItemUpdate(params: {
+  item: ProjectRegistryStatusItem;
+  registryBaseUrl?: string;
+  fetchImpl?: FetchLike;
+}): Promise<CheckInstalledItemResult> {
+  const fetchImpl = params.fetchImpl ?? fetch;
+
   const latestVersion = await fetchLatestVersion({
-    coordinate: params.coordinate,
-    source: lockItem.source,
+    coordinate: params.item.coordinate,
+    source: params.item.source,
     registryBaseUrl: params.registryBaseUrl,
     fetchImpl,
   });
 
-  const upgradable = latestVersion !== lockItem.version;
+  const upgradable = latestVersion !== params.item.version;
   return {
     ok: true,
     item: {
-      coordinate: params.coordinate,
-      type: lockItem.type,
-      installedVersion: lockItem.version,
+      coordinate: params.item.coordinate,
+      type: params.item.type,
+      installedVersion: params.item.version,
       latestVersion,
       upgradable,
       hasConflicts: false,
-      source: lockItem.source,
-      installedFiles: lockItem.installedFiles,
+      source: params.item.source,
+      installedFiles: params.item.installedFiles,
     },
     summary: upgradable
-      ? `Upgradable from v${lockItem.version} to v${latestVersion}.`
-      : `Already up to date at v${lockItem.version}.`,
+      ? `Upgradable from v${params.item.version} to v${latestVersion}.`
+      : `Already up to date at v${params.item.version}.`,
   };
 }
 
