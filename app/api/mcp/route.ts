@@ -2,6 +2,12 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { createRegistryMcpServer } from "@/lib/mcp-tools";
 import { getCanonicalBaseUrlFromRequest } from "@/lib/oauth";
 
+function extractBearerToken(authHeader: string | null): string | null {
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
 // Stateless mode: create fresh server + transport per request (required for serverless).
 // Reusing stateless transport causes message ID collisions.
 //
@@ -29,7 +35,7 @@ function standaloneSseNoopResponse(): Response {
 
 async function handleMcpRequest(request: Request): Promise<Response> {
   const authHeader = request.headers.get("authorization");
-  const hasToken = !!(authHeader?.startsWith("Bearer ") && authHeader.slice(7).trim());
+  const hasToken = !!extractBearerToken(authHeader);
   if (!hasToken) {
     const baseUrl = getCanonicalBaseUrlFromRequest(request);
     const prmUrl = `${baseUrl}/.well-known/oauth-protected-resource`;

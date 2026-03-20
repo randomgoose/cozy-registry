@@ -5,6 +5,12 @@ export type TokenAuthContext = {
   apiKeyId: string;
 };
 
+function extractBearerToken(authHeader: string | null): string | null {
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
 /**
  * Validate Bearer token from Authorization header or x-api-key.
  * Returns { userId, apiKeyId } if valid, null otherwise.
@@ -13,8 +19,7 @@ export async function getAuthContextFromToken(
   request: Request,
 ): Promise<TokenAuthContext | null> {
   const authHeader = request.headers.get("authorization");
-  const token =
-    authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : request.headers.get("x-api-key");
+  const token = extractBearerToken(authHeader) ?? request.headers.get("x-api-key");
   if (!token) return null;
 
   try {
