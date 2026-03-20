@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { getRegistryItems } from "@/lib/registry";
-import { ComponentCard } from "./components/ComponentCard";
 import { auth } from "@/lib/auth";
+import { RegistryBrowser } from "./components/RegistryBrowser";
 
 export const dynamic = "force-dynamic";
 
@@ -16,15 +16,14 @@ export default async function Home() {
   let items: Awaited<ReturnType<typeof getRegistryItems>> = [];
   let dbError = false;
   try {
-    items = await getRegistryItems();
+    items = await getRegistryItems(session?.user?.id ?? null);
   } catch (err) {
     console.error("Failed to load registry:", err);
     dbError = true;
   }
 
   if (dbError) {
-    const hasEnv =
-      !!(process.env.DATABASE_URL || process.env.POSTGRES_URL);
+    const hasEnv = !!(process.env.DATABASE_URL || process.env.POSTGRES_URL);
     return (
       <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
         <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -139,12 +138,12 @@ export default async function Home() {
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-10">
-        <p className="mb-8 text-zinc-600 dark:text-zinc-400">
-          团队组件库，支持复制代码到项目中使用。AI 可通过 MCP 发现并引用这些组件。
-        </p>
         <div className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                团队组件库，支持复制代码到项目中使用。AI 可通过 MCP 发现并引用这些组件。
+              </p>
               <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
                 Figma Make、Cursor 和 MCP 接入指南
               </h2>
@@ -161,28 +160,19 @@ export default async function Home() {
           </div>
         </div>
 
-        {items.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-zinc-300 py-16 text-center text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-            暂无组件，{" "}
-            <Link href="/publish" className="text-blue-600 hover:underline dark:text-blue-400">
-              发布第一个
-            </Link>
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {items.map((item) => (
-              <ComponentCard
-                key={item.id}
-                itemId={item.id}
-                owner={item.ownerHandle ?? item.userId ?? "legacy"}
-                name={item.name}
-                title={item.title}
-                description={item.description}
-                type={item.type}
-              />
-            ))}
-          </div>
-        )}
+        <RegistryBrowser
+          items={items.map((item) => ({
+            id: item.id,
+            itemId: item.id,
+            owner: item.ownerHandle ?? item.userId ?? "legacy",
+            name: item.name,
+            title: item.title,
+            description: item.description,
+            type: item.type,
+            visibility: item.visibility,
+          }))}
+          isSignedIn={!!session}
+        />
       </main>
     </div>
   );

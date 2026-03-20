@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CodeBlock } from "./CodeBlock";
+import { ThemeTokenEditor } from "./ThemeTokenEditor";
 import { Button } from "@/components/ui/button";
 import { PreviewFrame } from "@/app/components/PreviewFrame";
 import {
@@ -122,6 +123,9 @@ export function ComponentDetail({
           localSelectedVersion,
         )}`
       : `/preview/${owner}/${name}`;
+  const isTheme = type === "registry:theme";
+  const canEditTheme =
+    isTheme && isOwner && localSelectedVersion === currentVersion;
 
   function handleVersionChange(e: ChangeEvent<HTMLSelectElement>) {
     const v = e.target.value;
@@ -229,7 +233,7 @@ export function ComponentDetail({
                     {versions.length > 1 && (
                       <select
                         aria-label="选择版本"
-                        value={selectedVersion}
+                        value={localSelectedVersion}
                         onChange={handleVersionChange}
                         className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
                       >
@@ -412,7 +416,7 @@ export function ComponentDetail({
         <section className="mb-8">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-              组件预览
+              {isTheme ? "主题预览" : "组件预览"}
             </h2>
             <Link
               href={previewHref}
@@ -485,22 +489,38 @@ export function ComponentDetail({
 
         <section className="mb-8 space-y-4">
           <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-            用于项目
+            {isTheme ? "用于项目或设计工具" : "用于项目"}
           </h2>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            引用路径：<code className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200">
-              @{owner}/{name}
-            </code>
-            ，或从本页复制下方代码到你的项目中。
-            {versions.length > 1 && (
-              <span className="mt-1 block text-zinc-500 dark:text-zinc-500">
-                选择具体版本后，安装命令会带上 <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-700">?v=x.y.z</code>，便于锁定版本或后续按需升级。
-              </span>
+            {isTheme ? (
+              <>
+                主题可以直接导出为 CSS，或导出为 W3C 兼容的 Design Tokens JSON，供设计工具、构建脚本或项目的样式系统接入。
+                <span className="mt-1 block text-zinc-500 dark:text-zinc-500">
+                  引用路径：<code className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200">
+                    @{owner}/{name}
+                  </code>
+                  。如果要锁定版本，仍然可以通过下方命令附带 <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-700">?v=x.y.z</code>。
+                </span>
+              </>
+            ) : (
+              <>
+                引用路径：<code className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200">
+                  @{owner}/{name}
+                </code>
+                ，或从本页复制下方代码到你的项目中。
+                {versions.length > 1 && (
+                  <span className="mt-1 block text-zinc-500 dark:text-zinc-500">
+                    选择具体版本后，安装命令会带上 <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-700">?v=x.y.z</code>，便于锁定版本或后续按需升级。
+                  </span>
+                )}
+              </>
             )}
           </p>
           <div>
             <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
-              shadcn CLI（需已安装 shadcn）：复制命令后在项目根目录执行
+              {isTheme
+                ? "Theme 也可以通过 registry URL 分发；如果你在项目里用 shadcn registry 流程，可以复制这条命令。"
+                : "shadcn CLI（需已安装 shadcn）：复制命令后在项目根目录执行"}
             </p>
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-100 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
               <code className="min-w-0 flex-1 break-all font-mono text-sm text-zinc-800 dark:text-zinc-200">
@@ -524,16 +544,27 @@ export function ComponentDetail({
           </div>
         </section>
 
+        {isTheme && (
+          <ThemeTokenEditor
+            owner={owner}
+            name={name}
+            title={title}
+            code={code}
+            isOwner={isOwner}
+            canSave={canEditTheme}
+          />
+        )}
+
         <section>
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-              TSX
+              {isTheme ? "CSS 源码" : "TSX"}
             </span>
             <Button variant="ghost" size="sm" onClick={handleCopy}>
               {copied ? "已复制" : "复制"}
             </Button>
           </div>
-          <CodeBlock code={code} language={type === "registry:theme" ? "css" : "tsx"} />
+          <CodeBlock code={code} language={isTheme ? "css" : "tsx"} />
         </section>
       </main>
     </div>
