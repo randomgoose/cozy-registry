@@ -1,6 +1,4 @@
 #!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
 corepack pnpm lint &&
 corepack pnpm exec tsc --noEmit &&
-npm test
+corepack pnpm test
