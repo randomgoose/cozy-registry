@@ -1,14 +1,37 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createRegistryMcpServer } from "@/lib/mcp-tools";
-import { getBaseUrl } from "@/lib/oauth";
+import { getCanonicalBaseUrlFromRequest } from "@/lib/oauth";
 
 // Stateless mode: create fresh server + transport per request (required for serverless).
 // Reusing stateless transport causes message ID collisions.
+//
+// Default SSE mode opens a long-lived stream; clients often follow POST with a GET for a
+// second SSE channel. Each serverless invocation uses a *new* transport, so that GET
+// sees an uninitialized stream and never receives events — Figma Connectors can spin forever.
+// JSON responses complete each RPC in one response body, which fits serverless.
+function standaloneSseNoopResponse(): Response {
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      // Close immediately so clients don’t wait on an empty stream (new transport per invoke).
+      controller.enqueue(enc.encode(": noop\n\n"));
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+    },
+  });
+}
+
 async function handleMcpRequest(request: Request): Promise<Response> {
   const authHeader = request.headers.get("authorization");
   const hasToken = !!(authHeader?.startsWith("Bearer ") && authHeader.slice(7).trim());
   if (!hasToken) {
-    const baseUrl = getBaseUrl();
+    const baseUrl = getCanonicalBaseUrlFromRequest(request);
     const prmUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
     return new Response(
       JSON.stringify({
@@ -29,10 +52,18 @@ async function handleMcpRequest(request: Request): Promise<Response> {
     );
   }
 
+  // Second-channel GET SSE would use a fresh transport with no shared state; the SDK would
+  // return an open stream that never receives events. Short-circuit after auth.
+  const accept = request.headers.get("accept") ?? "";
+  if (request.method === "GET" && accept.includes("text/event-stream")) {
+    return standaloneSseNoopResponse();
+  }
+
   try {
     const server = createRegistryMcpServer(request);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless for serverless
+      enableJsonResponse: true,
     });
     await server.connect(transport);
     return transport.handleRequest(request);

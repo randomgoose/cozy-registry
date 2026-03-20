@@ -9,6 +9,12 @@ const FIGMA_REDIRECT_URI = "https://www.figma.com/oauth/mcp/callback";
 const CODE_TTL_MS = 10 * 60 * 1000; // 10 min
 const API_KEY_PREFIX = "vbr_";
 
+/**
+ * Public origin from env only. Used when there is no incoming Request (e.g. CLI).
+ *
+ * Note: `NEXT_PUBLIC_*` is inlined at **build time** in Next.js. If you change it in
+ * Vercel without a new deployment, bundles may still fall through to `VERCEL_URL`.
+ */
 export function getBaseUrl(): string {
   return (
     process.env.NEXT_PUBLIC_APP_URL ??
@@ -16,6 +22,24 @@ export function getBaseUrl(): string {
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined) ??
     "http://localhost:3000"
   );
+}
+
+/**
+ * Prefer the Host the client actually used (custom domain on Vercel, etc.) so OAuth /
+ * MCP metadata match the MCP URL users configure in Figma.
+ */
+export function getCanonicalBaseUrlFromRequest(request: Request): string {
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const host =
+    forwardedHost?.split(",")[0]?.trim() || request.headers.get("host")?.trim();
+  if (!host) {
+    return getBaseUrl();
+  }
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const proto =
+    forwardedProto?.split(",")[0]?.trim() ||
+    (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https");
+  return `${proto}://${host}`;
 }
 
 export function getMcpResourceUrl(): string {

@@ -11,6 +11,9 @@ export async function POST(request: Request) {
     const text = await request.text();
     body = Object.fromEntries(new URLSearchParams(text)) as Record<string, string>;
   } else {
+    console.error("[OAuth] token invalid content type", {
+      contentType,
+    });
     return NextResponse.json(
       { error: "invalid_request", error_description: "Content-Type must be application/json or application/x-www-form-urlencoded" },
       { status: 400 }
@@ -37,12 +40,19 @@ export async function POST(request: Request) {
   const codeVerifier = body.code_verifier;
 
   if (grantType !== "authorization_code") {
+    console.error("[OAuth] token unsupported grant", { grantType });
     return NextResponse.json(
       { error: "unsupported_grant_type", error_description: "grant_type=authorization_code only" },
       { status: 400 }
     );
   }
   if (!code || !redirectUri || !clientId) {
+    console.error("[OAuth] token missing required fields", {
+      hasCode: !!code,
+      hasRedirectUri: !!redirectUri,
+      hasClientId: !!clientId,
+      hasCodeVerifier: !!codeVerifier,
+    });
     return NextResponse.json(
       { error: "invalid_request", error_description: "code, redirect_uri, client_id required" },
       { status: 400 }
@@ -51,14 +61,24 @@ export async function POST(request: Request) {
 
   const client = getOAuthClient();
   if (clientId !== client.clientId) {
+    console.error("[OAuth] token invalid client id", { clientId });
     return NextResponse.json({ error: "invalid_client" }, { status: 401 });
   }
   if (client.clientSecret && clientSecret !== client.clientSecret) {
+    console.error("[OAuth] token invalid client secret", {
+      clientId,
+      hasClientSecret: !!clientSecret,
+    });
     return NextResponse.json({ error: "invalid_client" }, { status: 401 });
   }
 
   const userId = await consumeAuthorizationCode(code, clientId, redirectUri, codeVerifier);
   if (!userId) {
+    console.error("[OAuth] token invalid grant", {
+      clientId,
+      redirectUri,
+      hasCodeVerifier: !!codeVerifier,
+    });
     return NextResponse.json(
       { error: "invalid_grant", error_description: "Invalid or expired authorization code" },
       { status: 400 }
@@ -67,10 +87,24 @@ export async function POST(request: Request) {
 
   const accessToken = await createApiKeyForOAuth(userId);
 
-  return NextResponse.json({
-    access_token: accessToken,
-    token_type: "Bearer",
-    expires_in: null,
-    scope: "mcp:tools",
+  console.info("[OAuth] token issued access token", {
+    clientId,
+    redirectUri,
+    userId,
+    hasCodeVerifier: !!codeVerifier,
   });
+
+  return NextResponse.json(
+    {
+      access_token: accessToken,
+      token_type: "Bearer",
+      scope: "mcp:tools",
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store",
+        Pragma: "no-cache",
+      },
+    },
+  );
 }

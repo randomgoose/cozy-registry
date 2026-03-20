@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import {
   validateClient,
   createAuthorizationCode,
-  getBaseUrl,
+  getCanonicalBaseUrlFromRequest,
 } from "@/lib/oauth";
 
 export async function GET(request: Request) {
@@ -32,6 +32,11 @@ export async function GET(request: Request) {
 
   const validation = validateClient(clientId, redirectUri);
   if (!validation.valid) {
+    console.error("[OAuth] authorize GET invalid client", {
+      clientId,
+      redirectUri,
+      error: validation.error,
+    });
     return NextResponse.json(
       { error: validation.error, error_description: "Invalid client or redirect_uri" },
       { status: 400 }
@@ -40,10 +45,28 @@ export async function GET(request: Request) {
 
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
-    const baseUrl = getBaseUrl();
+    console.info("[OAuth] authorize GET redirect to sign-in", {
+      clientId,
+      redirectUri,
+      hasState: !!state,
+      hasScope: !!scope,
+      hasCodeChallenge: !!codeChallenge,
+      codeChallengeMethod,
+    });
+    const baseUrl = getCanonicalBaseUrlFromRequest(request);
     const signInUrl = `${baseUrl}/sign-in?callbackUrl=${encodeURIComponent(request.url)}`;
     return NextResponse.redirect(signInUrl);
   }
+
+  console.info("[OAuth] authorize GET ready", {
+    clientId,
+    redirectUri,
+    userId: session.user.id,
+    hasState: !!state,
+    hasScope: !!scope,
+    hasCodeChallenge: !!codeChallenge,
+    codeChallengeMethod,
+  });
 
   const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri });
   if (state) params.set("state", state);
@@ -98,6 +121,11 @@ export async function POST(request: Request) {
 
   const validation = validateClient(clientId, redirectUri);
   if (!validation.valid) {
+    console.error("[OAuth] authorize POST invalid client", {
+      clientId,
+      redirectUri,
+      error: validation.error,
+    });
     return NextResponse.json(
       { error: validation.error, error_description: "Invalid client or redirect_uri" },
       { status: 400 }
@@ -106,6 +134,10 @@ export async function POST(request: Request) {
 
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
+    console.error("[OAuth] authorize POST access denied", {
+      clientId,
+      redirectUri,
+    });
     return NextResponse.json(
       { error: "access_denied", error_description: "Not signed in" },
       { status: 403 }
@@ -120,6 +152,16 @@ export async function POST(request: Request) {
     state: state ?? null,
     codeChallenge: codeChallenge ?? null,
     codeChallengeMethod: codeChallengeMethod ?? null,
+  });
+
+  console.info("[OAuth] authorize POST issued code", {
+    clientId,
+    redirectUri,
+    userId: session.user.id,
+    hasState: !!state,
+    hasScope: !!scope,
+    hasCodeChallenge: !!codeChallenge,
+    codeChallengeMethod,
   });
 
   const redirect = new URL(redirectUri);

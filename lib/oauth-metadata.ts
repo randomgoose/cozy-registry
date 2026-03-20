@@ -1,7 +1,6 @@
-import { getBaseUrl, getMcpResourceUrl, getOAuthClient } from "@/lib/oauth";
+import { getBaseUrl, getOAuthClient } from "@/lib/oauth";
 
-export function getAuthorizationServerMetadata() {
-  const baseUrl = getBaseUrl();
+export function getAuthorizationServerMetadata(baseUrl: string = getBaseUrl()) {
   const client = getOAuthClient();
 
   return {
@@ -18,11 +17,9 @@ export function getAuthorizationServerMetadata() {
   };
 }
 
-export function getProtectedResourceMetadata() {
-  const baseUrl = getBaseUrl();
-
+export function getProtectedResourceMetadata(baseUrl: string = getBaseUrl()) {
   return {
-    resource: getMcpResourceUrl(),
+    resource: `${baseUrl}/api/mcp`,
     authorization_servers: [baseUrl],
     scopes_supported: ["mcp:tools"],
   };
