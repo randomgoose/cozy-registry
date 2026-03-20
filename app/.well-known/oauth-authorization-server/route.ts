@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthorizationServerMetadata } from "@/lib/oauth-metadata";
 
-/**
- * OAuth 2.0 Authorization Server Metadata (RFC 8414).
- * Clients use this to find authorization_endpoint and token_endpoint.
- */
 export async function GET() {
   return NextResponse.json(getAuthorizationServerMetadata(), {
     headers: {

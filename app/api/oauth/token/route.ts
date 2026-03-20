@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getOAuthClient, consumeAuthorizationCode, createApiKeyForOAuth } from "@/lib/oauth";
 
 export async function POST(request: Request) {
+  const basicAuth = request.headers.get("authorization");
   let body: Record<string, string>;
   const contentType = request.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
@@ -16,11 +17,23 @@ export async function POST(request: Request) {
     );
   }
 
+  let basicClientId: string | undefined;
+  let basicClientSecret: string | undefined;
+
+  if (basicAuth?.startsWith("Basic ")) {
+    try {
+      const decoded = Buffer.from(basicAuth.slice(6), "base64").toString("utf8");
+      [basicClientId, basicClientSecret] = decoded.split(":", 2);
+    } catch {
+      return NextResponse.json({ error: "invalid_client" }, { status: 401 });
+    }
+  }
+
   const grantType = body.grant_type;
   const code = body.code;
   const redirectUri = body.redirect_uri;
-  const clientId = body.client_id;
-  const clientSecret = body.client_secret;
+  const clientId = body.client_id ?? basicClientId;
+  const clientSecret = body.client_secret ?? basicClientSecret;
 
   if (grantType !== "authorization_code") {
     return NextResponse.json(

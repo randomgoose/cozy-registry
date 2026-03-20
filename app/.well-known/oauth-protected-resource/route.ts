@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { getProtectedResourceMetadata } from "@/lib/oauth-metadata";
 
-/**
- * Protected Resource Metadata (RFC 9728) for MCP OAuth discovery.
- * Figma Make and other MCP clients fetch this to find the authorization server.
- */
 export async function GET() {
   return NextResponse.json(getProtectedResourceMetadata(), {
     headers: {
