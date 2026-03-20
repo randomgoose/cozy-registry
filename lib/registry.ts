@@ -10,6 +10,12 @@ import {
 } from "./db/schema";
 import { resolveOwner } from "@/lib/owner";
 import type { RegistryPolicy } from "@/lib/registry-policy";
+import {
+  REGISTRY_BLOCK_TYPE,
+  REGISTRY_THEME_TYPE,
+  REGISTRY_UI_TYPE,
+  normalizeRegistryItemType,
+} from "@/lib/registry-types";
 
 const INITIAL_VERSION = "0.1.0";
 
@@ -441,7 +447,7 @@ export async function createRegistryItemVersion(params: {
       throw new Error("Either files or content must be provided when creating new version");
     }
     const entryPath = item.files[0]?.path
-      ?? (item.type === "registry:theme"
+      ?? (normalizeRegistryItemType(item.type) === REGISTRY_THEME_TYPE
         ? "theme.css"
         : `registry/modules/${params.name}.tsx`);
     return { [entryPath]: params.content };
@@ -454,7 +460,9 @@ export async function createRegistryItemVersion(params: {
   }[] = [];
 
   for (const [pathKey, rawContent] of Object.entries(normalizedFiles)) {
-    const isCss = item.type === "registry:theme" || pathKey.toLowerCase().endsWith(".css");
+    const isCss =
+      normalizeRegistryItemType(item.type) === REGISTRY_THEME_TYPE ||
+      pathKey.toLowerCase().endsWith(".css");
     const contentWithHeader = withCozyHeader({
       ownerId: params.ownerId,
       name: params.name,
@@ -593,7 +601,10 @@ export function toShadcnRegistryItem(
 
   const base = {
     name: item.name,
-    type: item.type as "registry:block" | "registry:component" | "registry:theme",
+    type: normalizeRegistryItemType(item.type) as
+      | typeof REGISTRY_BLOCK_TYPE
+      | typeof REGISTRY_UI_TYPE
+      | typeof REGISTRY_THEME_TYPE,
     title: item.title,
     description: item.description ?? undefined,
     dependencies: (item.dependencies ?? []) as string[],
@@ -603,7 +614,10 @@ export function toShadcnRegistryItem(
   const files = item.files.map((f) => ({
     path: f.path,
     content: f.content,
-    type: f.type as "registry:block" | "registry:component" | "registry:theme",
+    type: normalizeRegistryItemType(f.type) as
+      | typeof REGISTRY_BLOCK_TYPE
+      | typeof REGISTRY_UI_TYPE
+      | typeof REGISTRY_THEME_TYPE,
   }));
 
   return { ...base, files };
@@ -664,7 +678,7 @@ export async function createRegistryItem(data: {
     .insert(registryItems)
     .values({
       name: data.name,
-      type: data.type,
+      type: normalizeRegistryItemType(data.type),
       title: data.title,
       description: data.description ?? null,
       userId: data.userId ?? null,
@@ -692,7 +706,7 @@ export async function createRegistryItem(data: {
       throw new Error("Either files or content must be provided when creating registry item");
     }
     const singlePath =
-      data.type === "registry:theme"
+      normalizeRegistryItemType(data.type) === REGISTRY_THEME_TYPE
         ? "theme.css"
         : `registry/modules/${data.name}.tsx`;
     return { [singlePath]: data.content };
@@ -705,7 +719,9 @@ export async function createRegistryItem(data: {
   }[] = [];
 
   for (const [pathKey, rawContent] of Object.entries(normalizedFiles)) {
-    const isCss = data.type === "registry:theme" || pathKey.toLowerCase().endsWith(".css");
+    const isCss =
+      normalizeRegistryItemType(data.type) === REGISTRY_THEME_TYPE ||
+      pathKey.toLowerCase().endsWith(".css");
     const contentWithHeader = withCozyHeader({
       ownerId: data.userId,
       name: data.name,
@@ -716,7 +732,7 @@ export async function createRegistryItem(data: {
     filesForDb.push({
       path: pathKey,
       content: contentWithHeader,
-      type: data.type,
+      type: normalizeRegistryItemType(data.type),
     });
   }
 
@@ -836,7 +852,7 @@ export function toShadcnRegistryItemSummary(item: {
 }) {
   const owner = item.ownerHandle ?? item.userId ?? "legacy";
   const path =
-    item.type === "registry:theme"
+    normalizeRegistryItemType(item.type) === REGISTRY_THEME_TYPE
       ? "theme.css"
       : `registry/modules/${item.name}.tsx`;
   return {

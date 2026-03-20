@@ -1,6 +1,6 @@
 Status: draft
 Owner: engineering
-Last updated: 2025-02-14
+Last updated: 2026-03-20
 Source of truth: yes
 
 # Install Protocol
@@ -203,6 +203,7 @@ Phase 1 定义 3 个核心动作：
 当前 MCP 工具对应：
 
 - `get_project_registry_status`
+- `analyze_project_registry`
 - `check_component_update`
 - `check_project_updates`
 
@@ -228,7 +229,27 @@ Phase 1 定义 3 个核心动作：
 
 当前 MCP 工具对应：
 
+- `plan_component_upgrade`
 - `upgrade_component_in_project`
+
+## AI-first 项目状态分析
+
+对于 Figma Make 等远程 AI 运行环境，Cozy 需要支持“先读状态，再做规划”的工作流。
+
+推荐 MCP 路径：
+
+1. `get_project_registry_status`
+2. `analyze_project_registry`
+3. 若存在可升级项，再 `plan_component_upgrade`
+
+说明：
+
+- 当 AI 拿不到真实可写 `projectRoot` 时，`analyze_project_registry` 应支持直接消费 `projectStatus` 快照
+- 这样 AI 仍然可以回答：
+  - 当前项目安装了哪些 Cozy items
+  - 哪些 item 有更新
+  - 下一步应该 install、plan upgrade 还是执行本地 upgrade
+- 真实写文件和维护 lockfile 的动作仍由本地 CLI、本地 MCP 或可访问 workspace root 的执行环境完成
 
 ## 升级冲突策略
 

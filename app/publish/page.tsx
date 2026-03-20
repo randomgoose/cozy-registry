@@ -3,6 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
+import {
+  type CanonicalRegistryItemType,
+  REGISTRY_BLOCK_TYPE,
+  REGISTRY_THEME_TYPE,
+  REGISTRY_UI_TYPE,
+} from "@/lib/registry-types";
 
 type PublishRequestBody = {
   name: string;
@@ -15,13 +21,13 @@ type PublishRequestBody = {
 };
 
 const TYPE_LABELS = {
-  "registry:block": "Block",
-  "registry:component": "Component",
-  "registry:theme": "Theme",
+  [REGISTRY_BLOCK_TYPE]: "Block",
+  [REGISTRY_UI_TYPE]: "UI",
+  [REGISTRY_THEME_TYPE]: "Theme",
 } as const;
 
 const CONTENT_TEMPLATES = {
-  "registry:block": `"use client";
+  [REGISTRY_BLOCK_TYPE]: `"use client";
 
 type HeroSectionProps = {
   title: string;
@@ -48,7 +54,7 @@ export function HeroSection({
   );
 }
 `,
-  "registry:component": `type MarketingBadgeProps = {
+  [REGISTRY_UI_TYPE]: `type MarketingBadgeProps = {
   label: string;
 };
 
@@ -60,7 +66,7 @@ export function MarketingBadge({ label }: MarketingBadgeProps) {
   );
 }
 `,
-  "registry:theme": `:root {
+  [REGISTRY_THEME_TYPE]: `:root {
   --background: #fffdf8;
   --foreground: #221b16;
   --card: #ffffff;
@@ -86,7 +92,7 @@ function normalizeName(value: string) {
 
 export default function PublishPage() {
   const [name, setName] = useState("");
-  const [type, setType] = useState("registry:block");
+  const [type, setType] = useState<CanonicalRegistryItemType>(REGISTRY_BLOCK_TYPE);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
@@ -96,7 +102,7 @@ export default function PublishPage() {
   const [error, setError] = useState("");
 
   const normalizedName = normalizeName(name);
-  const isTheme = type === "registry:theme";
+  const isTheme = type === REGISTRY_THEME_TYPE;
   const hasTokensJson = isTheme && tokensJson.trim().length > 0;
   const contentLabel = isTheme ? "CSS 代码" : "TSX 代码";
   const contentPlaceholder =
@@ -156,7 +162,7 @@ export default function PublishPage() {
         visibility,
       };
 
-      if (type === "registry:theme" && tokensJson.trim()) {
+      if (type === REGISTRY_THEME_TYPE && tokensJson.trim()) {
         const css = convertTokensJsonToCss(tokensJson);
         body.files = {
           "theme.css": css,
@@ -208,7 +214,7 @@ export default function PublishPage() {
       setTitle(
         isTheme
           ? "Sunset Landing Theme"
-          : type === "registry:block"
+          : type === REGISTRY_BLOCK_TYPE
             ? "Hero Section"
             : "Marketing Badge",
       );
@@ -217,7 +223,7 @@ export default function PublishPage() {
       setName(
         isTheme
           ? "sunset-theme"
-          : type === "registry:block"
+          : type === REGISTRY_BLOCK_TYPE
             ? "hero-section"
             : "marketing-badge",
       );
@@ -297,12 +303,12 @@ export default function PublishPage() {
                   <select
                     id="type"
                     value={type}
-                    onChange={(e) => setType(e.target.value)}
+                    onChange={(e) => setType(e.target.value as CanonicalRegistryItemType)}
                     className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:ring-amber-500/10"
                   >
-                    <option value="registry:block">Block (模块)</option>
-                    <option value="registry:component">Component (组件)</option>
-                    <option value="registry:theme">Theme (主题)</option>
+                    <option value={REGISTRY_BLOCK_TYPE}>Block (模块)</option>
+                    <option value={REGISTRY_UI_TYPE}>UI (组件)</option>
+                    <option value={REGISTRY_THEME_TYPE}>Theme (主题)</option>
                   </select>
                 </div>
               </div>
@@ -432,7 +438,7 @@ export default function PublishPage() {
                 )}
               </div>
 
-              {type === "registry:theme" && (
+              {type === REGISTRY_THEME_TYPE && (
                 <div>
                   <label
                     htmlFor="tokens-json"

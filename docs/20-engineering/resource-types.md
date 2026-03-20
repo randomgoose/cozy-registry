@@ -10,7 +10,7 @@
 |----------|----------|----------|----------------|------|
 | **样式** | 配置优先 | JSON / 单条记录 | 按「主题」发布，整体拉取 | 轻量、全局，组件/block 依赖它 |
 | **图标** | 集合 + 单文件 | 多文件或 SVG sprite | 按集合发布，按名引用 | 数量多、命名稳定，适合包或 registry 条目 |
-| **组件** | 单组件为单位（可多文件） | 当前 item + `files[]` | 按「个」发布，Copy 进项目 | 保持 registry:component；组件库场景更强调依赖化 |
+| **组件** | 单组件为单位（可多文件） | 当前 item + `files[]` | 按「个」发布，Copy 进项目 | 保持 registry:ui；组件库场景更强调依赖化 |
 | **Block** | 场景块（通常多文件 bundle） | 当前 item + `files[]` | 按「个」发布，Copy 进项目 | 保持 registry:block；允许自包含与重复 |
 
 > 延伸规范：Block vs 组件库（Library）的发布/依赖解析/覆盖策略，见 `docs/30-rules/namespace-library-and-block-spec.md`。
@@ -79,14 +79,14 @@
 
 **当前形态（建议保持）**
 
-- **管理**：按「个」管理，每个组件一条 `registry_items`，`type = "registry:component"`。  
+- **管理**：按「个」管理，每个组件一条 `registry_items`，`type = "registry:ui"`。  
 - **存储**：默认可为单文件 TSX；当存在相对路径引用（`./`/`../`）或需要拆分时，允许作为**单 item 多文件 bundle** 存在 `registry_files`（对外输出为 `files[]`）。  
 - **发布**：一个 name 一个条目，支持 public/private、owner、依赖（dependencies / registryDependencies）。  
 - **消费**：Copy 进项目、`shadcn add`、MCP `get_component` 等。
 
 **判定准则（语义优先、形态其次）**
 
-- `registry:component` 与 `registry:block` 的区别主要在**语义与治理规则**，而不是“单文件 vs 多文件 bundle”：
+- `registry:ui` 与 `registry:block` 的区别主要在**语义与治理规则**，而不是“单文件 vs 多文件 bundle”：
   - **Component**：基础复用单元，更倾向**依赖化**（`registryDependencies`）、统一命名与版本治理、以及（可选的）canonical 输出路径约束。
   - **Block**：场景化模块，更强调“可预览/可复制/自包含”，允许重复实现与自由组织文件。
 
@@ -110,7 +110,7 @@
 
 **判定准则（语义优先、形态其次）**
 
-- 当一个条目主要用于“沉淀可复用的基础能力（Button/Dialog 等）”，并希望被其它条目作为依赖复用时，优先建模为 **`registry:component`**。
+- 当一个条目主要用于“沉淀可复用的基础能力（Button/Dialog 等）”，并希望被其它条目作为依赖复用时，优先建模为 **`registry:ui`**。
 - 当一个条目主要用于“快速表达一个页面片段/业务场景（Hero/Pricing 等）”，并以自包含可预览为首要目标时，优先建模为 **`registry:block`**。
 
 **适合的原因**
@@ -125,7 +125,7 @@
 
 ## 六、类型扩展与实现顺序建议
 
-1. **保持兼容**：`registry:component`、`registry:block` 继续“一个 item 对外输出一个条目”的方式；存储上从“单文件”演进到“允许多文件 bundle”，并保持向后兼容。  
+1. **保持兼容**：`registry:ui`、`registry:block` 继续“一个 item 对外输出一个条目”的方式；存储上从“单文件”演进到“允许多文件 bundle”，并保持向后兼容。旧数据中的 `registry:component` 作为 legacy alias 读取并逐步迁移到 `registry:ui`。  
 2. **样式**：新增 `registry:theme`（或独立 themes 表），单条目单文件 JSON，按主题发布；API 增加「按主题拉取」或 `get_styles`。  
 3. **图标**：新增 `registry:icon-set`，一个条目对应多 `registry_files`（每图标一个 path + content），按集合发布；MCP 可增加 `list_icons` / `get_icon_set`。  
 4. **依赖关系**：组件/block 的 `registryDependencies` 可引用 theme / icon-set（如 `@team/theme-default`、`@team/icons-ui`），便于 AI 和工具按顺序拉取。

@@ -6,22 +6,25 @@
 
 ## 一、验证与收尾（优先）
 
-- [ ] **修复版本历史 owner 解析**：统一页面与 API 的版本查询逻辑，保证 handle URL 与 userId 兼容且结果一致
-- [ ] **修复多文件组件升级**：让 `/api/registry/[owner]/[name]/versions` 支持 `files`，避免版本升级时删除已有 bundle 文件
-- [ ] **修复预览临时目录清理**：在 preview build 结束后删除临时目录，防止线上磁盘累积
-- [ ] **定义安装记录机制**：确定 Phase 1 的项目侧安装记录方案（lockfile、代码头注释或二者组合）
-- [ ] **定义升级检查链路**：明确“当前安装版本 / 最新版本 / 可升级目标”的读取与比较方式
-- [ ] **确定安装协议入口**：明确 AI / MCP、Cozy CLI、`shadcn add` 三者在 Phase 1 的角色分工
-- [ ] **定义 lockfile 最小 schema**：基于 [install-protocol.md](../20-engineering/install-protocol.md) 固化 `cozy-registry.lock.json` 的字段
-- [ ] **定义升级冲突策略**：落实“默认停止，显式 force 才覆盖”的升级规则与输出格式
-- [ ] **定义基线快照读取方式**：明确升级时如何通过 `installedVersion + source` 获取安装基线
+- [x] **修复版本历史 owner 解析**：统一页面与 API 的版本查询逻辑，保证 handle URL 与 userId 兼容且结果一致
+- [x] **修复多文件组件升级**：让 `/api/registry/[owner]/[name]/versions` 支持 `files`，避免版本升级时删除已有 bundle 文件
+- [x] **修复预览临时目录清理**：在 preview build 结束后删除临时目录，防止线上磁盘累积
+- [x] **定义安装记录机制**：确定 Phase 1 的项目侧安装记录方案（lockfile、代码头注释或二者组合）
+- [x] **定义升级检查链路**：明确“当前安装版本 / 最新版本 / 可升级目标”的读取与比较方式
+- [x] **确定安装协议入口**：明确 AI / MCP、Cozy CLI、`shadcn add` 三者在 Phase 1 的角色分工
+- [x] **定义 lockfile 最小 schema**：基于 [install-protocol.md](../20-engineering/install-protocol.md) 固化 `cozy-registry.lock.json` 的字段
+- [x] **定义升级冲突策略**：落实“默认停止，显式 force 才覆盖”的升级规则与输出格式
+- [x] **定义基线快照读取方式**：明确升级时如何通过 `installedVersion + source` 获取安装基线
+- [x] **AI-first 项目状态分析**：补齐 `analyze_project_registry`，让 Figma Make 等远程 AI 能基于 `projectStatus` 快照回答“装了什么、哪些可升级、下一步做什么”
 - [ ] **MCP 验证**：在 Cursor 中通过 Cozy MCP 说「列出组件」「获取 hero-section 代码」，确认改名与流程正常
 - [ ] **部署验证**：推送到 Vercel，配置 `DATABASE_URL`、`NEXT_PUBLIC_APP_URL`，确认生产环境可访问
+- [ ] **Figma Make 状态链路验证**：实测 `get_project_registry_status -> analyze_project_registry -> plan_component_upgrade`，确认 AI 能稳定回答项目状态与升级建议
 
 ---
 
 ## 二、Phase 2 补强
 
+- [ ] **网页 Project Status 入口**：在站内提供一个可视化入口，展示已安装项、当前版本、可升级状态与推荐下一步
 - [ ] **提交规范与校验**：按 [submission-guidelines.md](../30-rules/submission-guidelines.md) 落地硬性校验（内容长度上限、可选：默认导出、危险模式过滤）及文档/UI 提示
 - [ ] **发布体验**：完善发布页的校验与错误提示、成功后的跳转与反馈
 - [ ] **「Add to project」说明**：在 README 或文档中写清用户如何把组件用到自己的项目（复制代码 / 未来 CLI 示例，如 `npx shadcn add <registry-url>/r/...`）

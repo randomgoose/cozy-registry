@@ -92,7 +92,7 @@
 
 1. `registry:block`
 2. `registry:theme`
-3. `registry:component`
+3. `registry:ui`
 
 原因：
 
@@ -233,7 +233,7 @@
 
 ### Phase 3：沉淀 component 并形成前端资产供应链
 
-1. 从 block 中逐步抽取和沉淀 `registry:component`
+1. 从 block 中逐步抽取和沉淀 `registry:ui`
 2. 组件/模块/主题浏览与搜索
 3. 更强的安装锁定、升级建议与回滚能力
 4. 多项目、多团队、版本管理

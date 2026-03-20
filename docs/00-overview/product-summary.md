@@ -21,7 +21,7 @@ Cozy Registry 是一个面向 Web 开发的 AI-native registry，让设计师、
 - 主锚点是 Web 前端资产，不做泛设计资产平台
 - 当前最强切入场景是 landing、marketing、campaign、feature section 等设计师高参与场景
 - 第一优先级是 `registry:block`，允许以 bundle 形式包含本地引用和辅助文件
-- `registry:component` 同样重要，但作为第二层沉淀能力推进
+- `registry:ui` 同样重要，但作为第二层沉淀能力推进
 - 当前阶段不把自己定义成通用组件仓库产品
 - 主形态是“复制源码并带走”，不是 npm 包管理
 - 主方向是组织/团队自部署，不以公开组件市场为核心
@@ -34,7 +34,7 @@ Cozy Registry 是一个面向 Web 开发的 AI-native registry，让设计师、
 ## 核心对象
 
 - `registry:block`: 场景型模块，如 Hero、FAQ、Pricing、带特效的 section、实验性 Web 区块
-- `registry:component`: 复用型组件，如 Button、Card、Input，以及更完整的组件库条目
+- `registry:ui`: 复用型 UI 组件，如 Button、Card、Input，以及更完整的组件库条目
 - `registry:theme`: 全局主题和 design tokens
 - `collection`: 一组有业务或项目边界的 registry item
 - `policy`: API key 可见范围和访问限制

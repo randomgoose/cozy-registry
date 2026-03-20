@@ -1,5 +1,6 @@
 export type RegistryType =
   | "registry:block"
+  | "registry:ui"
   | "registry:component"
   | "registry:theme"
   | "registry:icon-set"
@@ -197,4 +198,3 @@ export function getPreviewThemeDepsInOrder(
 
   return result;
 }
-

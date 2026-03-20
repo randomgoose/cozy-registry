@@ -21,7 +21,7 @@
 
 - **必填**：`name`、`type`、`title`、`content`
 - **名称**：`name` 须为 kebab-case（`/^[a-z0-9]+(?:-[a-z0-9]+)*$/`）
-- **类型**：`registry:block` 或 `registry:component`
+- **类型**：`registry:block`、`registry:ui` 或 `registry:theme`
 - **TSX 语法**：`validateTsx(content)` 仅做 Babel 解析，**不做**类型检查、依赖解析或运行时报错检测
 
 尚未做的：代码体积上限、依赖/import 白名单、默认导出与组件命名、禁止危险 API、Props 约定等。

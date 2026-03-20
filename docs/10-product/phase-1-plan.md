@@ -1,6 +1,6 @@
 Status: active
 Owner: product
-Last updated: 2025-02-14
+Last updated: 2026-03-20
 Source of truth: yes
 
 # Phase 1 Plan
@@ -108,13 +108,23 @@ MCP 不应只停留在 `list/get/publish`，而要逐步具备：
 - 判断是否可升级
 - 给出升级建议
 - 在受控上下文里执行升级
+- 在远程 AI 场景里基于 `projectStatus` 快照分析项目当前安装状态
+
+### 7. AI-first 项目状态能力
+
+对于 Figma Make 等远程 Vibe coding 场景，Phase 1 还必须具备：
+
+- 读取项目当前已安装的 Cozy items
+- 汇总哪些 item 存在可升级版本
+- 用结构化结果回答“现在项目里装了什么、下一步该做什么”
+- 在拿不到真实 `projectRoot` 时，仍能基于 `projectStatus` 快照继续工作
 
 ## 非目标
 
 Phase 1 不做：
 
 - 通用团队组件仓库定位
-- 完整的 `registry:component` 治理体系
+- 完整的 `registry:ui` 治理体系
 - 重型 CLI 生态
 - 可视化 diff 平台
 - 全面的组织权限产品
@@ -123,7 +133,7 @@ Phase 1 不做：
 
 1. `registry:block`
 2. `registry:theme`
-3. `registry:component`
+3. `registry:ui`
 
 说明：
 
@@ -141,6 +151,7 @@ Phase 1 完成时，至少满足以下条件：
 5. 用户能安装或切换到指定版本
 6. 多文件 block 在升级后仍保持完整 bundle 结构
 7. 本地已修改文件在默认升级流程中不会被静默覆盖
+8. Figma Make 等远程 AI 能基于 `projectStatus` 快照回答项目状态与升级建议
 
 ## 工作线拆分
 
@@ -162,6 +173,7 @@ Phase 1 完成时，至少满足以下条件：
 
 - MCP 版本查询
 - MCP 升级建议
+- MCP 项目状态分析
 - collection / theme 上下文
 
 ## 参考

@@ -37,6 +37,6 @@ Source of truth: yes
 
 - owner 既支持 handle，也兼容 legacy `userId`
 - 资产是源码分发，不是编译产物分发
-- 同时支持 `registry:block`、`registry:component`、`registry:theme`
+- 同时支持 `registry:block`、`registry:ui`、`registry:theme`
 - theme 支持作为独立 registry item，并可通过 `registryDependencies` 递归注入
 - API key 支持集合、类型和 owner 范围限制

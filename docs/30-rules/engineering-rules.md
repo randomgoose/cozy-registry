@@ -14,8 +14,10 @@ Source of truth: yes
 ## 2. Registry Item 语义
 
 - `registry:block` 表示场景块，可自包含
-- `registry:component` 表示可复用组件，默认更强调依赖化
+- `registry:ui` 表示可复用 UI 组件，默认更强调依赖化
 - `registry:theme` 表示主题和 tokens，不作为普通 TSX 组件处理
+- `registry:component` 仅作为 legacy alias 接受输入；对外输出和新发布统一使用 `registry:ui`
+- 历史数据从 `registry:component` 迁移到 `registry:ui` 时，应统一更新 `registry_items`、`registry_files`、`registry_file_versions`，并优先使用 `pnpm db:migrate-registry-ui-type`
 
 ## 3. 发布与版本
 

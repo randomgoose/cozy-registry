@@ -1,6 +1,6 @@
 Status: active
 Owner: product
-Last updated: 2025-02-14
+Last updated: 2026-03-20
 Source of truth: yes
 
 # Roadmap
@@ -10,7 +10,7 @@ Source of truth: yes
 - 主定位：面向 Web 开发的 AI-native 前端资产分发系统
 - 核心用户：具备 Vibe coding 能力和意愿的设计师，以及负责消费这些资产的 AI agent
 - 主切入：设计师高参与的 Web UI 资产，如 block bundles、themes、实验性 section
-- 体系扩展：逐步覆盖 `registry:component` 级别的组件库能力
+- 体系扩展：逐步覆盖 `registry:ui` 级别的组件库能力
 - 非目标：当前阶段不把自己定义成通用团队组件仓库
 
 ## 阶段 1：让 block bundle 可安装、可升级
@@ -26,7 +26,8 @@ Source of truth: yes
 
 当前状态：
 
-- 已基本完成，但仍有版本链路、多文件升级、预览稳定性等工程缺口
+- install / upgrade / planning 主链路已基本打通，远程 AI 场景已补 `analyze_project_registry`
+- 下一步重点转向网页上的 Project Status / Upgrade 入口与 Figma Make 实测验证
 - 详细范围见 [phase-1-plan.md](./phase-1-plan.md)
 
 ## 阶段 2：让设计师与 AI 的 block 迭代链路真正可用
@@ -51,7 +52,7 @@ Source of truth: yes
 
 目标：
 
-- 从 block 生态中抽出稳定的 `registry:component`
+- 从 block 生态中抽出稳定的 `registry:ui`
 - 项目侧知道自己装了哪些资产、版本是多少、能否升级
 - AI 能按 collection / theme / use-case 获取受控上下文
 - block / component / theme 更新有 changelog、兼容性和回滚语义

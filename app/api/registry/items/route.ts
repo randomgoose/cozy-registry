@@ -6,6 +6,13 @@ import {
   extractDependencies,
   validateComponentBundle,
 } from "@/lib/validate-tsx";
+import {
+  LEGACY_REGISTRY_COMPONENT_TYPE,
+  REGISTRY_BLOCK_TYPE,
+  REGISTRY_THEME_TYPE,
+  REGISTRY_UI_TYPE,
+  normalizeRegistryItemType,
+} from "@/lib/registry-types";
 import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
 import { auth } from "@/lib/auth";
 import { getUserIdFromToken } from "@/lib/auth-api";
@@ -29,7 +36,10 @@ export async function POST(request: Request) {
       !Array.isArray(files) &&
       Object.keys(files as Record<string, unknown>).length > 0;
 
-    if (!name || !type || !title || (!hasFiles && !content)) {
+    const normalizedType =
+      typeof type === "string" ? normalizeRegistryItemType(type) : "";
+
+    if (!name || !normalizedType || !title || (!hasFiles && !content)) {
       return NextResponse.json(
         { error: "Missing required fields: name, type, title, and (files or content)" },
         { status: 400 }
@@ -47,7 +57,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const isTheme = type === "registry:theme";
+    const isTheme = normalizedType === REGISTRY_THEME_TYPE;
     if (!hasFiles) {
       // 单文件模式校验
       if (!isTheme) {
@@ -98,10 +108,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const validTypes = ["registry:block", "registry:component", "registry:theme"];
-    if (!validTypes.includes(type)) {
+    const validTypes = [REGISTRY_BLOCK_TYPE, REGISTRY_UI_TYPE, REGISTRY_THEME_TYPE] as const;
+    if (!validTypes.includes(normalizedType as (typeof validTypes)[number])) {
       return NextResponse.json(
-        { error: "Type must be registry:block, registry:component, or registry:theme" },
+        {
+          error:
+            `Type must be ${REGISTRY_BLOCK_TYPE}, ${REGISTRY_UI_TYPE}, or ${REGISTRY_THEME_TYPE}. ` +
+            `${LEGACY_REGISTRY_COMPONENT_TYPE} is accepted as a legacy alias.`,
+        },
         { status: 400 }
       );
     }
@@ -178,7 +192,7 @@ export async function POST(request: Request) {
 
     const item = await createRegistryItem({
       name,
-      type,
+      type: normalizedType,
       title,
       description: description || null,
       content: normalizedFiles ? undefined : normalizedContent,

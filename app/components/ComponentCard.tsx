@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { getRegistryItemTypeLabel } from "@/lib/registry-types";
 import { PreviewFrame } from "./PreviewFrame";
 import {
   Dialog,
@@ -40,14 +41,7 @@ export function ComponentCard({
   const [selectedCollectionId, setSelectedCollectionId] = useState<string>("");
   const [adding, setAdding] = useState(false);
 
-  const typeLabel =
-    type === "registry:block"
-      ? "Block"
-      : type === "registry:component"
-        ? "Component"
-        : type === "registry:theme"
-          ? "Theme"
-          : type.replace("registry:", "");
+  const typeLabel = getRegistryItemTypeLabel(type);
 
   async function handleCopy() {
     try {

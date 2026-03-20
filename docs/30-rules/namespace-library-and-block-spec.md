@@ -14,10 +14,10 @@
 ### 1.1 资源类型（与现有实现对齐）
 
 - **Block**：面向场景的 UI 片段（Hero、Pricing、FAQ 等）。`type = "registry:block"`.
-- **Component（Library Component）**：面向复用的基础 UI（Button、Dialog、Input 等）。`type = "registry:component"`.
+- **UI（Library Component）**：面向复用的基础 UI（Button、Dialog、Input 等）。`type = "registry:ui"`.
 - **Theme**：主题/设计 token 的 CSS 或配置。`type = "registry:theme"`.
 
-> 注：本 SPEC 重点约束 Block 与 Component 的**发布形态**与**依赖解析策略**；Theme 主要用于依赖注入（预览/安装）。
+> 注：本 SPEC 重点约束 Block 与 UI 的**发布形态**与**依赖解析策略**；Theme 主要用于依赖注入（预览/安装）。`registry:component` 仅作为 legacy alias 接受输入。
 
 ### 1.2 “Bundle” 与 “Item”
 

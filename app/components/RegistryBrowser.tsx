@@ -2,6 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import {
+  getRegistryItemTypeLabel,
+  normalizeRegistryItemType,
+  REGISTRY_BLOCK_TYPE,
+  REGISTRY_THEME_TYPE,
+  REGISTRY_UI_TYPE,
+} from "@/lib/registry-types";
 import { ComponentCard } from "./ComponentCard";
 
 type RegistryBrowserItem = {
@@ -22,17 +29,10 @@ interface RegistryBrowserProps {
 
 const TYPE_OPTIONS = [
   { value: "all", label: "全部类型" },
-  { value: "registry:block", label: "Block" },
-  { value: "registry:component", label: "Component" },
-  { value: "registry:theme", label: "Theme" },
+  { value: REGISTRY_BLOCK_TYPE, label: "Block" },
+  { value: REGISTRY_UI_TYPE, label: "UI" },
+  { value: REGISTRY_THEME_TYPE, label: "Theme" },
 ];
-
-function getTypeLabel(type: string) {
-  if (type === "registry:block") return "Block";
-  if (type === "registry:component") return "Component";
-  if (type === "registry:theme") return "Theme";
-  return type.replace("registry:", "");
-}
 
 export function RegistryBrowser({
   items,
@@ -46,8 +46,9 @@ export function RegistryBrowser({
   const normalizedQuery = query.trim().toLowerCase();
 
   const filteredItems = items.filter((item) => {
+    const normalizedType = normalizeRegistryItemType(item.type);
     const matchesType =
-      selectedType === "all" ? true : item.type === selectedType;
+      selectedType === "all" ? true : normalizedType === selectedType;
     const matchesOwner =
       selectedOwner === "all" ? true : item.owner === selectedOwner;
     const matchesQuery =
@@ -58,7 +59,7 @@ export function RegistryBrowser({
             item.name,
             item.owner,
             item.description ?? "",
-            getTypeLabel(item.type),
+            getRegistryItemTypeLabel(item.type),
           ]
             .join(" ")
             .toLowerCase()

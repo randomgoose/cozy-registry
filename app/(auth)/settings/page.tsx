@@ -3,6 +3,12 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { authClient } from "@/lib/auth-client";
+import {
+  REGISTRY_BLOCK_TYPE,
+  REGISTRY_THEME_TYPE,
+  REGISTRY_UI_TYPE,
+  normalizeRegistryItemType,
+} from "@/lib/registry-types";
 
 export default function SettingsPage() {
   const [session, setSession] = useState<{ user: { name?: string; email?: string } } | null>(null);
@@ -67,8 +73,14 @@ export default function SettingsPage() {
           ? (p.allowedCollectionIds as string[])
           : [],
         allowedTypes: Array.isArray(p?.allowedTypes)
-          ? (p.allowedTypes as string[])
-          : ["registry:block", "registry:theme"],
+          ? Array.from(
+              new Set(
+                (p.allowedTypes as string[]).map((value) =>
+                  normalizeRegistryItemType(value),
+                ),
+              ),
+            )
+          : [REGISTRY_BLOCK_TYPE, REGISTRY_THEME_TYPE],
         allowPublicOutsideCollections: !!p?.allowPublicOutsideCollections,
       });
     } finally {
@@ -286,7 +298,7 @@ export default function SettingsPage() {
                     允许的资源类型
                   </div>
                   <div className="mt-2 flex flex-wrap gap-4 text-sm">
-                    {["registry:block", "registry:component", "registry:theme"].map((t) => (
+                    {[REGISTRY_BLOCK_TYPE, REGISTRY_UI_TYPE, REGISTRY_THEME_TYPE].map((t) => (
                       <label key={t} className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
                         <input
                           type="checkbox"

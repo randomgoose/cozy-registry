@@ -38,6 +38,13 @@ import {
 } from "./install-protocol";
 import { getBaseUrl } from "./oauth";
 import type { RegistryPolicy } from "./registry-policy";
+import {
+  LEGACY_REGISTRY_COMPONENT_TYPE,
+  REGISTRY_BLOCK_TYPE,
+  REGISTRY_THEME_TYPE,
+  REGISTRY_UI_TYPE,
+  normalizeRegistryItemType,
+} from "./registry-types";
 
 export function createRegistryMcpServer(request?: Request) {
   const server = new McpServer({
@@ -1496,7 +1503,7 @@ ${fileContent}
     content?: string;
     code?: string;
   }): { files?: Record<string, string>; content?: string | undefined } {
-    if (args.type !== "registry:theme") {
+    if (normalizeRegistryItemType(args.type) !== REGISTRY_THEME_TYPE) {
       return { files: args.files as Record<string, string> | undefined, content: args.content ?? args.code };
     }
 
@@ -1625,15 +1632,20 @@ ${fileContent}
   server.registerTool("publish_component", {
     title: "Publish or update component",
     description:
-      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:component, or registry:theme), title, and content (TSX for block/component, CSS for theme). Requires Bearer token.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.",
+      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.",
     inputSchema: z.object({
       name: z
         .string()
         .describe("Component name in kebab-case, e.g. my-hero-section"),
       type: z
-        .enum(["registry:block", "registry:component", "registry:theme"])
+        .enum([
+          REGISTRY_BLOCK_TYPE,
+          REGISTRY_UI_TYPE,
+          REGISTRY_THEME_TYPE,
+          LEGACY_REGISTRY_COMPONENT_TYPE,
+        ])
         .describe(
-          "registry:block for modules, registry:component for components, registry:theme for CSS theme/tokens",
+          "registry:block for modules, registry:ui for reusable UI components, registry:theme for CSS theme/tokens. registry:component is accepted as a legacy alias.",
         ),
       title: z.string().describe("Display title, e.g. Hero Section"),
       description: z
@@ -1709,7 +1721,8 @@ ${fileContent}
     );
 
     try {
-      const { name, type, title, description, visibility, bump } = args;
+      const { name, title, description, visibility, bump } = args;
+      const type = normalizeRegistryItemType(args.type);
 
       const nameRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
       if (!nameRegex.test(name)) {
@@ -1737,7 +1750,7 @@ ${fileContent}
           };
         }
         const rel = extractDependencies(content).filter((d) => isRelativeImport(d));
-        if (rel.length > 0 && type !== "registry:theme") {
+        if (rel.length > 0 && type !== REGISTRY_THEME_TYPE) {
           const list = rel.slice(0, 12).map((x) => `- ${x}`).join("\n");
           const more = rel.length > 12 ? `\n- ... and ${rel.length - 12} more` : "";
           return {

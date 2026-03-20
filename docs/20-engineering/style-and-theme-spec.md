@@ -37,7 +37,7 @@
 
 ### 3.1 允许的样式形式
 
-组件条目（`registry:block` / `registry:component`）的 `files` 内，允许以下形式，且均视为「组件 bundle 的一部分」：
+组件条目（`registry:block` / `registry:ui`）的 `files` 内，允许以下形式，且均视为「组件 bundle 的一部分」：
 
 - **Tailwind 类名**：在 TSX 中使用 `className="..."`，依赖 Preview Runtime 已提供的 Tailwind CDN（当前实现已支持）。
 - **同目录 CSS**：与组件同属同一 bundle 的 `.css` 文件（如 `input.css`、`Input.module.css`），在 TSX 中通过相对路径 `import "./input.css"` 等引用。
@@ -135,7 +135,7 @@
 ### 6.1 registryDependencies 格式
 
 - 现有字段：`registryDependencies: string[]`，每项为 `@owner/name` 或（若实现支持）`@owner/name@version`。
-- 约定：若依赖项为 `registry:theme`，则 Preview 与消费工具应按「主题」处理（先拉取并注入 CSS）；若为 `registry:component` / `registry:block`，按现有组件依赖逻辑处理（如 Copy 时一并拉取）。
+- 约定：若依赖项为 `registry:theme`，则 Preview 与消费工具应按「主题」处理（先拉取并注入 CSS）；若为 `registry:ui` / `registry:block`，按现有组件依赖逻辑处理（如 Copy 时一并拉取）。
 
 ### 6.2 解析顺序与重复
 
