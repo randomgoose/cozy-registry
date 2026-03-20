@@ -11,23 +11,12 @@ function extractBearerToken(authHeader: string | null): string | null {
 // Stateless mode: create fresh server + transport per request (required for serverless).
 // Reusing stateless transport causes message ID collisions.
 //
-// Default SSE mode opens a long-lived stream; clients often follow POST with a GET for a
-// second SSE channel. Each serverless invocation uses a *new* transport, so that GET
-// sees an uninitialized stream and never receives events — Figma Connectors can spin forever.
-// JSON responses complete each RPC in one response body, which fits serverless.
-function standaloneSseNoopResponse(): Response {
-  const enc = new TextEncoder();
-  const stream = new ReadableStream({
-    start(controller) {
-      // Close immediately so clients don’t wait on an empty stream (new transport per invoke).
-      controller.enqueue(enc.encode(": noop\n\n"));
-      controller.close();
-    },
-  });
-  return new Response(stream, {
-    status: 200,
+// In serverless we cannot reliably maintain the two-channel SSE flow across invocations.
+// Force JSON responses for write/read RPC calls so each request completes in one response body.
+function noContentSseResponse(): Response {
+  return new Response(null, {
+    status: 204,
     headers: {
-      "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
     },
   });
@@ -67,21 +56,26 @@ async function handleMcpRequest(request: Request): Promise<Response> {
     );
   }
 
-  // Second-channel GET SSE would use a fresh transport with no shared state; the SDK would
-  // return an open stream that never receives events. Short-circuit after auth.
+  // Explicitly decline SSE channel requests in stateless/serverless mode.
   const accept = request.headers.get("accept") ?? "";
   if (request.method === "GET" && accept.includes("text/event-stream")) {
-    return standaloneSseNoopResponse();
+    return noContentSseResponse();
   }
 
   try {
-    const server = createRegistryMcpServer(request);
+    // Force transport to choose JSON response mode even when clients send
+    // mixed Accept values like "application/json, text/event-stream".
+    const headers = new Headers(request.headers);
+    headers.set("accept", "application/json");
+    const effectiveRequest = new Request(request, { headers });
+
+    const server = createRegistryMcpServer(effectiveRequest);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless for serverless
       enableJsonResponse: true,
     });
     await server.connect(transport);
-    return transport.handleRequest(request);
+    return transport.handleRequest(effectiveRequest);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
