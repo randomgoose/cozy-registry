@@ -113,34 +113,78 @@ function validatePkce(params: {
   codeChallenge: string | null;
   codeChallengeMethod: string | null;
   codeVerifier?: string | null;
-}): boolean {
+}): { valid: boolean; reason?: string; details?: Record<string, unknown> } {
   if (!params.codeChallenge) {
-    return true;
+    return { valid: true };
   }
 
   if (!params.codeVerifier) {
-    return false;
+    return {
+      valid: false,
+      reason: "missing_code_verifier",
+    };
   }
 
-  if ((params.codeChallengeMethod ?? "plain") === "S256") {
+  const method = params.codeChallengeMethod ?? "plain";
+
+  if (method === "S256") {
+    const computedChallenge = createPkceChallenge(params.codeVerifier);
     const expected = Buffer.from(params.codeChallenge, "utf8");
-    const actual = Buffer.from(createPkceChallenge(params.codeVerifier), "utf8");
+    const actual = Buffer.from(computedChallenge, "utf8");
 
     if (expected.length !== actual.length) {
-      return false;
+      return {
+        valid: false,
+        reason: "s256_length_mismatch",
+        details: {
+          codeChallengeLength: params.codeChallenge.length,
+          computedChallengeLength: computedChallenge.length,
+          codeChallengeMethod: method,
+        },
+      };
     }
 
-    return timingSafeEqual(expected, actual);
+    const valid = timingSafeEqual(expected, actual);
+    return valid
+      ? { valid: true }
+      : {
+          valid: false,
+          reason: "s256_value_mismatch",
+          details: {
+            codeChallengeMethod: method,
+            codeChallengePreview: params.codeChallenge.slice(0, 8),
+            computedChallengePreview: computedChallenge.slice(0, 8),
+          },
+        };
   }
 
   const expected = Buffer.from(params.codeChallenge, "utf8");
   const actual = Buffer.from(params.codeVerifier, "utf8");
 
   if (expected.length !== actual.length) {
-    return false;
+    return {
+      valid: false,
+      reason: "plain_length_mismatch",
+      details: {
+        codeChallengeLength: params.codeChallenge.length,
+        codeVerifierLength: params.codeVerifier.length,
+        codeChallengeMethod: method,
+      },
+    };
   }
 
-  return timingSafeEqual(expected, actual);
+  const valid = timingSafeEqual(expected, actual);
+  return valid
+    ? { valid: true }
+    : {
+        valid: false,
+        reason: "plain_value_mismatch",
+        details: {
+          codeChallengeMethod: method,
+          codeChallengePreview: params.codeChallenge.slice(0, 8),
+          codeVerifierPreview: params.codeVerifier.slice(0, 8),
+        },
+      };
 }
 
 /** Consume code and return userId; deletes the code. Returns null if invalid. */
@@ -164,13 +208,22 @@ export async function consumeAuthorizationCode(
 
   if (!full || full.clientId !== clientId || full.redirectUri !== redirectUri) return null;
   if (full.expiresAt < new Date()) return null;
-  if (
-    !validatePkce({
-      codeChallenge: full.codeChallenge ?? null,
-      codeChallengeMethod: full.codeChallengeMethod ?? null,
-      codeVerifier,
-    })
-  ) {
+  const pkceValidation = validatePkce({
+    codeChallenge: full.codeChallenge ?? null,
+    codeChallengeMethod: full.codeChallengeMethod ?? null,
+    codeVerifier,
+  });
+
+  if (!pkceValidation.valid) {
+    console.error("[OAuth] PKCE validation failed", {
+      clientId,
+      redirectUri,
+      reason: pkceValidation.reason,
+      storedCodeChallengeMethod: full.codeChallengeMethod ?? null,
+      hasStoredCodeChallenge: !!full.codeChallenge,
+      hasCodeVerifier: !!codeVerifier,
+      ...pkceValidation.details,
+    });
     return null;
   }
 
