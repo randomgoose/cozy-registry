@@ -337,10 +337,13 @@ function printHelp() {
   process.stdout.write(`Cozy Registry CLI
 
 Usage:
-  pnpm cozy status [@owner/name]
-  pnpm cozy add @owner/name [--version 0.3.0]
-  pnpm cozy check [@owner/name]
-  pnpm cozy upgrade @owner/name [--to 0.3.0] [--force]
+  pnpm cozy-registry status [@owner/name]
+  pnpm cozy-registry add @owner/name [--version 0.3.0]
+  pnpm cozy-registry check [@owner/name]
+  pnpm cozy-registry upgrade @owner/name [--to 0.3.0] [--force]
+
+Alias:
+  pnpm cozy ...        Local shorthand for this repo only
 
 Environment:
   COZY_REGISTRY_URL      Required. Example: https://your-registry.example.com

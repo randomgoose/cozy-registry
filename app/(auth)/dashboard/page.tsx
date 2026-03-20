@@ -5,6 +5,10 @@ import { ComponentCard } from "@/app/components/ComponentCard";
 
 export const dynamic = "force-dynamic";
 
+function normalizeVisibility(value: string): "public" | "private" {
+  return value === "private" ? "private" : "public";
+}
+
 export default async function DashboardPage() {
   const session = await auth.api.getSession({ headers: await headers() });
 
@@ -56,6 +60,7 @@ export default async function DashboardPage() {
                 title={item.title}
                 description={item.description}
                 type={item.type}
+                visibility={normalizeVisibility(item.visibility)}
               />
               <span
                 className={`absolute right-3 top-3 rounded-full px-2 py-0.5 text-xs font-medium ${

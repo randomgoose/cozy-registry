@@ -6,6 +6,10 @@ import { RegistryBrowser } from "./components/RegistryBrowser";
 
 export const dynamic = "force-dynamic";
 
+function normalizeVisibility(value: string): "public" | "private" {
+  return value === "private" ? "private" : "public";
+}
+
 export default async function Home() {
   let session: Awaited<ReturnType<typeof auth.api.getSession>> | null = null;
   try {
@@ -169,7 +173,7 @@ export default async function Home() {
             title: item.title,
             description: item.description,
             type: item.type,
-            visibility: item.visibility,
+            visibility: normalizeVisibility(item.visibility),
           }))}
           isSignedIn={!!session}
         />
