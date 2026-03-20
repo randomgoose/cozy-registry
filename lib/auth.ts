@@ -5,6 +5,12 @@ import { nextCookies } from "better-auth/next-js";
 import { db } from "./db";
 import * as schema from "./db/schema";
 
+function extractBearerToken(authHeader: string | null): string | null {
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET,
@@ -43,10 +49,7 @@ export const auth = betterAuth({
         const req = ctx.request;
         if (!req) return null;
         const authHeader = req.headers.get("authorization");
-        if (authHeader?.startsWith("Bearer ")) {
-          return authHeader.slice(7);
-        }
-        return req.headers.get("x-api-key");
+        return extractBearerToken(authHeader) ?? req.headers.get("x-api-key");
       },
     }),
     nextCookies(),

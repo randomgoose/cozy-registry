@@ -123,3 +123,27 @@ https://cozy-registry.vercel.app
 | **现有登录** | 可复用 Cozy Registry 现有登录（如 Better Auth），在授权页让用户 sign in / sign up，授权后发 code 给 Figma 回调并换 token |
 
 **已实现**：Cozy Registry 已支持 OAuth 2.0。在 Figma Make 创建连接器时选择 **Authentication: OAuth 2.0**，点击 Connect 后会跳转到本站登录/注册并授权，无需再手动复制 Token。详见上文「方式 A：OAuth」。
+
+## 常见问题排查（OAuth + MCP）
+
+### 现象：OAuth 页面成功，但回到 Figma Make 一直转圈
+
+先看服务端日志里的顺序：
+
+1. 是否出现 `[OAuth] token issued access token`
+2. 紧接着是否出现 `/api/mcp` 请求
+3. `/api/mcp` 的状态码是否以 `200` 为主
+
+如果出现下面日志，通常可按对应方向排查：
+
+- `[MCP] missing bearer token`
+  - 含义：Figma 请求 `/api/mcp` 时，服务端未识别到可用 Bearer Token。
+  - 处理：确认 Connector 使用 OAuth 2.0，或在 Custom headers 中设置标准格式的 `Authorization: Bearer <token>`。
+
+- `/api/mcp` 大量 `202` + `GET text/event-stream` 循环，Figma 持续 loading
+  - 含义：客户端尝试走 SSE 双通道，serverless 场景下常因无共享会话而无法稳定收敛。
+  - 处理：MCP 路由优先返回 JSON RPC（`enableJsonResponse: true`），并对 `GET + text/event-stream` 返回一个立即结束的 `200 text/event-stream` noop 响应，避免空流挂起。
+
+- `[MCP] handleRequest error ... Cannot read private member #state ...`
+  - 含义：在 Next.js/Vercel runtime 中重建 `Request` 对象（如 `new Request(request, { headers })`）可能触发 Undici 兼容问题。
+  - 处理：避免重建 `Request`；直接将原始 `request` 传入 MCP transport。

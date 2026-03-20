@@ -9,12 +9,6 @@ const FIGMA_REDIRECT_URI = "https://www.figma.com/oauth/mcp/callback";
 const CODE_TTL_MS = 10 * 60 * 1000; // 10 min
 const API_KEY_PREFIX = "vbr_";
 
-/**
- * Public origin from env only. Used when there is no incoming Request (e.g. CLI).
- *
- * Note: `NEXT_PUBLIC_*` is inlined at **build time** in Next.js. If you change it in
- * Vercel without a new deployment, bundles may still fall through to `VERCEL_URL`.
- */
 export function getBaseUrl(): string {
   return (
     process.env.NEXT_PUBLIC_APP_URL ??
@@ -24,39 +18,16 @@ export function getBaseUrl(): string {
   );
 }
 
-/**
- * Prefer the Host the client actually used (custom domain on Vercel, etc.) so OAuth /
- * MCP metadata match the MCP URL users configure in Figma.
- */
 export function getCanonicalBaseUrlFromRequest(request: Request): string {
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const host =
-    forwardedHost?.split(",")[0]?.trim() || request.headers.get("host")?.trim();
-  if (!host) {
+  try {
+    return new URL(request.url).origin;
+  } catch {
     return getBaseUrl();
   }
-  const forwardedProto = request.headers.get("x-forwarded-proto");
-  const proto =
-    forwardedProto?.split(",")[0]?.trim() ||
-    (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https");
-  return `${proto}://${host}`;
 }
 
 export function getMcpResourceUrl(): string {
   return `${getBaseUrl()}/api/mcp`;
-}
-
-/** Same redirect for authorize + token (RFC); tolerate harmless differences e.g. trailing slash. */
-export function normalizeRedirectUri(uri: string): string {
-  try {
-    const u = new URL(uri);
-    if (u.pathname.length > 1 && u.pathname.endsWith("/")) {
-      u.pathname = u.pathname.slice(0, -1);
-    }
-    return u.href;
-  } catch {
-    return uri.trim();
-  }
 }
 
 /** Pre-registered OAuth client for Figma Make. */
@@ -64,7 +35,7 @@ export function getOAuthClient(): { clientId: string; clientSecret: string; redi
   return {
     clientId: COZY_FIGMA_CLIENT_ID,
     clientSecret: COZY_FIGMA_CLIENT_SECRET,
-    redirectUris: [normalizeRedirectUri(FIGMA_REDIRECT_URI)],
+    redirectUris: [FIGMA_REDIRECT_URI],
   };
 }
 
@@ -76,8 +47,7 @@ export function validateClient(
   if (clientId !== client.clientId) {
     return { valid: false, error: "invalid_client" };
   }
-  const normalized = normalizeRedirectUri(redirectUri);
-  if (!client.redirectUris.includes(normalized)) {
+  if (!client.redirectUris.includes(redirectUri)) {
     return { valid: false, error: "invalid_redirect_uri" };
   }
   return { valid: true };
@@ -109,7 +79,7 @@ export async function createAuthorizationCode(params: {
     code,
     userId: params.userId,
     clientId: params.clientId,
-    redirectUri: normalizeRedirectUri(params.redirectUri),
+    redirectUri: params.redirectUri,
     scope: params.scope ?? null,
     state: params.state ?? null,
     codeChallenge: params.codeChallenge ?? null,
@@ -127,87 +97,35 @@ function validatePkce(params: {
   codeChallenge: string | null;
   codeChallengeMethod: string | null;
   codeVerifier?: string | null;
-}): { valid: boolean; reason?: string; details?: Record<string, unknown> } {
+}): boolean {
   if (!params.codeChallenge) {
-    return { valid: true };
+    return true;
   }
 
   if (!params.codeVerifier) {
-    return {
-      valid: false,
-      reason: "missing_code_verifier",
-    };
+    return false;
   }
 
-  // Clients vary on casing (`S256` vs `s256`); wrong casing used to fall through to `plain` and fail.
-  const methodKey = (params.codeChallengeMethod ?? "plain").trim().toLowerCase();
-
-  if (methodKey === "s256") {
-    const computedChallenge = createPkceChallenge(params.codeVerifier);
+  const method = (params.codeChallengeMethod ?? "plain").toLowerCase();
+  if (method === "s256") {
     const expected = Buffer.from(params.codeChallenge, "utf8");
-    const actual = Buffer.from(computedChallenge, "utf8");
+    const actual = Buffer.from(createPkceChallenge(params.codeVerifier), "utf8");
 
     if (expected.length !== actual.length) {
-      return {
-        valid: false,
-        reason: "s256_length_mismatch",
-        details: {
-          codeChallengeLength: params.codeChallenge.length,
-          computedChallengeLength: computedChallenge.length,
-          codeChallengeMethod: methodKey,
-        },
-      };
+      return false;
     }
 
-    const valid = timingSafeEqual(expected, actual);
-    return valid
-      ? { valid: true }
-      : {
-          valid: false,
-          reason: "s256_value_mismatch",
-          details: {
-            codeChallengeMethod: methodKey,
-            codeChallengePreview: params.codeChallenge.slice(0, 8),
-            computedChallengePreview: computedChallenge.slice(0, 8),
-          },
-        };
+    return timingSafeEqual(expected, actual);
   }
 
   const expected = Buffer.from(params.codeChallenge, "utf8");
   const actual = Buffer.from(params.codeVerifier, "utf8");
 
-  if (methodKey !== "plain") {
-    return {
-      valid: false,
-      reason: "unsupported_code_challenge_method",
-      details: { codeChallengeMethod: params.codeChallengeMethod },
-    };
-  }
-
   if (expected.length !== actual.length) {
-    return {
-      valid: false,
-      reason: "plain_length_mismatch",
-      details: {
-        codeChallengeLength: params.codeChallenge.length,
-        codeVerifierLength: params.codeVerifier.length,
-        codeChallengeMethod: methodKey,
-      },
-    };
+    return false;
   }
 
-  const valid = timingSafeEqual(expected, actual);
-  return valid
-    ? { valid: true }
-    : {
-        valid: false,
-        reason: "plain_value_mismatch",
-        details: {
-          codeChallengeMethod: methodKey,
-          codeChallengePreview: params.codeChallenge.slice(0, 8),
-          codeVerifierPreview: params.codeVerifier.slice(0, 8),
-        },
-      };
+  return timingSafeEqual(expected, actual);
 }
 
 /** Consume code and return userId; deletes the code. Returns null if invalid. */
@@ -222,48 +140,22 @@ export async function consumeAuthorizationCode(
     .from(oauthAuthorizationCode)
     .where(eq(oauthAuthorizationCode.code, code));
 
-  if (!row) {
-    console.error("[OAuth] consumeAuthorizationCode: unknown or reused code");
-    return null;
-  }
+  if (!row) return null;
 
   const [full] = await db
     .select()
     .from(oauthAuthorizationCode)
     .where(eq(oauthAuthorizationCode.code, code));
 
-  const wantRedirect = normalizeRedirectUri(redirectUri);
+  if (!full || full.clientId !== clientId || full.redirectUri !== redirectUri) return null;
+  if (full.expiresAt < new Date()) return null;
   if (
-    !full ||
-    full.clientId !== clientId ||
-    normalizeRedirectUri(full.redirectUri) !== wantRedirect
+    !validatePkce({
+      codeChallenge: full.codeChallenge ?? null,
+      codeChallengeMethod: full.codeChallengeMethod ?? null,
+      codeVerifier,
+    })
   ) {
-    console.error("[OAuth] consumeAuthorizationCode: client_id or redirect_uri mismatch", {
-      clientIdMatch: full ? full.clientId === clientId : false,
-      redirectMatch: full ? normalizeRedirectUri(full.redirectUri) === wantRedirect : false,
-    });
-    return null;
-  }
-  if (full.expiresAt < new Date()) {
-    console.error("[OAuth] consumeAuthorizationCode: code expired");
-    return null;
-  }
-  const pkceValidation = validatePkce({
-    codeChallenge: full.codeChallenge ?? null,
-    codeChallengeMethod: full.codeChallengeMethod ?? null,
-    codeVerifier,
-  });
-
-  if (!pkceValidation.valid) {
-    console.error("[OAuth] PKCE validation failed", {
-      clientId,
-      redirectUri,
-      reason: pkceValidation.reason,
-      storedCodeChallengeMethod: full.codeChallengeMethod ?? null,
-      hasStoredCodeChallenge: !!full.codeChallenge,
-      hasCodeVerifier: !!codeVerifier,
-      ...pkceValidation.details,
-    });
     return null;
   }
 
