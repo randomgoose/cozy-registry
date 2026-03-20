@@ -33,6 +33,15 @@ async function handleMcpRequest(request: Request): Promise<Response> {
   if (!hasToken) {
     const baseUrl = getCanonicalBaseUrlFromRequest(request);
     const prmUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
+    console.warn("[MCP] missing bearer token", {
+      method: request.method,
+      url: request.url,
+      userAgent: request.headers.get("user-agent"),
+      accept: request.headers.get("accept"),
+      contentType: request.headers.get("content-type"),
+      mcpProtocolVersion: request.headers.get("mcp-protocol-version"),
+      hasMcpSessionId: !!request.headers.get("mcp-session-id"),
+    });
     return new Response(
       JSON.stringify({
         jsonrpc: "2.0",

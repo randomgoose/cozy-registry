@@ -28,6 +28,7 @@ export async function POST(request: Request) {
       const decoded = Buffer.from(basicAuth.slice(6), "base64").toString("utf8");
       [basicClientId, basicClientSecret] = decoded.split(":", 2);
     } catch {
+      console.error("[OAuth] token invalid basic auth");
       return NextResponse.json({ error: "invalid_client" }, { status: 401 });
     }
   }
@@ -98,6 +99,7 @@ export async function POST(request: Request) {
     {
       access_token: accessToken,
       token_type: "Bearer",
+      expires_in: 31536000,
       scope: "mcp:tools",
     },
     {
