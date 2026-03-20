@@ -1,6 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createRegistryMcpServer } from "@/lib/mcp-tools";
-import { getCanonicalBaseUrlFromRequest } from "@/lib/oauth";
 
 function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null;
@@ -26,7 +25,7 @@ async function handleMcpRequest(request: Request): Promise<Response> {
   const authHeader = request.headers.get("authorization");
   const hasToken = !!extractBearerToken(authHeader);
   if (!hasToken) {
-    const baseUrl = getCanonicalBaseUrlFromRequest(request);
+    const baseUrl = new URL(request.url).origin;
     const prmUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
     console.warn("[MCP] missing bearer token", {
       method: request.method,
@@ -63,19 +62,13 @@ async function handleMcpRequest(request: Request): Promise<Response> {
   }
 
   try {
-    // Force transport to choose JSON response mode even when clients send
-    // mixed Accept values like "application/json, text/event-stream".
-    const headers = new Headers(request.headers);
-    headers.set("accept", "application/json");
-    const effectiveRequest = new Request(request, { headers });
-
-    const server = createRegistryMcpServer(effectiveRequest);
+    const server = createRegistryMcpServer(request);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless for serverless
       enableJsonResponse: true,
     });
     await server.connect(transport);
-    return transport.handleRequest(effectiveRequest);
+    return transport.handleRequest(request);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
