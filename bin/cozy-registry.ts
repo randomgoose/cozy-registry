@@ -5,6 +5,7 @@ import {
   checkInstalledItemUpdate,
   getProjectRegistryStatus,
   installRegistryBundle,
+  upgradeInstalledItem,
   type RegistryCoordinate,
 } from "@/lib/install-protocol";
 
@@ -33,6 +34,9 @@ async function main() {
       break;
     case "check":
       await runCheck(args.slice(1));
+      break;
+    case "upgrade":
+      await runUpgrade(args.slice(1));
       break;
     case "help":
     case "--help":
@@ -135,6 +139,61 @@ async function runCheck(args: string[]) {
     process.stdout.write(`  latest:    v${result.item.latestVersion}\n`);
     process.stdout.write(`  upgradable: ${result.item.upgradable ? "yes" : "no"}\n`);
   }
+}
+
+async function runUpgrade(args: string[]) {
+  const coordinate = readCoordinateArg(args[0], true)!;
+  const registryBaseUrl = getRegistryBaseUrl();
+  const toVersion = readFlag(args.slice(1), "--to");
+  const force = hasFlag(args.slice(1), "--force");
+
+  const result = await upgradeInstalledItem({
+    projectRoot: process.cwd(),
+    coordinate,
+    toVersion,
+    force,
+    registryBaseUrl,
+    fetchImpl: createRegistryFetch(),
+  });
+
+  process.stdout.write(`${result.coordinate}\n`);
+  process.stdout.write(`  from: v${result.fromVersion}\n`);
+  process.stdout.write(`  to:   v${result.toVersion}\n`);
+  process.stdout.write(`  status: ${result.status}\n`);
+
+  if (result.ok) {
+    if (result.changedFiles.length) {
+      process.stdout.write("\nChanged files:\n");
+      for (const file of result.changedFiles) {
+        process.stdout.write(`- ${file}\n`);
+      }
+    }
+
+    if (result.unchangedFiles.length) {
+      process.stdout.write("\nUnchanged files:\n");
+      for (const file of result.unchangedFiles) {
+        process.stdout.write(`- ${file}\n`);
+      }
+    }
+    return;
+  }
+
+  process.stdout.write(`  message: ${result.message}\n`);
+  if (result.conflictedFiles.length) {
+    process.stdout.write("\nConflicted files:\n");
+    for (const file of result.conflictedFiles) {
+      process.stdout.write(`- ${file}\n`);
+    }
+  }
+
+  if (result.safeToReplaceFiles.length) {
+    process.stdout.write("\nSafe to replace:\n");
+    for (const file of result.safeToReplaceFiles) {
+      process.stdout.write(`- ${file}\n`);
+    }
+  }
+
+  process.exitCode = 1;
 }
 
 function parseCoordinate(coordinate: RegistryCoordinate): {
@@ -270,6 +329,10 @@ function readFlag(args: string[], flag: string): string | undefined {
   return args[index + 1];
 }
 
+function hasFlag(args: string[], flag: string): boolean {
+  return args.includes(flag);
+}
+
 function printHelp() {
   process.stdout.write(`Cozy Registry CLI
 
@@ -277,6 +340,7 @@ Usage:
   pnpm cozy status [@owner/name]
   pnpm cozy add @owner/name [--version 0.3.0]
   pnpm cozy check [@owner/name]
+  pnpm cozy upgrade @owner/name [--to 0.3.0] [--force]
 
 Environment:
   COZY_REGISTRY_URL      Required. Example: https://your-registry.example.com
