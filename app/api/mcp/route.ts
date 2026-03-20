@@ -23,12 +23,24 @@ function noContentSseResponse(): Response {
   });
 }
 
+async function readJsonRpcMethod(request: Request): Promise<string | null> {
+  try {
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) return null;
+    const body = await request.clone().json() as { method?: unknown };
+    return typeof body?.method === "string" ? body.method : null;
+  } catch {
+    return null;
+  }
+}
+
 async function handleMcpRequest(request: Request): Promise<Response> {
   const authHeader = request.headers.get("authorization");
   const hasToken = !!extractBearerToken(authHeader);
   const accept = request.headers.get("accept") ?? "";
   const mcpProtocolVersion = request.headers.get("mcp-protocol-version");
   const hasMcpSessionId = !!request.headers.get("mcp-session-id");
+  const rpcMethod = await readJsonRpcMethod(request);
 
   if (!hasToken) {
     const baseUrl = new URL(request.url).origin;
@@ -71,12 +83,14 @@ async function handleMcpRequest(request: Request): Promise<Response> {
     hasToken &&
     !hasMcpSessionId &&
     !mcpProtocolVersion &&
-    accept.includes("application/json");
+    accept.includes("application/json") &&
+    !rpcMethod;
 
   if (isLikelyAuthProbe) {
     console.info("[MCP] short-circuiting auth probe", {
       method: request.method,
       url: request.url,
+      rpcMethod,
       accept,
       hasToken,
       hasMcpSessionId,
@@ -112,6 +126,7 @@ async function handleMcpRequest(request: Request): Promise<Response> {
       console.info("[MCP] collapsing async probe response", {
         method: request.method,
         url: request.url,
+        rpcMethod,
         accept,
         hasToken,
         hasMcpSessionId,
