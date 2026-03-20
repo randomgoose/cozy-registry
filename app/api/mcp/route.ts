@@ -26,6 +26,10 @@ function noContentSseResponse(): Response {
 async function handleMcpRequest(request: Request): Promise<Response> {
   const authHeader = request.headers.get("authorization");
   const hasToken = !!extractBearerToken(authHeader);
+  const accept = request.headers.get("accept") ?? "";
+  const mcpProtocolVersion = request.headers.get("mcp-protocol-version");
+  const hasMcpSessionId = !!request.headers.get("mcp-session-id");
+
   if (!hasToken) {
     const baseUrl = new URL(request.url).origin;
     const prmUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
@@ -33,10 +37,10 @@ async function handleMcpRequest(request: Request): Promise<Response> {
       method: request.method,
       url: request.url,
       userAgent: request.headers.get("user-agent"),
-      accept: request.headers.get("accept"),
+      accept,
       contentType: request.headers.get("content-type"),
-      mcpProtocolVersion: request.headers.get("mcp-protocol-version"),
-      hasMcpSessionId: !!request.headers.get("mcp-session-id"),
+      mcpProtocolVersion,
+      hasMcpSessionId,
     });
     return new Response(
       JSON.stringify({
@@ -58,9 +62,34 @@ async function handleMcpRequest(request: Request): Promise<Response> {
   }
 
   // Explicitly decline SSE channel requests in stateless/serverless mode.
-  const accept = request.headers.get("accept") ?? "";
   if (request.method === "GET" && accept.includes("text/event-stream")) {
     return noContentSseResponse();
+  }
+
+  const isLikelyAuthProbe =
+    request.method === "POST" &&
+    hasToken &&
+    !hasMcpSessionId &&
+    !mcpProtocolVersion &&
+    accept.includes("application/json");
+
+  if (isLikelyAuthProbe) {
+    console.info("[MCP] short-circuiting auth probe", {
+      method: request.method,
+      url: request.url,
+      accept,
+      hasToken,
+      hasMcpSessionId,
+      mcpProtocolVersion,
+    });
+    return Response.json(
+      {
+        jsonrpc: "2.0",
+        result: { ok: true, authenticated: true },
+        id: null,
+      },
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
   }
 
   try {
@@ -74,24 +103,18 @@ async function handleMcpRequest(request: Request): Promise<Response> {
 
     // Figma auth probes may negotiate stream mode and receive 202, then spin on retries.
     // For stateless serverless, convert this specific probe shape into a synchronous JSON success.
-    const isLikelyAuthProbe =
-      request.method === "POST" &&
-      !request.headers.get("mcp-session-id") &&
-      hasToken &&
-      (accept.includes("application/json") || accept.includes("text/event-stream")) &&
-      !request.headers.get("last-event-id");
     const isLikelyStreamProbe =
       request.method === "POST" &&
       accept.includes("application/json") &&
       accept.includes("text/event-stream") &&
-      !request.headers.get("mcp-session-id");
-    if (response.status === 202 && (isLikelyAuthProbe || isLikelyStreamProbe)) {
+      !hasMcpSessionId;
+    if (response.status === 202 && isLikelyStreamProbe) {
       console.info("[MCP] collapsing async probe response", {
         method: request.method,
         url: request.url,
         accept,
         hasToken,
-        hasMcpSessionId: !!request.headers.get("mcp-session-id"),
+        hasMcpSessionId,
       });
       return Response.json(
         {
