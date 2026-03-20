@@ -11,6 +11,7 @@ export function getAuthorizationServerMetadata() {
     scopes_supported: ["mcp:tools"],
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code"],
+    code_challenge_methods_supported: ["S256", "plain"],
     token_endpoint_auth_methods_supported: client.clientSecret
       ? ["client_secret_post", "client_secret_basic"]
       : ["none", "client_secret_post", "client_secret_basic"],

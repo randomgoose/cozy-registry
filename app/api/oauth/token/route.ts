@@ -34,6 +34,7 @@ export async function POST(request: Request) {
   const redirectUri = body.redirect_uri;
   const clientId = body.client_id ?? basicClientId;
   const clientSecret = body.client_secret ?? basicClientSecret;
+  const codeVerifier = body.code_verifier;
 
   if (grantType !== "authorization_code") {
     return NextResponse.json(
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_client" }, { status: 401 });
   }
 
-  const userId = await consumeAuthorizationCode(code, clientId, redirectUri);
+  const userId = await consumeAuthorizationCode(code, clientId, redirectUri, codeVerifier);
   if (!userId) {
     return NextResponse.json(
       { error: "invalid_grant", error_description: "Invalid or expired authorization code" },

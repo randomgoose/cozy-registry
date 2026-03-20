@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, timingSafeEqual, randomBytes } from "node:crypto";
 import { db } from "./db";
 import { oauthAuthorizationCode, apiKey } from "./db/schema";
 import { eq } from "drizzle-orm";
@@ -62,6 +62,8 @@ export async function createAuthorizationCode(params: {
   redirectUri: string;
   scope?: string | null;
   state?: string | null;
+  codeChallenge?: string | null;
+  codeChallengeMethod?: string | null;
 }): Promise<string> {
   const code = generateSecureToken(24);
   const expiresAt = new Date(Date.now() + CODE_TTL_MS);
@@ -72,16 +74,57 @@ export async function createAuthorizationCode(params: {
     redirectUri: params.redirectUri,
     scope: params.scope ?? null,
     state: params.state ?? null,
+    codeChallenge: params.codeChallenge ?? null,
+    codeChallengeMethod: params.codeChallengeMethod ?? null,
     expiresAt,
   });
   return code;
+}
+
+function createPkceChallenge(codeVerifier: string): string {
+  return createHash("sha256").update(codeVerifier, "utf8").digest("base64url");
+}
+
+function validatePkce(params: {
+  codeChallenge: string | null;
+  codeChallengeMethod: string | null;
+  codeVerifier?: string | null;
+}): boolean {
+  if (!params.codeChallenge) {
+    return true;
+  }
+
+  if (!params.codeVerifier) {
+    return false;
+  }
+
+  if ((params.codeChallengeMethod ?? "plain") === "S256") {
+    const expected = Buffer.from(params.codeChallenge, "utf8");
+    const actual = Buffer.from(createPkceChallenge(params.codeVerifier), "utf8");
+
+    if (expected.length !== actual.length) {
+      return false;
+    }
+
+    return timingSafeEqual(expected, actual);
+  }
+
+  const expected = Buffer.from(params.codeChallenge, "utf8");
+  const actual = Buffer.from(params.codeVerifier, "utf8");
+
+  if (expected.length !== actual.length) {
+    return false;
+  }
+
+  return timingSafeEqual(expected, actual);
 }
 
 /** Consume code and return userId; deletes the code. Returns null if invalid. */
 export async function consumeAuthorizationCode(
   code: string,
   clientId: string,
-  redirectUri: string
+  redirectUri: string,
+  codeVerifier?: string | null
 ): Promise<string | null> {
   const [row] = await db
     .select({ userId: oauthAuthorizationCode.userId })
@@ -97,6 +140,15 @@ export async function consumeAuthorizationCode(
 
   if (!full || full.clientId !== clientId || full.redirectUri !== redirectUri) return null;
   if (full.expiresAt < new Date()) return null;
+  if (
+    !validatePkce({
+      codeChallenge: full.codeChallenge ?? null,
+      codeChallengeMethod: full.codeChallengeMethod ?? null,
+      codeVerifier,
+    })
+  ) {
+    return null;
+  }
 
   await db.delete(oauthAuthorizationCode).where(eq(oauthAuthorizationCode.code, code));
   return full.userId;

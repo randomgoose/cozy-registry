@@ -97,6 +97,8 @@ export const oauthAuthorizationCode = pgTable("oauth_authorization_code", {
   redirectUri: text("redirect_uri").notNull(),
   scope: text("scope"),
   state: text("state"),
+  codeChallenge: text("code_challenge"),
+  codeChallengeMethod: text("code_challenge_method"),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

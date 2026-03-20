@@ -16,6 +16,7 @@
     "db:seed": "tsx lib/db/seed.ts",
     "db:migrate-legacy": "tsx lib/db/migrate-legacy-owner.ts",
     "db:migrate-registry-ui-type": "tsx lib/db/migrate-registry-ui-type.ts",
+    "db:migrate-oauth-pkce": "tsx lib/db/migrate-oauth-pkce.ts",
     "prepare": "husky"
   },
   "dependencies": {

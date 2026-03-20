@@ -14,6 +14,8 @@ export async function GET(request: Request) {
   const responseType = searchParams.get("response_type");
   const state = searchParams.get("state");
   const scope = searchParams.get("scope");
+  const codeChallenge = searchParams.get("code_challenge");
+  const codeChallengeMethod = searchParams.get("code_challenge_method");
 
   if (!clientId || !redirectUri) {
     return NextResponse.json(
@@ -46,6 +48,8 @@ export async function GET(request: Request) {
   const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri });
   if (state) params.set("state", state);
   if (scope) params.set("scope", scope);
+  if (codeChallenge) params.set("code_challenge", codeChallenge);
+  if (codeChallengeMethod) params.set("code_challenge_method", codeChallengeMethod);
   const postUrl = `/api/oauth/authorize?${params.toString()}`;
 
   const html = `<!DOCTYPE html>
@@ -74,6 +78,8 @@ export async function POST(request: Request) {
   const redirectUri = searchParams.get("redirect_uri");
   const state = searchParams.get("state");
   const scope = searchParams.get("scope");
+  const codeChallenge = searchParams.get("code_challenge");
+  const codeChallengeMethod = searchParams.get("code_challenge_method");
 
   let bodyConfirm: string | null = null;
   try {
@@ -112,6 +118,8 @@ export async function POST(request: Request) {
     redirectUri,
     scope: scope ?? null,
     state: state ?? null,
+    codeChallenge: codeChallenge ?? null,
+    codeChallengeMethod: codeChallengeMethod ?? null,
   });
 
   const redirect = new URL(redirectUri);
