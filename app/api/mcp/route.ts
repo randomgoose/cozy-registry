@@ -38,7 +38,15 @@ async function handleMcpRequest(request: Request): Promise<Response> {
     return transport.handleRequest(request);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[MCP] handleRequest error:", message);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error("[MCP] handleRequest error", {
+      method: request.method,
+      url: request.url,
+      hasAuthorization: !!request.headers.get("authorization"),
+      userAgent: request.headers.get("user-agent"),
+      message,
+      stack,
+    });
     return Response.json(
       {
         jsonrpc: "2.0",
