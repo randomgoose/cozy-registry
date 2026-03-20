@@ -1,4 +1,7 @@
-import { auth } from "./auth";
+import { createHash } from "node:crypto";
+import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { db } from "./db";
+import { apiKey } from "./db/schema";
 
 export type TokenAuthContext = {
   userId: string;
@@ -9,6 +12,11 @@ function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null;
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   return match?.[1]?.trim() || null;
+}
+
+function hashApiKey(plain: string): string {
+  const hash = createHash("sha256").update(plain, "utf8").digest();
+  return Buffer.from(hash).toString("base64url");
 }
 
 /**
@@ -23,15 +31,26 @@ export async function getAuthContextFromToken(
   if (!token) return null;
 
   try {
-    const result = await auth.api.verifyApiKey({
-      body: { key: token },
-    });
-    if (result.valid && result.key) {
-      const apiKeyId = (result.key as unknown as { id?: string }).id;
-      const userId = result.key.referenceId;
-      if (!apiKeyId || !userId) return null;
-      return { userId, apiKeyId };
-    }
+    // Direct DB verification avoids Better Auth API-key rate-limit counters
+    // during high-frequency MCP check_auth probes.
+    const hashed = hashApiKey(token);
+    const [row] = await db
+      .select({
+        id: apiKey.id,
+        referenceId: apiKey.referenceId,
+      })
+      .from(apiKey)
+      .where(
+        and(
+          eq(apiKey.key, hashed),
+          eq(apiKey.enabled, true),
+          or(isNull(apiKey.expiresAt), gt(apiKey.expiresAt, new Date())),
+        ),
+      )
+      .limit(1);
+
+    if (!row?.id || !row.referenceId) return null;
+    return { userId: row.referenceId, apiKeyId: row.id };
   } catch {
     // ignore
   }
