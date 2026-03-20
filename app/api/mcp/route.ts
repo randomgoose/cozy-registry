@@ -1,6 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createRegistryMcpServer } from "@/lib/mcp-tools";
-import { getAuthContextFromToken } from "@/lib/auth-api";
 
 function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null;
@@ -14,10 +13,12 @@ function extractBearerToken(authHeader: string | null): string | null {
 // In serverless we cannot reliably maintain the two-channel SSE flow across invocations.
 // Force JSON responses for write/read RPC calls so each request completes in one response body.
 function noContentSseResponse(): Response {
-  return new Response(null, {
-    status: 204,
+  return new Response("event: close\ndata: {}\n\n", {
+    status: 200,
     headers: {
       "Cache-Control": "no-cache, no-transform",
+      "Content-Type": "text/event-stream; charset=utf-8",
+      Connection: "keep-alive",
     },
   });
 }
@@ -75,21 +76,31 @@ async function handleMcpRequest(request: Request): Promise<Response> {
     // For stateless serverless, convert this specific probe shape into a synchronous JSON success.
     const isLikelyAuthProbe =
       request.method === "POST" &&
+      !request.headers.get("mcp-session-id") &&
+      hasToken &&
+      (accept.includes("application/json") || accept.includes("text/event-stream")) &&
+      !request.headers.get("last-event-id");
+    const isLikelyStreamProbe =
+      request.method === "POST" &&
       accept.includes("application/json") &&
       accept.includes("text/event-stream") &&
       !request.headers.get("mcp-session-id");
-    if (response.status === 202 && isLikelyAuthProbe) {
-      const authCtx = await getAuthContextFromToken(request);
-      if (authCtx) {
-        return Response.json(
-          {
-            jsonrpc: "2.0",
-            result: { ok: true, authenticated: true },
-            id: null,
-          },
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
+    if (response.status === 202 && (isLikelyAuthProbe || isLikelyStreamProbe)) {
+      console.info("[MCP] collapsing async probe response", {
+        method: request.method,
+        url: request.url,
+        accept,
+        hasToken,
+        hasMcpSessionId: !!request.headers.get("mcp-session-id"),
+      });
+      return Response.json(
+        {
+          jsonrpc: "2.0",
+          result: { ok: true, authenticated: hasToken },
+          id: null,
+        },
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
     }
 
     return response;
