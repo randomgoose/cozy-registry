@@ -145,6 +145,7 @@ function App() {
       }}
     >
       <div
+        data-cozy-preview-content
         style={{
           width: isThumbnail ? "min(100%, 1280px)" : "fit-content",
           maxWidth: "100%",

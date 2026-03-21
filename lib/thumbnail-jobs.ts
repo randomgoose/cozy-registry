@@ -275,9 +275,9 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
     });
     await page.waitForTimeout(600);
     const clip = await page.evaluate(() => {
-      const root = document.getElementById("root");
-      const content = root?.firstElementChild as HTMLElement | null;
-      const target = content ?? root;
+      const target = document.querySelector(
+        "[data-cozy-preview-content]",
+      ) as HTMLElement | null;
       if (!target) return null;
 
       const rect = target.getBoundingClientRect();
