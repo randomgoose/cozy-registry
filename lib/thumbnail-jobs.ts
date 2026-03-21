@@ -274,10 +274,34 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
       timeout: 30_000,
     });
     await page.waitForTimeout(600);
+    const clip = await page.evaluate(() => {
+      const root = document.getElementById("root");
+      const content = root?.firstElementChild as HTMLElement | null;
+      const target = content ?? root;
+      if (!target) return null;
+
+      const rect = target.getBoundingClientRect();
+      if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) return null;
+      if (rect.width <= 1 || rect.height <= 1) return null;
+
+      const padding = 24;
+      const x = Math.max(0, rect.left - padding);
+      const y = Math.max(0, rect.top - padding);
+      const maxWidth = window.innerWidth - x;
+      const maxHeight = window.innerHeight - y;
+
+      return {
+        x,
+        y,
+        width: Math.max(1, Math.min(rect.width + padding * 2, maxWidth)),
+        height: Math.max(1, Math.min(rect.height + padding * 2, maxHeight)),
+      };
+    });
 
     const buffer = await page.screenshot({
       type: "png",
       fullPage: false,
+      ...(clip ? { clip } : {}),
     });
 
     const path = buildRegistryAssetPath({
