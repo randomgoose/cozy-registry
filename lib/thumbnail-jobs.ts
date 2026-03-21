@@ -23,6 +23,282 @@ type ThumbnailJobPayload = {
   type: string;
 };
 
+export async function capturePreviewThumbnail(params: {
+  owner: string;
+  name: string;
+  version: string;
+  strategy?: "computed" | "locator";
+}) {
+  const { chromium: playwrightChromium } = await import("playwright-core");
+
+  const baseUrl =
+    process.env.APP_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+
+  if (!baseUrl) {
+    throw new Error(
+      "APP_URL or NEXT_PUBLIC_APP_URL is required to capture preview thumbnails.",
+    );
+  }
+
+  const plan = getPreviewCapturePlan({
+    owner: params.owner,
+    name: params.name,
+    version: params.version,
+  });
+
+  const browser = await launchThumbnailBrowser(playwrightChromium);
+
+  try {
+    const context = await browser.newContext({
+      viewport: {
+        width: plan.viewport.width,
+        height: plan.viewport.height,
+      },
+      deviceScaleFactor: 1,
+    });
+    const page = await context.newPage();
+    await page.goto(`${baseUrl}${plan.previewPath}`, {
+      waitUntil: "networkidle",
+      timeout: 30_000,
+    });
+    await page.waitForTimeout(600);
+    const preferredStrategy = params.strategy ?? "locator";
+    if (preferredStrategy === "locator") {
+      try {
+        const locator = page.locator("[data-cozy-preview-subject]").first();
+        await locator.waitFor({ state: "visible", timeout: 10_000 });
+        const targetRect = await locator.boundingBox();
+        const buffer = await locator.screenshot({
+          type: "png",
+        });
+
+        await context.close().catch(() => undefined);
+        return {
+          buffer,
+          clip: targetRect,
+          plan,
+          diagnostics: {
+            strategy: "locator",
+            clip: targetRect,
+            targetRect,
+            candidates: [],
+          },
+        };
+      } catch (error) {
+        if (params.strategy === "locator") {
+          throw error;
+        }
+      }
+    }
+
+    const diagnostics = await page.evaluate(() => {
+      const target = document.querySelector(
+        "[data-cozy-preview-subject]",
+      ) as HTMLElement | null;
+      if (!target) return { clip: null, targetRect: null, candidates: [] as unknown[] };
+
+      const targetRect = target.getBoundingClientRect();
+      const targetArea = Math.max(1, targetRect.width * targetRect.height);
+      const descendants = Array.from(target.querySelectorAll("*")) as HTMLElement[];
+      const nodes = descendants.length > 0 ? descendants : [target];
+      const pageBackground =
+        window.getComputedStyle(document.body).backgroundColor || "";
+      const candidates: Array<Record<string, unknown>> = [];
+      let left = Number.POSITIVE_INFINITY;
+      let top = Number.POSITIVE_INFINITY;
+      let right = Number.NEGATIVE_INFINITY;
+      let bottom = Number.NEGATIVE_INFINITY;
+
+      for (const node of nodes) {
+        const style = window.getComputedStyle(node);
+        if (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          Number(style.opacity) === 0
+        ) {
+          continue;
+        }
+
+        const rect = node.getBoundingClientRect();
+        if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) continue;
+        if (rect.width <= 1 || rect.height <= 1) continue;
+
+        const area = rect.width * rect.height;
+        const tag = node.tagName;
+        const ownText = Array.from(node.childNodes)
+          .filter((child) => child.nodeType === Node.TEXT_NODE)
+          .map((child) => child.textContent ?? "")
+          .join(" ")
+          .trim();
+        const hasOwnText = ownText.length > 0;
+        const isIntrinsicContentNode = [
+          "IMG",
+          "SVG",
+          "CANVAS",
+          "VIDEO",
+          "BUTTON",
+          "INPUT",
+          "TEXTAREA",
+          "SELECT",
+        ].includes(tag);
+        const borderWidth =
+          parseFloat(style.borderTopWidth || "0") +
+          parseFloat(style.borderRightWidth || "0") +
+          parseFloat(style.borderBottomWidth || "0") +
+          parseFloat(style.borderLeftWidth || "0");
+        const bg = style.backgroundColor;
+        const sameAsPageBackground =
+          !!bg &&
+          !!pageBackground &&
+          bg.replace(/\s+/g, "") === pageBackground.replace(/\s+/g, "");
+        const hasVisibleBackground =
+          !!bg &&
+          bg !== "transparent" &&
+          !bg.includes("rgba(0, 0, 0, 0)") &&
+          bg !== "rgb(0, 0, 0, 0)" &&
+          !sameAsPageBackground;
+        const hasDecoration =
+          (!!style.backgroundImage && style.backgroundImage !== "none") ||
+          (!!style.boxShadow && style.boxShadow !== "none") ||
+          borderWidth > 0;
+        const hasContent =
+          hasOwnText ||
+          isIntrinsicContentNode ||
+          hasDecoration ||
+          hasVisibleBackground;
+        if (!hasContent) {
+          continue;
+        }
+
+        const mostlyFullCanvas = area / targetArea > 0.92;
+        const isContainerOnly = !hasOwnText && !isIntrinsicContentNode;
+        const decorationOnly = !hasDecoration;
+
+        const skipped =
+          (isContainerOnly && sameAsPageBackground && decorationOnly) ||
+          (mostlyFullCanvas &&
+            isContainerOnly &&
+            !hasVisibleBackground &&
+            decorationOnly);
+        candidates.push({
+          tag,
+          ownText,
+          width: rect.width,
+          height: rect.height,
+          top: rect.top,
+          left: rect.left,
+          bg,
+          sameAsPageBackground,
+          hasVisibleBackground,
+          hasDecoration,
+          isIntrinsicContentNode,
+          mostlyFullCanvas,
+          isContainerOnly,
+          skipped,
+        });
+        if (skipped) continue;
+
+        left = Math.min(left, rect.left);
+        top = Math.min(top, rect.top);
+        right = Math.max(right, rect.right);
+        bottom = Math.max(bottom, rect.bottom);
+      }
+
+      if (
+        !Number.isFinite(left) ||
+        !Number.isFinite(top) ||
+        !Number.isFinite(right) ||
+        !Number.isFinite(bottom)
+      ) {
+        const rect = target.getBoundingClientRect();
+        if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) {
+          return {
+            clip: null,
+            targetRect: null,
+            candidates,
+          };
+        }
+        if (rect.width <= 1 || rect.height <= 1) {
+          return {
+            clip: null,
+            targetRect: null,
+            candidates,
+          };
+        }
+        left = rect.left;
+        top = rect.top;
+        right = rect.right;
+        bottom = rect.bottom;
+      }
+
+      const subjectWidth = Math.max(1, right - left);
+      const subjectHeight = Math.max(1, bottom - top);
+      const padding = Math.max(
+        8,
+        Math.min(20, Math.round(Math.min(subjectWidth, subjectHeight) * 0.14)),
+      );
+      const appliedLeft = Math.min(padding, Math.max(0, left));
+      const appliedTop = Math.min(padding, Math.max(0, top));
+      const appliedRight = Math.min(
+        padding,
+        Math.max(0, window.innerWidth - right),
+      );
+      const appliedBottom = Math.min(
+        padding,
+        Math.max(0, window.innerHeight - bottom),
+      );
+      const x = Math.max(0, left - appliedLeft);
+      const y = Math.max(0, top - appliedTop);
+      const maxWidth = window.innerWidth - x;
+      const maxHeight = window.innerHeight - y;
+
+      return {
+        clip: {
+          x,
+          y,
+          width: Math.max(
+            1,
+            Math.min(right - left + appliedLeft + appliedRight, maxWidth),
+          ),
+          height: Math.max(
+            1,
+            Math.min(bottom - top + appliedTop + appliedBottom, maxHeight),
+          ),
+        },
+        targetRect: {
+          x: targetRect.x,
+          y: targetRect.y,
+          width: targetRect.width,
+          height: targetRect.height,
+        },
+        candidates,
+      };
+    });
+
+    const clip = diagnostics.clip;
+    const buffer = await page.screenshot({
+      type: "png",
+      fullPage: false,
+      ...(clip ? { clip } : {}),
+    });
+
+    await context.close().catch(() => undefined);
+    return {
+      buffer,
+      clip,
+      plan,
+      diagnostics: {
+        strategy: "computed",
+        ...diagnostics,
+      },
+    };
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}
+
 export async function enqueueThumbnailJob(params: {
   itemId: string;
   itemVersionId?: string | null;
@@ -239,158 +515,11 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
     };
   }
 
-  const { chromium: playwrightChromium } = await import("playwright-core");
-
-  const baseUrl =
-    process.env.APP_URL ??
-    process.env.NEXT_PUBLIC_APP_URL ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
-
-  if (!baseUrl) {
-    throw new Error(
-      "APP_URL or NEXT_PUBLIC_APP_URL is required to capture preview thumbnails.",
-    );
-  }
-
-  const plan = getPreviewCapturePlan({
+  const { buffer, plan } = await capturePreviewThumbnail({
     owner: payload.ownerHandle ?? payload.ownerId,
     name: payload.name,
     version: payload.version,
   });
-
-  const browser = await launchThumbnailBrowser(playwrightChromium);
-
-  try {
-    const context = await browser.newContext({
-      viewport: {
-        width: plan.viewport.width,
-        height: plan.viewport.height,
-      },
-      deviceScaleFactor: 1,
-    });
-    const page = await context.newPage();
-    await page.goto(`${baseUrl}${plan.previewPath}`, {
-      waitUntil: "networkidle",
-      timeout: 30_000,
-    });
-    await page.waitForTimeout(600);
-    const clip = await page.evaluate(() => {
-      const target = document.querySelector(
-        "[data-cozy-preview-subject]",
-      ) as HTMLElement | null;
-      if (!target) return null;
-
-      const targetRect = target.getBoundingClientRect();
-      const targetArea = Math.max(1, targetRect.width * targetRect.height);
-      const descendants = Array.from(target.querySelectorAll("*")) as HTMLElement[];
-      const nodes = descendants.length > 0 ? descendants : [target];
-      const pageBackground =
-        window.getComputedStyle(document.body).backgroundColor || "";
-      let left = Number.POSITIVE_INFINITY;
-      let top = Number.POSITIVE_INFINITY;
-      let right = Number.NEGATIVE_INFINITY;
-      let bottom = Number.NEGATIVE_INFINITY;
-
-      for (const node of nodes) {
-        const style = window.getComputedStyle(node);
-        if (
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          Number(style.opacity) === 0
-        ) {
-          continue;
-        }
-
-        const rect = node.getBoundingClientRect();
-        if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) continue;
-        if (rect.width <= 1 || rect.height <= 1) continue;
-
-        const area = rect.width * rect.height;
-        const text = node.textContent?.trim() ?? "";
-        const tag = node.tagName;
-        const borderWidth =
-          parseFloat(style.borderTopWidth || "0") +
-          parseFloat(style.borderRightWidth || "0") +
-          parseFloat(style.borderBottomWidth || "0") +
-          parseFloat(style.borderLeftWidth || "0");
-        const bg = style.backgroundColor;
-        const hasContent =
-          text.length > 0 ||
-          tag === "IMG" ||
-          tag === "SVG" ||
-          tag === "CANVAS" ||
-          tag === "VIDEO" ||
-          tag === "BUTTON" ||
-          tag === "INPUT" ||
-          tag === "TEXTAREA" ||
-          tag === "SELECT" ||
-          (!!style.backgroundImage && style.backgroundImage !== "none") ||
-          (!!style.boxShadow && style.boxShadow !== "none") ||
-          borderWidth > 0 ||
-          (!!bg &&
-            bg !== "transparent" &&
-            !bg.includes("rgba(0, 0, 0, 0)") &&
-            bg !== "rgb(0, 0, 0, 0)");
-        if (!hasContent) continue;
-
-        const mostlyFullCanvas = area / targetArea > 0.92;
-        const isContainerOnly =
-          text.length === 0 &&
-          !["IMG", "SVG", "CANVAS", "VIDEO", "BUTTON", "INPUT", "TEXTAREA", "SELECT"].includes(
-            tag,
-          );
-        const sameAsPageBackground =
-          !!bg &&
-          !!pageBackground &&
-          bg.replace(/\s+/g, "") === pageBackground.replace(/\s+/g, "");
-        const decorationOnly =
-          (!style.backgroundImage || style.backgroundImage === "none") &&
-          (!style.boxShadow || style.boxShadow === "none") &&
-          borderWidth <= 0;
-
-        if (isContainerOnly && sameAsPageBackground && decorationOnly) continue;
-        if (mostlyFullCanvas && isContainerOnly) continue;
-
-        left = Math.min(left, rect.left);
-        top = Math.min(top, rect.top);
-        right = Math.max(right, rect.right);
-        bottom = Math.max(bottom, rect.bottom);
-      }
-
-      if (
-        !Number.isFinite(left) ||
-        !Number.isFinite(top) ||
-        !Number.isFinite(right) ||
-        !Number.isFinite(bottom)
-      ) {
-        const rect = target.getBoundingClientRect();
-        if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) return null;
-        if (rect.width <= 1 || rect.height <= 1) return null;
-        left = rect.left;
-        top = rect.top;
-        right = rect.right;
-        bottom = rect.bottom;
-      }
-
-      const padding = 24;
-      const x = Math.max(0, left - padding);
-      const y = Math.max(0, top - padding);
-      const maxWidth = window.innerWidth - x;
-      const maxHeight = window.innerHeight - y;
-
-      return {
-        x,
-        y,
-        width: Math.max(1, Math.min(right - left + padding * 2, maxWidth)),
-        height: Math.max(1, Math.min(bottom - top + padding * 2, maxHeight)),
-      };
-    });
-
-    const buffer = await page.screenshot({
-      type: "png",
-      fullPage: false,
-      ...(clip ? { clip } : {}),
-    });
 
     const path = buildRegistryAssetPath({
       scope: { kind: "user", id: payload.ownerId },
@@ -443,9 +572,6 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
       skipped: false,
       thumbnail,
     };
-  } finally {
-    await browser.close().catch(() => undefined);
-  }
 }
 
 async function launchThumbnailBrowser(
