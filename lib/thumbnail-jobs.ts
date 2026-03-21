@@ -280,11 +280,47 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
       ) as HTMLElement | null;
       if (!target) return null;
 
-      const nodes = [target, ...Array.from(target.querySelectorAll("*"))] as HTMLElement[];
+      const targetRect = target.getBoundingClientRect();
+      const targetArea = Math.max(1, targetRect.width * targetRect.height);
+      const descendants = Array.from(target.querySelectorAll("*")) as HTMLElement[];
+      const nodes = descendants.length > 0 ? descendants : [target];
       let left = Number.POSITIVE_INFINITY;
       let top = Number.POSITIVE_INFINITY;
       let right = Number.NEGATIVE_INFINITY;
       let bottom = Number.NEGATIVE_INFINITY;
+
+      function hasMeaningfulContent(node: HTMLElement, style: CSSStyleDeclaration) {
+        const text = node.textContent?.trim() ?? "";
+        if (text.length > 0) return true;
+
+        const tag = node.tagName;
+        if (
+          tag === "IMG" ||
+          tag === "SVG" ||
+          tag === "CANVAS" ||
+          tag === "VIDEO" ||
+          tag === "BUTTON" ||
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT"
+        ) {
+          return true;
+        }
+
+        if (style.backgroundImage && style.backgroundImage !== "none") return true;
+        if (style.boxShadow && style.boxShadow !== "none") return true;
+
+        const borderWidth =
+          parseFloat(style.borderTopWidth || "0") +
+          parseFloat(style.borderRightWidth || "0") +
+          parseFloat(style.borderBottomWidth || "0") +
+          parseFloat(style.borderLeftWidth || "0");
+        if (borderWidth > 0) return true;
+
+        const bg = style.backgroundColor;
+        if (!bg || bg === "transparent") return false;
+        return !bg.includes("rgba(0, 0, 0, 0)") && bg !== "rgb(0, 0, 0, 0)";
+      }
 
       for (const node of nodes) {
         const style = window.getComputedStyle(node);
@@ -299,6 +335,18 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
         const rect = node.getBoundingClientRect();
         if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) continue;
         if (rect.width <= 1 || rect.height <= 1) continue;
+
+        const area = rect.width * rect.height;
+        const hasContent = hasMeaningfulContent(node, style);
+        if (!hasContent) continue;
+
+        const mostlyFullCanvas = area / targetArea > 0.92;
+        const isContainerOnly =
+          (node.textContent?.trim() ?? "").length === 0 &&
+          !["IMG", "SVG", "CANVAS", "VIDEO", "BUTTON", "INPUT", "TEXTAREA", "SELECT"].includes(
+            node.tagName,
+          );
+        if (mostlyFullCanvas && isContainerOnly) continue;
 
         left = Math.min(left, rect.left);
         top = Math.min(top, rect.top);
