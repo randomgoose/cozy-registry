@@ -1,0 +1,10 @@
+.git
+.next
+node_modules
+.pnpm-store
+.vercel
+coverage
+dist
+tmp
+*.log
+tsconfig.tsbuildinfo

@@ -87,7 +87,15 @@ pnpm cozy-thumbnail-worker
 推荐将 worker 作为独立进程部署在 Linux 环境中（例如 Railway、Render、DigitalOcean App Platform 等），与 Vercel 上的 Web 应用分开运行：
 
 - Web 应用：继续部署在 Vercel
-- Thumbnail worker：单独服务，启动命令为 `pnpm cozy-thumbnail-worker`
+- Thumbnail worker：单独服务，建议使用 `Dockerfile.worker`
+
+在 Railway 上，优先使用 Docker 部署 worker，而不是默认 Node runtime。原因是截图依赖 Chromium 及其系统库，默认运行镜像可能缺少浏览器依赖，导致 launch 失败。
+
+Worker 容器内已经：
+
+- 安装 `chromium`
+- 设置 `THUMBNAIL_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium`
+- 默认执行 `pnpm run cozy-thumbnail-worker -- --loop`
 
 worker 当前行为：
 
