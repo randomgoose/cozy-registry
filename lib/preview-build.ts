@@ -147,14 +147,24 @@ function App() {
       <div
         data-cozy-preview-content
         style={{
-          width: isThumbnail ? "min(100%, 1280px)" : "fit-content",
+          width: "100%",
           maxWidth: "100%",
           margin: "0 auto",
-          transform: isThumbnail ? "scale(1.18)" : "none",
-          transformOrigin: "top center",
+          display: "flex",
+          justifyContent: "center",
         }}
       >
-        <Component {...props} />
+        <div
+          data-cozy-preview-subject
+          style={{
+            width: "fit-content",
+            maxWidth: isThumbnail ? "none" : "100%",
+            transform: isThumbnail ? "scale(1.18)" : "none",
+            transformOrigin: "top center",
+          }}
+        >
+          <Component {...props} />
+        </div>
       </div>
     </div>
   );

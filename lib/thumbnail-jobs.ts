@@ -276,7 +276,7 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
     await page.waitForTimeout(600);
     const clip = await page.evaluate(() => {
       const target = document.querySelector(
-        "[data-cozy-preview-content]",
+        "[data-cozy-preview-subject]",
       ) as HTMLElement | null;
       if (!target) return null;
 
