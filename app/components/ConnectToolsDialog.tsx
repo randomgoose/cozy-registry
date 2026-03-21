@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Dialog,
@@ -10,12 +10,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { authClient } from "@/lib/auth-client";
+import { FigmaMakeIcon } from "./icons/FigmaMakeIcon";
+import { CursorIcon } from "./icons/CursorIcon";
 
 type ToolKey = "figma" | "cursor";
 
 type ToolDefinition = {
   key: ToolKey;
-  eyebrow: string;
   title: string;
   description: string;
   actionLabel: string;
@@ -23,6 +24,7 @@ type ToolDefinition = {
   authMode: string;
   steps: string[];
   note?: string;
+  icon?: ReactNode;
 };
 
 type ConnectToolsDialogProps = {
@@ -33,8 +35,7 @@ type ConnectToolsDialogProps = {
 const TOOLS: ToolDefinition[] = [
   {
     key: "figma",
-    eyebrow: "Figma Make",
-    title: "Upload from Figma Make",
+    title: "Connect Figma Make",
     description:
       "在 Figma Make 里连接 Cozy MCP，直接读取 registry、生成安装计划，并把 block 发布到 registry。",
     actionLabel: "打开 Figma Make",
@@ -48,10 +49,10 @@ const TOOLS: ToolDefinition[] = [
     ],
     note:
       "OAuth 仍在兼容验证中。当前 Figma Make 推荐使用 Bearer token 接入，稳定性更高。",
+    icon: <FigmaMakeIcon className="size-4" />,
   },
   {
     key: "cursor",
-    eyebrow: "Cursor",
     title: "Connect Cursor",
     description:
       "把 Cozy Registry 接进 Cursor，让 agent 能读取 bundle、分析项目状态并规划安装与升级。",
@@ -64,6 +65,7 @@ const TOOLS: ToolDefinition[] = [
       "如果需要项目状态或升级规划，优先使用 get_project_registry_status 与 analyze_project_registry。",
     ],
     note: "如果你只想先验证连通性，先调用 initialize 和 tools/list 就够了。",
+    icon: <CursorIcon className="size-4" />,
   },
 ];
 
@@ -78,14 +80,16 @@ function ToolTriggerCard({
     <button
       type="button"
       onClick={onOpen}
-      className="rounded-2xl border border-zinc-200/80 bg-white px-5 py-4 text-left transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700 dark:hover:bg-zinc-900"
+      className="rounded-2xl bg-white/70 px-5 py-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition hover:bg-white/85 dark:bg-white/[0.045] dark:hover:bg-white/[0.07]"
     >
-      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">
-        {tool.eyebrow}
-      </p>
-      <h3 className="mt-2 text-base font-semibold text-zinc-900 dark:text-zinc-100">
-        {tool.title}
-      </h3>
+      <div className="flex items-center gap-2">
+        {tool.icon ? (
+          <span className="text-zinc-700 dark:text-zinc-200">{tool.icon}</span>
+        ) : null}
+        <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+          {tool.title}
+        </h3>
+      </div>
       <p className="mt-1 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
         {tool.description}
       </p>
@@ -141,7 +145,7 @@ export function ConnectToolsDialog({
     setIsGeneratingToken(true);
     try {
       const { data, error } = await authClient.apiKey.create({
-        name: `${activeTool.eyebrow} quick connect`,
+        name: `${activeTool.title} quick connect`,
       });
 
       if (error || !data?.key) {
@@ -193,10 +197,14 @@ export function ConnectToolsDialog({
                         : "text-zinc-600 hover:bg-white/80 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900/80 dark:hover:text-zinc-100"
                     }`}
                   >
-                    <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-500">
-                      {tool.eyebrow}
-                    </p>
-                    <p className="mt-1 text-sm font-semibold">{tool.title}</p>
+                    <div className="flex items-center gap-2">
+                      {tool.icon ? (
+                        <span className="text-zinc-700 dark:text-zinc-200">
+                          {tool.icon}
+                        </span>
+                      ) : null}
+                      <p className="text-sm font-semibold">{tool.title}</p>
+                    </div>
                   </button>
                 );
               })}
@@ -262,7 +270,7 @@ export function ConnectToolsDialog({
                 {isSignedIn ? (
                   <div className="mt-3 space-y-3">
                     <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-                      直接为 {activeTool.eyebrow} 创建一个可复制的 API token。生成后会立即填入上面的 Header 模板。
+                      直接为 {activeTool.title} 创建一个可复制的 API token。生成后会立即填入上面的 Header 模板。
                     </p>
                     {generatedToken ? (
                       <code className="block break-all rounded-xl bg-zinc-50 px-3 py-3 text-xs text-zinc-700 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-800">

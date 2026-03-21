@@ -2,13 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import {
-  getRegistryItemTypeLabel,
-  normalizeRegistryItemType,
-  REGISTRY_BLOCK_TYPE,
-  REGISTRY_THEME_TYPE,
-  REGISTRY_UI_TYPE,
-} from "@/lib/registry-types";
+import { getRegistryItemTypeLabel } from "@/lib/registry-types";
 import { ComponentCard } from "./ComponentCard";
 
 type RegistryBrowserItem = {
@@ -20,6 +14,7 @@ type RegistryBrowserItem = {
   description: string | null;
   type: string;
   visibility: "public" | "private";
+  thumbnailUrl?: string | null;
 };
 
 interface RegistryBrowserProps {
@@ -27,25 +22,14 @@ interface RegistryBrowserProps {
   isSignedIn: boolean;
 }
 
-const TYPE_OPTIONS = [
-  { value: "all", label: "全部类型" },
-  { value: REGISTRY_BLOCK_TYPE, label: "Block" },
-  { value: REGISTRY_UI_TYPE, label: "UI" },
-  { value: REGISTRY_THEME_TYPE, label: "Theme" },
-];
-
 export function RegistryBrowser({
   items,
   isSignedIn,
 }: RegistryBrowserProps) {
   const [query, setQuery] = useState("");
-  const [selectedType, setSelectedType] = useState("all");
   const normalizedQuery = query.trim().toLowerCase();
 
   const filteredItems = items.filter((item) => {
-    const normalizedType = normalizeRegistryItemType(item.type);
-    const matchesType =
-      selectedType === "all" ? true : normalizedType === selectedType;
     const matchesQuery =
       normalizedQuery.length === 0
         ? true
@@ -60,49 +44,25 @@ export function RegistryBrowser({
             .toLowerCase()
             .includes(normalizedQuery);
 
-    return matchesType && matchesQuery;
+    return matchesQuery;
   });
 
   const publicCount = items.filter((item) => item.visibility === "public").length;
   const privateCount = items.length - publicCount;
-  const hasFilters =
-    normalizedQuery.length > 0 ||
-    selectedType !== "all";
+  const hasFilters = normalizedQuery.length > 0;
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[28px] border border-zinc-200/80 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="grid gap-4 px-6 py-5 md:grid-cols-[minmax(0,1.5fr)_220px]">
-          <label className="space-y-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              搜索
-            </span>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索 title、name、描述或 owner"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-amber-400 focus:ring-4 focus:ring-amber-100 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-amber-500 dark:focus:ring-amber-500/10"
-            />
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              类型
-            </span>
-            <select
-              value={selectedType}
-              onChange={(event) => setSelectedType(event.target.value)}
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-amber-400 focus:ring-4 focus:ring-amber-100 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-amber-500 dark:focus:ring-amber-500/10"
-            >
-              {TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+      <section>
+        <label className="block">
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索资源标题、名称、描述或 owner"
+            className="w-full rounded-[22px] border border-zinc-200/80 bg-white/90 px-5 py-4 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-amber-400 focus:ring-4 focus:ring-amber-100 dark:border-zinc-800 dark:bg-zinc-950/90 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-amber-500 dark:focus:ring-amber-500/10"
+          />
+        </label>
       </section>
 
       <section className="space-y-4">
@@ -118,14 +78,13 @@ export function RegistryBrowser({
             </p>
           </div>
           {hasFilters ? (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("");
-                setSelectedType("all");
-              }}
-              className="inline-flex items-center justify-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
-            >
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                }}
+                className="inline-flex items-center justify-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+              >
               清空筛选
             </button>
           ) : (
@@ -151,7 +110,6 @@ export function RegistryBrowser({
                 type="button"
                 onClick={() => {
                   setQuery("");
-                  setSelectedType("all");
                 }}
                 className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-white dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
@@ -166,7 +124,7 @@ export function RegistryBrowser({
             </div>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             {filteredItems.map((item) => (
               <ComponentCard
                 key={item.id}
@@ -175,8 +133,8 @@ export function RegistryBrowser({
                 name={item.name}
                 title={item.title}
                 description={item.description}
-                type={item.type}
                 visibility={item.visibility}
+                thumbnailUrl={item.thumbnailUrl}
               />
             ))}
           </div>

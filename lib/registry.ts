@@ -16,6 +16,8 @@ import {
   REGISTRY_UI_TYPE,
   normalizeRegistryItemType,
 } from "@/lib/registry-types";
+import { maybeBuildRegistryThumbnail } from "@/lib/thumbnail";
+import { enqueueThumbnailJob } from "@/lib/thumbnail-jobs";
 
 const INITIAL_VERSION = "0.1.0";
 
@@ -436,6 +438,7 @@ export async function createRegistryItemVersion(params: {
 
   const currentVer = getCurrentVersion(item);
   const nextVersion = bumpVersion(currentVer, params.bump);
+  const normalizedType = normalizeRegistryItemType(item.type);
 
   // 归一化为多文件 bundle：
   // - 若显式提供 files，则优先使用
@@ -447,11 +450,19 @@ export async function createRegistryItemVersion(params: {
       throw new Error("Either files or content must be provided when creating new version");
     }
     const entryPath = item.files[0]?.path
-      ?? (normalizeRegistryItemType(item.type) === REGISTRY_THEME_TYPE
+      ?? (normalizedType === REGISTRY_THEME_TYPE
         ? "theme.css"
         : `registry/modules/${params.name}.tsx`);
     return { [entryPath]: params.content };
   })();
+  const thumbnail = await maybeBuildRegistryThumbnail({
+    type: normalizedType,
+    files: normalizedFiles,
+    content: params.content,
+    ownerId: params.ownerId,
+    itemName: params.name,
+    version: nextVersion,
+  });
 
   const filesForDb: {
     path: string;
@@ -461,7 +472,7 @@ export async function createRegistryItemVersion(params: {
 
   for (const [pathKey, rawContent] of Object.entries(normalizedFiles)) {
     const isCss =
-      normalizeRegistryItemType(item.type) === REGISTRY_THEME_TYPE ||
+      normalizedType === REGISTRY_THEME_TYPE ||
       pathKey.toLowerCase().endsWith(".css");
     const contentWithHeader = withCozyHeader({
       ownerId: params.ownerId,
@@ -496,6 +507,9 @@ export async function createRegistryItemVersion(params: {
         };
         if (params.previewProps !== undefined) {
           next.previewProps = params.previewProps;
+        }
+        if (thumbnail) {
+          next.thumbnail = thumbnail;
         }
         return next;
       })(),
@@ -538,11 +552,31 @@ export async function createRegistryItemVersion(params: {
             meta: {
               ...(typeof item.meta === "object" && item.meta ? item.meta : {}),
               previewProps: params.previewProps,
+              ...(thumbnail ? { thumbnail } : {}),
             } as Record<string, unknown>,
           }
-        : {}),
+        : thumbnail
+          ? {
+              meta: {
+                ...(typeof item.meta === "object" && item.meta ? item.meta : {}),
+                thumbnail,
+              } as Record<string, unknown>,
+            }
+          : {}),
     })
     .where(eq(registryItems.id, item.id));
+
+  await enqueueThumbnailJob({
+    itemId: item.id,
+    itemVersionId: itemVersion.id,
+    payload: {
+      ownerId: params.ownerId,
+      ownerHandle: null,
+      name: params.name,
+      version: nextVersion,
+      type: normalizedType,
+    },
+  });
 
   return { version: nextVersion, id: itemVersion.id };
 }
@@ -674,31 +708,7 @@ export async function createRegistryItem(data: {
   /** 用于预览的 props 对象（会存入 registry_items.meta.previewProps） */
   previewProps?: unknown;
 }) {
-  const [item] = await db
-    .insert(registryItems)
-    .values({
-      name: data.name,
-      type: normalizeRegistryItemType(data.type),
-      title: data.title,
-      description: data.description ?? null,
-      userId: data.userId ?? null,
-      visibility: data.visibility ?? "public",
-      dependencies: data.dependencies ?? [],
-      meta:
-        data.previewProps !== undefined
-          ? { previewProps: data.previewProps }
-          : undefined,
-      currentVersion: INITIAL_VERSION,
-    })
-    .returning();
-
-  if (!item) throw new Error("Failed to create registry item");
-
-  // 统一归一化为多文件 bundle：
-  // - 若提供了 files 且非空，则直接使用
-  // - 否则将单文件 content 包装为默认路径：
-  //   - theme: "theme.css"
-  //   - 其他：`registry/modules/${name}.tsx`
+  const normalizedType = normalizeRegistryItemType(data.type);
   const normalizedFiles = (() => {
     const files = data.files && Object.keys(data.files).length > 0 ? data.files : null;
     if (files) return files;
@@ -706,11 +716,38 @@ export async function createRegistryItem(data: {
       throw new Error("Either files or content must be provided when creating registry item");
     }
     const singlePath =
-      normalizeRegistryItemType(data.type) === REGISTRY_THEME_TYPE
+      normalizedType === REGISTRY_THEME_TYPE
         ? "theme.css"
         : `registry/modules/${data.name}.tsx`;
     return { [singlePath]: data.content };
   })();
+  const thumbnail = await maybeBuildRegistryThumbnail({
+    type: normalizedType,
+    files: normalizedFiles,
+    content: data.content,
+    ownerId: data.userId ?? "legacy",
+    itemName: data.name,
+    version: INITIAL_VERSION,
+  });
+  const [item] = await db
+    .insert(registryItems)
+    .values({
+      name: data.name,
+      type: normalizedType,
+      title: data.title,
+      description: data.description ?? null,
+      userId: data.userId ?? null,
+      visibility: data.visibility ?? "public",
+      dependencies: data.dependencies ?? [],
+      meta: {
+        ...(data.previewProps !== undefined ? { previewProps: data.previewProps } : {}),
+        ...(thumbnail ? { thumbnail } : {}),
+      },
+      currentVersion: INITIAL_VERSION,
+    })
+    .returning();
+
+  if (!item) throw new Error("Failed to create registry item");
 
   const filesForDb: {
     path: string;
@@ -720,7 +757,7 @@ export async function createRegistryItem(data: {
 
   for (const [pathKey, rawContent] of Object.entries(normalizedFiles)) {
     const isCss =
-      normalizeRegistryItemType(data.type) === REGISTRY_THEME_TYPE ||
+      normalizedType === REGISTRY_THEME_TYPE ||
       pathKey.toLowerCase().endsWith(".css");
     const contentWithHeader = withCozyHeader({
       ownerId: data.userId,
@@ -732,7 +769,7 @@ export async function createRegistryItem(data: {
     filesForDb.push({
       path: pathKey,
       content: contentWithHeader,
-      type: normalizeRegistryItemType(data.type),
+      type: normalizedType,
     });
   }
 
@@ -754,7 +791,10 @@ export async function createRegistryItem(data: {
       description: data.description ?? null,
       dependencies: data.dependencies ?? [],
       registryDependencies: [],
-      meta: { source: "initial" },
+      meta: {
+        source: "initial",
+        ...(thumbnail ? { thumbnail } : {}),
+      },
       createdBy: data.userId ?? null,
     })
     .returning();
@@ -768,6 +808,18 @@ export async function createRegistryItem(data: {
         type: f.type,
       })),
     );
+
+    await enqueueThumbnailJob({
+      itemId: item.id,
+      itemVersionId: itemVersion.id,
+      payload: {
+        ownerId: data.userId ?? "legacy",
+        ownerHandle: null,
+        name: data.name,
+        version: INITIAL_VERSION,
+        type: normalizedType,
+      },
+    });
   }
 
   return item;

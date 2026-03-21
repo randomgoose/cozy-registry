@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { getRegistryItems } from "@/lib/registry";
 import { auth } from "@/lib/auth";
+import { getThumbnailFromMeta } from "@/lib/thumbnail";
 import { ConnectToolsDialog } from "./components/ConnectToolsDialog";
 import { RegistryBrowser } from "./components/RegistryBrowser";
 
@@ -97,10 +98,7 @@ export default async function Home() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_30%),linear-gradient(180deg,#fffdf9_0%,#ffffff_42%,#fbfbfc_100%)] dark:bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_22%),linear-gradient(180deg,#09090b_0%,#09090b_100%)]">
       <header>
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-            Cozy Registry
-          </h1>
+        <div className="mx-auto flex max-w-6xl items-center justify-end px-6 py-3">
           <nav className="flex items-center gap-4">
             <Link
               href="/"
@@ -147,8 +145,18 @@ export default async function Home() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-6 py-8">
-        <ConnectToolsDialog mcpUrl={mcpUrl} isSignedIn={!!session} />
+      <main className="mx-auto max-w-6xl px-6 py-10">
+        <section className="mb-12 pt-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+            Cozy Registry
+          </p>
+          <h1 className="mt-3 max-w-3xl text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 md:text-5xl">
+            Source-native blocks, UI, and themes for design-led web teams.
+          </h1>
+          <div className="mt-8">
+            <ConnectToolsDialog mcpUrl={mcpUrl} isSignedIn={!!session} />
+          </div>
+        </section>
 
         <RegistryBrowser
           items={items.map((item) => ({
@@ -160,6 +168,7 @@ export default async function Home() {
             description: item.description,
             type: item.type,
             visibility: normalizeVisibility(item.visibility),
+            thumbnailUrl: getThumbnailFromMeta(item.meta)?.url ?? null,
           }))}
           isSignedIn={!!session}
         />

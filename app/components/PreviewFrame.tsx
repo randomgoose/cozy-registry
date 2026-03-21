@@ -3,10 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Size = { width: number; height: number };
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
+const DEFAULT_STAGE_SIZE: Size = { width: 1200, height: 900 };
 
 export function PreviewFrame(props: {
   src: string;
@@ -18,16 +15,39 @@ export function PreviewFrame(props: {
   className?: string;
   /** Default: true. */
   allowUpscale?: boolean;
+  /** Default: center. */
+  alignY?: "top" | "center";
+  /** Default: contain. */
+  fitMode?: "contain" | "fill-width" | "fill-height" | "cover";
+  /**
+   * Optional minimum fraction of the container height the rendered content
+   * should occupy. Useful for gallery cards where a strict "fit" can leave
+   * too much vertical empty space for short, wide resources.
+   */
+  minFillHeight?: number;
+  /**
+   * Caps how far we can zoom beyond the normal fit scale when minFillHeight
+   * is applied. Default: 1 (no extra zoom).
+   */
+  maxFitScaleMultiplier?: number;
+  stageSize?: Size;
 }) {
-  const { src, title, className, allowUpscale = true } = props;
+  const {
+    src,
+    title,
+    className,
+    allowUpscale = true,
+    alignY = "center",
+    fitMode = "contain",
+    minFillHeight = 0,
+    maxFitScaleMultiplier = 1,
+    stageSize = DEFAULT_STAGE_SIZE,
+  } = props;
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-
-  const [contentSize, setContentSize] = useState<Size>({ width: 800, height: 400 });
-  // Keep the iframe viewport ("stage") stable to avoid responsive reflow loops.
-  // Stage can grow when needed, but we don't aggressively shrink it.
-  const [stageSize, setStageSize] = useState<Size>({ width: 1200, height: 900 });
   const [containerSize, setContainerSize] = useState<Size>({ width: 0, height: 0 });
+  const [shouldLoad, setShouldLoad] = useState(false);
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const loaded = loadedSrc === src;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -45,43 +65,28 @@ export function PreviewFrame(props: {
   }, []);
 
   useEffect(() => {
-    function onMessage(e: MessageEvent) {
-      const frame = iframeRef.current;
-      if (!frame) return;
-      if (e.source !== frame.contentWindow) return;
+    const el = containerRef.current;
+    if (!el || shouldLoad) return;
 
-      const data = e.data;
-      if (!isPreviewSizeMessage(data)) return;
-      const w = Number(data.width);
-      const h = Number(data.height);
-      if (!Number.isFinite(w) || !Number.isFinite(h)) return;
-      if (w <= 0 || h <= 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        setShouldLoad(true);
+        observer.disconnect();
+      },
+      { rootMargin: "240px 0px" },
+    );
 
-      const nextContent = {
-        width: clamp(Math.round(w), 1, 10000),
-        height: clamp(Math.round(h), 1, 10000),
-      };
-      setContentSize(nextContent);
-      // Add some breathing room so shadows/anti-aliasing don't get clipped.
-      const padded = {
-        width: clamp(nextContent.width + 48, 1, 4000),
-        height: clamp(nextContent.height + 48, 1, 4000),
-      };
-      setStageSize((prev) => ({
-        width: Math.max(prev.width, padded.width),
-        height: Math.max(prev.height, padded.height),
-      }));
-    }
-
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, []);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [shouldLoad]);
 
   const transform = useMemo(() => {
     const cw = containerSize.width;
     const ch = containerSize.height;
-    const iw = contentSize.width;
-    const ih = contentSize.height;
+    const iw = stageSize.width;
+    const ih = stageSize.height;
 
     if (cw <= 0 || ch <= 0 || iw <= 0 || ih <= 0) {
       return {
@@ -91,12 +96,42 @@ export function PreviewFrame(props: {
       };
     }
 
-    const s = Math.min(cw / iw, ch / ih);
-    const scale = allowUpscale ? s : Math.min(1, s);
+    const fitScale =
+      fitMode === "fill-width"
+        ? cw / iw
+        : fitMode === "fill-height"
+          ? ch / ih
+          : fitMode === "cover"
+            ? Math.max(cw / iw, ch / ih)
+          : Math.min(cw / iw, ch / ih);
+    let scale = allowUpscale ? fitScale : Math.min(1, fitScale);
+    if (minFillHeight > 0) {
+      const desiredScale = (ch * minFillHeight) / ih;
+      const boundedDesiredScale = allowUpscale
+        ? desiredScale
+        : Math.min(1, desiredScale);
+      scale = Math.max(scale, boundedDesiredScale);
+      if (maxFitScaleMultiplier > 1) {
+        scale = Math.min(
+          scale,
+          (allowUpscale ? fitScale : Math.min(1, fitScale)) * maxFitScaleMultiplier,
+        );
+      }
+    }
     const tx = (cw - iw * scale) / 2;
-    const ty = (ch - ih * scale) / 2;
+    const ty = alignY === "top" ? 0 : (ch - ih * scale) / 2;
     return { scale, tx, ty };
-  }, [allowUpscale, containerSize.height, containerSize.width, contentSize.height, contentSize.width]);
+  }, [
+    alignY,
+    allowUpscale,
+    containerSize.height,
+    containerSize.width,
+    fitMode,
+    maxFitScaleMultiplier,
+    minFillHeight,
+    stageSize.height,
+    stageSize.width,
+  ]);
 
   return (
     <div
@@ -105,10 +140,11 @@ export function PreviewFrame(props: {
       style={{ position: "relative", overflow: "hidden" }}
     >
       <iframe
-        ref={iframeRef}
-        src={src}
+        src={shouldLoad ? src : undefined}
         title={title}
         sandbox="allow-scripts"
+        loading="lazy"
+        onLoad={() => setLoadedSrc(src)}
         style={{
           position: "absolute",
           left: 0,
@@ -116,21 +152,19 @@ export function PreviewFrame(props: {
           width: stageSize.width,
           height: stageSize.height,
           transformOrigin: "top left",
-          transform: `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`,
+          // transform: `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`,
           border: 0,
           background: "transparent",
+          pointerEvents: "none",
+          opacity: loaded ? 1 : 0,
+          transition: "opacity 180ms ease-out",
         }}
       />
+      {!loaded ? (
+        <div className="absolute inset-0 bg-zinc-100/80 dark:bg-zinc-900/80">
+          <div className="absolute inset-0 animate-pulse bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.6),transparent_55%)] dark:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_55%)]" />
+        </div>
+      ) : null}
     </div>
   );
 }
-
-function isPreviewSizeMessage(
-  data: unknown,
-): data is { type: "cozy-preview:size"; width: number; height: number } {
-  if (!data || typeof data !== "object") return false;
-  const rec = data as Record<string, unknown>;
-  if (rec.type !== "cozy-preview:size") return false;
-  return typeof rec.width === "number" && typeof rec.height === "number";
-}
-

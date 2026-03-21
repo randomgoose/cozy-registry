@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { getRegistryItemsByUserId } from "@/lib/registry";
 import { ComponentCard } from "@/app/components/ComponentCard";
+import { getThumbnailFromMeta } from "@/lib/thumbnail";
 
 export const dynamic = "force-dynamic";
 
@@ -59,8 +60,8 @@ export default async function DashboardPage() {
                 name={item.name}
                 title={item.title}
                 description={item.description}
-                type={item.type}
                 visibility={normalizeVisibility(item.visibility)}
+                thumbnailUrl={getThumbnailFromMeta(item.meta)?.url ?? null}
               />
               <span
                 className={`absolute right-3 top-3 rounded-full px-2 py-0.5 text-xs font-medium ${

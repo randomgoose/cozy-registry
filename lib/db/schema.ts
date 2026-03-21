@@ -252,6 +252,37 @@ export const registryCollectionItems = pgTable(
   ],
 );
 
+export const registryAssetJobs = pgTable(
+  "registry_asset_jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobType: text("job_type").notNull(), // e.g. generate_thumbnail
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => registryItems.id, { onDelete: "cascade" }),
+    itemVersionId: uuid("item_version_id").references(() => registryItemVersions.id, {
+      onDelete: "cascade",
+    }),
+    status: text("status").default("pending").notNull(), // pending | processing | completed | failed
+    payload: jsonb("payload").$type<Record<string, unknown>>().default({}).notNull(),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    lastError: text("last_error"),
+    startedAt: timestamp("started_at"),
+    completedAt: timestamp("completed_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("registry_asset_jobs_itemId_idx").on(table.itemId),
+    index("registry_asset_jobs_itemVersionId_idx").on(table.itemVersionId),
+    index("registry_asset_jobs_jobType_idx").on(table.jobType),
+    index("registry_asset_jobs_status_idx").on(table.status),
+  ],
+);
+
 export type RegistryApiKeyPolicy = {
   allowedCollectionIds: string[];
   allowedTypes: string[];

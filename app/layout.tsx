@@ -12,7 +12,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="font-sans">
+    <html lang="en" className="dark font-sans">
       <body className="antialiased">{children}</body>
     </html>
   );

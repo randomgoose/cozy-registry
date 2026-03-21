@@ -128,8 +128,24 @@ if (!Component) {
 function App() {
   const props = ${serializedProps};
   return (
-    <div style={{ padding: 24 }}>
-      <Component {...props} />
+    <div
+      style={{
+        width: "100%",
+        padding: 24,
+        boxSizing: "border-box",
+        display: "flex",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        style={{
+          width: "fit-content",
+          maxWidth: "100%",
+          margin: "0 auto",
+        }}
+      >
+        <Component {...props} />
+      </div>
     </div>
   );
 }

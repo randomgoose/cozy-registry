@@ -21,6 +21,33 @@ function escapeHtmlCss(css: string): string {
   return css.replace(/<\/style/gi, "<\\/style");
 }
 
+function parseCssVariables(css: string) {
+  const vars = new Map<string, string>();
+  const pattern = /--([a-zA-Z0-9-_]+)\s*:\s*([^;}{]+);/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(css)) !== null) {
+    const [, rawName, rawValue] = match;
+    const name = rawName.trim().toLowerCase();
+    const value = rawValue.trim();
+    if (!name || !value) continue;
+    vars.set(`--${name}`, value);
+  }
+  return vars;
+}
+
+function pickCssVar(
+  vars: Map<string, string>,
+  candidates: string[],
+  fallback: string,
+) {
+  for (const candidate of candidates) {
+    const key = candidate.toLowerCase();
+    const value = vars.get(key);
+    if (value) return value;
+  }
+  return fallback;
+}
+
 const DEMO_PROPS: Record<string, unknown> = {
   "hero-section": {
     title: "Welcome to Our Product",
@@ -88,6 +115,47 @@ export async function GET(
   // Theme 条目：仅注入主题 CSS，展示简易预览页（STYLE_AND_THEME_SPEC §5.1 可选）
   if (item.type === "registry:theme") {
     const themeCss = getThemeEntryCss(item);
+    const cssVars = parseCssVariables(themeCss);
+    const background = pickCssVar(
+      cssVars,
+      ["--color-background", "--background", "--surface", "--color-surface"],
+      "#ffffff",
+    );
+    const foreground = pickCssVar(
+      cssVars,
+      ["--color-foreground", "--foreground", "--color-text", "--text"],
+      "#111827",
+    );
+    const muted = pickCssVar(
+      cssVars,
+      ["--color-muted", "--muted", "--color-muted-foreground", "--muted-foreground"],
+      "rgba(107,114,128,0.9)",
+    );
+    const border = pickCssVar(
+      cssVars,
+      ["--color-border", "--border", "--color-outline", "--outline"],
+      "rgba(17,24,39,0.12)",
+    );
+    const primary = pickCssVar(
+      cssVars,
+      ["--color-primary", "--primary", "--brand", "--color-brand"],
+      "#2563eb",
+    );
+    const secondary = pickCssVar(
+      cssVars,
+      ["--color-secondary", "--secondary", "--color-primary-hover", "--primary-hover"],
+      "#1d4ed8",
+    );
+    const accent = pickCssVar(
+      cssVars,
+      ["--color-accent", "--accent", "--color-highlight", "--highlight"],
+      "#f59e0b",
+    );
+    const radius = pickCssVar(
+      cssVars,
+      ["--radius-lg", "--radius-md", "--radius", "--rounded"],
+      "20px",
+    );
     const html = `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -97,14 +165,28 @@ export async function GET(
     <script src="https://cdn.tailwindcss.com"></script>
     <style>${escapeHtmlCss(themeCss)}</style>
   </head>
-  <body class="min-h-screen bg-white p-8 font-sans">
-    <h1 class="text-lg font-semibold text-gray-900">Theme: ${escapeHtml(item.title ?? name)}</h1>
-    <p class="mt-2 text-sm text-gray-600">CSS variables are loaded. Use this theme as a registryDependency in components.</p>
-    <div class="mt-6 flex gap-4 flex-wrap">
-      <div class="h-16 w-32 rounded-lg shadow" style="background: var(--color-primary, #2563eb);"></div>
-      <div class="h-16 w-32 rounded-lg shadow" style="background: var(--color-primary-hover, #1d4ed8);"></div>
-      <div class="h-16 w-32 rounded-lg border border-gray-300" style="border-radius: var(--radius-md, 0.5rem);"></div>
-    </div>
+  <body style="min-height:100vh;margin:0;background:${escapeHtml(background)};color:${escapeHtml(foreground)};">
+    <main style="position:relative;display:grid;min-height:100vh;grid-template-columns:1.7fr 1.2fr 0.9fr;overflow:hidden;">
+      <section style="background:${escapeHtml(primary)};"></section>
+      <section style="background:${escapeHtml(secondary)};"></section>
+      <section style="background:${escapeHtml(accent)};"></section>
+
+      <div style="position:absolute;right:20px;bottom:20px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;padding:14px 16px;border:1px solid ${escapeHtml(border)};border-radius:${escapeHtml(radius)};background:color-mix(in srgb, ${escapeHtml(background)} 88%, transparent);backdrop-filter:blur(10px);box-shadow:0 12px 40px rgba(0,0,0,0.12);">
+        <div style="font:600 11px/1 system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;letter-spacing:0.12em;text-transform:uppercase;color:${escapeHtml(muted)};">Theme</div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="height:10px;width:10px;border-radius:999px;background:${escapeHtml(primary)};"></div>
+          <div style="font:500 13px/1.2 system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;color:${escapeHtml(foreground)};">Primary</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="height:10px;width:10px;border-radius:999px;background:${escapeHtml(secondary)};"></div>
+          <div style="font:500 13px/1.2 system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;color:${escapeHtml(foreground)};">Secondary</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="height:10px;width:10px;border-radius:999px;background:${escapeHtml(accent)};"></div>
+          <div style="font:500 13px/1.2 system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;color:${escapeHtml(foreground)};">Accent</div>
+        </div>
+      </div>
+    </main>
   </body>
 </html>`;
     return new NextResponse(html, {
@@ -243,40 +325,6 @@ export async function GET(
       ? `\n    <style>${escapeHtmlCss(buildResult.css)}</style>`
       : "";
 
-  // 向父页面（列表卡片/详情页）报告真实渲染尺寸，便于居中与自适应缩放
-  const sizeReporter = `
-    <script>
-      (function () {
-        var root = document.getElementById("root");
-        if (!root) return;
-        var lastW = 0, lastH = 0;
-        function measure() {
-          var el = root;
-          var rect = el.getBoundingClientRect();
-          // fallback to scroll sizes when rect is zero (e.g. initial render)
-          var w = Math.max(rect.width || 0, el.scrollWidth || 0);
-          var h = Math.max(rect.height || 0, el.scrollHeight || 0);
-          // add a small padding to avoid edge clipping due to subpixel rounding
-          w = Math.ceil(w + 2);
-          h = Math.ceil(h + 2);
-          if (w === lastW && h === lastH) return;
-          lastW = w; lastH = h;
-          try {
-            window.parent && window.parent.postMessage({ type: "cozy-preview:size", width: w, height: h }, "*");
-          } catch {}
-        }
-        // initial + after paint
-        requestAnimationFrame(function () { measure(); requestAnimationFrame(measure); });
-        if ("ResizeObserver" in window) {
-          new ResizeObserver(function () { measure(); }).observe(root);
-        } else {
-          window.addEventListener("resize", measure);
-          setInterval(measure, 500);
-        }
-      })();
-    </script>
-  `;
-
   const html = `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -293,7 +341,6 @@ ${importMapJson}
     <script type="module">
 ${buildResult.code}
     </script>
-    ${sizeReporter}
   </body>
 </html>`;
 
