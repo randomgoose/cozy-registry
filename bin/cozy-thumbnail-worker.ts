@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
 
+import "dotenv/config";
 import process from "node:process";
 import {
   claimPendingThumbnailJob,
@@ -58,7 +59,47 @@ function sleep(ms: number) {
 }
 
 void main().catch((error) => {
-  const message = error instanceof Error ? error.stack ?? error.message : String(error);
-  process.stderr.write(`${message}\n`);
+  if (error && typeof error === "object") {
+    const record = error as {
+      message?: string;
+      stack?: string;
+      cause?: {
+        message?: string;
+        code?: string;
+        detail?: string;
+        hint?: string;
+        schema_name?: string;
+        table_name?: string;
+      };
+    };
+    const payload = {
+      message: record.message ?? String(error),
+      stack: record.stack,
+      cause: record.cause
+        ? {
+            message: record.cause.message,
+            code: record.cause.code,
+            detail: record.cause.detail,
+            hint: record.cause.hint,
+            schema: record.cause.schema_name,
+            table: record.cause.table_name,
+          }
+        : null,
+      databaseUrlHost: safeHostFromUrl(process.env.DATABASE_URL ?? process.env.POSTGRES_URL),
+      hasDirectUrl: Boolean(process.env.DATABASE_DIRECT_URL),
+    };
+    process.stderr.write(`${JSON.stringify(payload, null, 2)}\n`);
+  } else {
+    process.stderr.write(`${String(error)}\n`);
+  }
   process.exit(1);
 });
+
+function safeHostFromUrl(value: string | undefined) {
+  if (!value) return null;
+  try {
+    return new URL(value).host;
+  } catch {
+    return "invalid";
+  }
+}

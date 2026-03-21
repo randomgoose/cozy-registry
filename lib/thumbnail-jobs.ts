@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
+import { existsSync } from "node:fs";
 import { db } from "@/lib/db";
 import {
   registryAssetJobs,
@@ -239,7 +240,6 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
   }
 
   const { chromium: playwrightChromium } = await import("playwright-core");
-  const chromium = (await import("@sparticuz/chromium")).default;
 
   const baseUrl =
     process.env.APP_URL ??
@@ -258,11 +258,7 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
     version: payload.version,
   });
 
-  const browser = await playwrightChromium.launch({
-    executablePath: await chromium.executablePath(),
-    args: chromium.args,
-    headless: true,
-  });
+  const browser = await launchThumbnailBrowser(playwrightChromium);
 
   try {
     const context = await browser.newContext({
@@ -338,4 +334,81 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
   } finally {
     await browser.close().catch(() => undefined);
   }
+}
+
+async function launchThumbnailBrowser(
+  playwrightChromium: Awaited<typeof import("playwright-core")>["chromium"],
+) {
+  const explicitExecutable = process.env.THUMBNAIL_BROWSER_EXECUTABLE_PATH;
+  if (explicitExecutable) {
+    console.log("[thumbnail-worker] launching browser via explicit executable", {
+      executablePath: explicitExecutable,
+    });
+    return playwrightChromium.launch({
+      executablePath: explicitExecutable,
+      headless: true,
+    });
+  }
+
+  const isLinux = process.platform === "linux";
+  const isVercelLike =
+    typeof process.env.VERCEL === "string" || typeof process.env.AWS_REGION === "string";
+
+  if (isLinux || isVercelLike) {
+    const chromium = (await import("@sparticuz/chromium")).default;
+    console.log("[thumbnail-worker] launching browser via sparticuz chromium", {
+      platform: process.platform,
+      isVercelLike,
+    });
+    return playwrightChromium.launch({
+      executablePath: await chromium.executablePath(),
+      args: chromium.args,
+      headless: true,
+    });
+  }
+
+  const localExecutable = findLocalBrowserExecutable();
+  if (localExecutable) {
+    console.log("[thumbnail-worker] launching browser via detected local browser", {
+      executablePath: localExecutable,
+    });
+    return playwrightChromium.launch({
+      executablePath: localExecutable,
+      headless: true,
+    });
+  }
+
+  try {
+    console.log("[thumbnail-worker] launching browser via Playwright channel", {
+      channel: "chromium",
+    });
+    return await playwrightChromium.launch({
+      channel: "chromium",
+      headless: true,
+    });
+  } catch {
+    const chromium = (await import("@sparticuz/chromium")).default;
+    console.log("[thumbnail-worker] Playwright channel unavailable, falling back to sparticuz chromium", {
+      platform: process.platform,
+    });
+    return playwrightChromium.launch({
+      executablePath: await chromium.executablePath(),
+      args: chromium.args,
+      headless: true,
+    });
+  }
+}
+
+function findLocalBrowserExecutable() {
+  const candidates =
+    process.platform === "darwin"
+      ? [
+          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+          "/Applications/Chromium.app/Contents/MacOS/Chromium",
+          "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+          "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+        ]
+      : [];
+
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }

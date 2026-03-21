@@ -52,6 +52,56 @@ pnpm db:push
 pnpm db:seed
 ```
 
+## Thumbnail Worker
+
+列表页缩略图不是在请求页面时实时生成的，而是通过独立 worker 异步生成。
+
+### 需要的环境变量
+
+- `DATABASE_URL`：worker 读写 job 表与 registry 元数据
+- `APP_URL`：公开站点地址，用于截图 `/preview/:owner/:name`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_STORAGE_BUCKET`，建议使用 `registry-thumbnails`
+
+本地调试时，如果 Playwright 无法自动找到浏览器，可额外设置：
+
+- `THUMBNAIL_BROWSER_EXECUTABLE_PATH`
+
+### 运行方式
+
+单次处理一条任务：
+
+```bash
+pnpm cozy-thumbnail-worker --once
+```
+
+持续轮询：
+
+```bash
+pnpm cozy-thumbnail-worker
+```
+
+### 推荐的线上部署方式
+
+推荐将 worker 作为独立进程部署在 Linux 环境中（例如 Railway、Render、DigitalOcean App Platform 等），与 Vercel 上的 Web 应用分开运行：
+
+- Web 应用：继续部署在 Vercel
+- Thumbnail worker：单独服务，启动命令为 `pnpm cozy-thumbnail-worker`
+
+worker 当前行为：
+
+- `registry:theme`：生成固定模板 thumbnail
+- `registry:block` / `registry:ui`：打开 `/preview/...` 页面截图并上传到 Supabase Storage
+
+### 首次上线检查
+
+1. 执行 `pnpm db:push`
+2. 在 Supabase Storage 创建 bucket：`registry-thumbnails`
+3. 发布一个资源，确认 `registry_asset_jobs` 中出现 `pending` job
+4. 启动 worker，确认 job 转为 `completed`
+5. 确认 `registry_items.meta.thumbnail` 已写入，列表页优先显示 thumbnail
+
 ## 文档
 
 - [文档总览](docs/README.md)
