@@ -284,6 +284,8 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
       const targetArea = Math.max(1, targetRect.width * targetRect.height);
       const descendants = Array.from(target.querySelectorAll("*")) as HTMLElement[];
       const nodes = descendants.length > 0 ? descendants : [target];
+      const pageBackground =
+        window.getComputedStyle(document.body).backgroundColor || "";
       let left = Number.POSITIVE_INFINITY;
       let top = Number.POSITIVE_INFINITY;
       let right = Number.NEGATIVE_INFINITY;
@@ -337,6 +339,16 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
           !["IMG", "SVG", "CANVAS", "VIDEO", "BUTTON", "INPUT", "TEXTAREA", "SELECT"].includes(
             tag,
           );
+        const sameAsPageBackground =
+          !!bg &&
+          !!pageBackground &&
+          bg.replace(/\s+/g, "") === pageBackground.replace(/\s+/g, "");
+        const decorationOnly =
+          (!style.backgroundImage || style.backgroundImage === "none") &&
+          (!style.boxShadow || style.boxShadow === "none") &&
+          borderWidth <= 0;
+
+        if (isContainerOnly && sameAsPageBackground && decorationOnly) continue;
         if (mostlyFullCanvas && isContainerOnly) continue;
 
         left = Math.min(left, rect.left);
