@@ -289,39 +289,6 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
       let right = Number.NEGATIVE_INFINITY;
       let bottom = Number.NEGATIVE_INFINITY;
 
-      function hasMeaningfulContent(node: HTMLElement, style: CSSStyleDeclaration) {
-        const text = node.textContent?.trim() ?? "";
-        if (text.length > 0) return true;
-
-        const tag = node.tagName;
-        if (
-          tag === "IMG" ||
-          tag === "SVG" ||
-          tag === "CANVAS" ||
-          tag === "VIDEO" ||
-          tag === "BUTTON" ||
-          tag === "INPUT" ||
-          tag === "TEXTAREA" ||
-          tag === "SELECT"
-        ) {
-          return true;
-        }
-
-        if (style.backgroundImage && style.backgroundImage !== "none") return true;
-        if (style.boxShadow && style.boxShadow !== "none") return true;
-
-        const borderWidth =
-          parseFloat(style.borderTopWidth || "0") +
-          parseFloat(style.borderRightWidth || "0") +
-          parseFloat(style.borderBottomWidth || "0") +
-          parseFloat(style.borderLeftWidth || "0");
-        if (borderWidth > 0) return true;
-
-        const bg = style.backgroundColor;
-        if (!bg || bg === "transparent") return false;
-        return !bg.includes("rgba(0, 0, 0, 0)") && bg !== "rgb(0, 0, 0, 0)";
-      }
-
       for (const node of nodes) {
         const style = window.getComputedStyle(node);
         if (
@@ -337,14 +304,38 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
         if (rect.width <= 1 || rect.height <= 1) continue;
 
         const area = rect.width * rect.height;
-        const hasContent = hasMeaningfulContent(node, style);
+        const text = node.textContent?.trim() ?? "";
+        const tag = node.tagName;
+        const borderWidth =
+          parseFloat(style.borderTopWidth || "0") +
+          parseFloat(style.borderRightWidth || "0") +
+          parseFloat(style.borderBottomWidth || "0") +
+          parseFloat(style.borderLeftWidth || "0");
+        const bg = style.backgroundColor;
+        const hasContent =
+          text.length > 0 ||
+          tag === "IMG" ||
+          tag === "SVG" ||
+          tag === "CANVAS" ||
+          tag === "VIDEO" ||
+          tag === "BUTTON" ||
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          (!!style.backgroundImage && style.backgroundImage !== "none") ||
+          (!!style.boxShadow && style.boxShadow !== "none") ||
+          borderWidth > 0 ||
+          (!!bg &&
+            bg !== "transparent" &&
+            !bg.includes("rgba(0, 0, 0, 0)") &&
+            bg !== "rgb(0, 0, 0, 0)");
         if (!hasContent) continue;
 
         const mostlyFullCanvas = area / targetArea > 0.92;
         const isContainerOnly =
-          (node.textContent?.trim() ?? "").length === 0 &&
+          text.length === 0 &&
           !["IMG", "SVG", "CANVAS", "VIDEO", "BUTTON", "INPUT", "TEXTAREA", "SELECT"].includes(
-            node.tagName,
+            tag,
           );
         if (mostlyFullCanvas && isContainerOnly) continue;
 
