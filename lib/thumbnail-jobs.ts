@@ -129,8 +129,8 @@ export async function processThemeThumbnailJob(jobId: string) {
     .where(eq(registryItemVersions.id, job.itemVersionId!))
     .limit(1);
 
-  const currentThumbnail = getThumbnailFromMeta(item.meta);
-  if (currentThumbnail && currentThumbnail.kind === "theme-template") {
+  const existing = getThumbnailFromMeta(itemVersion?.meta);
+  if (existing && existing.kind === "theme-template") {
     await completeThumbnailJob(jobId);
     return {
       skipped: true,

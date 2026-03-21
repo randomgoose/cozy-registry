@@ -464,6 +464,10 @@ export async function createRegistryItemVersion(params: {
     version: nextVersion,
   });
 
+  const baseMeta =
+    typeof item.meta === "object" && item.meta ? { ...item.meta } : {};
+  delete (baseMeta as Record<string, unknown>).thumbnail;
+
   const filesForDb: {
     path: string;
     content: string;
@@ -498,10 +502,8 @@ export async function createRegistryItemVersion(params: {
       dependencies: item.dependencies ?? [],
       registryDependencies: item.registryDependencies ?? [],
       meta: ((): Record<string, unknown> => {
-        const base =
-          typeof item.meta === "object" && item.meta ? item.meta : {};
         const next: Record<string, unknown> = {
-          ...base,
+          ...baseMeta,
           message: params.message,
           source: "vibe",
         };
@@ -550,15 +552,15 @@ export async function createRegistryItemVersion(params: {
       ...(params.previewProps !== undefined
         ? {
             meta: {
-              ...(typeof item.meta === "object" && item.meta ? item.meta : {}),
+              ...baseMeta,
               previewProps: params.previewProps,
               ...(thumbnail ? { thumbnail } : {}),
             } as Record<string, unknown>,
           }
         : thumbnail
           ? {
-              meta: {
-                ...(typeof item.meta === "object" && item.meta ? item.meta : {}),
+            meta: {
+                ...baseMeta,
                 thumbnail,
               } as Record<string, unknown>,
             }
