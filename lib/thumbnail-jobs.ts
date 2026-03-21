@@ -280,21 +280,58 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
       ) as HTMLElement | null;
       if (!target) return null;
 
-      const rect = target.getBoundingClientRect();
-      if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) return null;
-      if (rect.width <= 1 || rect.height <= 1) return null;
+      const nodes = [target, ...Array.from(target.querySelectorAll("*"))] as HTMLElement[];
+      let left = Number.POSITIVE_INFINITY;
+      let top = Number.POSITIVE_INFINITY;
+      let right = Number.NEGATIVE_INFINITY;
+      let bottom = Number.NEGATIVE_INFINITY;
+
+      for (const node of nodes) {
+        const style = window.getComputedStyle(node);
+        if (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          Number(style.opacity) === 0
+        ) {
+          continue;
+        }
+
+        const rect = node.getBoundingClientRect();
+        if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) continue;
+        if (rect.width <= 1 || rect.height <= 1) continue;
+
+        left = Math.min(left, rect.left);
+        top = Math.min(top, rect.top);
+        right = Math.max(right, rect.right);
+        bottom = Math.max(bottom, rect.bottom);
+      }
+
+      if (
+        !Number.isFinite(left) ||
+        !Number.isFinite(top) ||
+        !Number.isFinite(right) ||
+        !Number.isFinite(bottom)
+      ) {
+        const rect = target.getBoundingClientRect();
+        if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) return null;
+        if (rect.width <= 1 || rect.height <= 1) return null;
+        left = rect.left;
+        top = rect.top;
+        right = rect.right;
+        bottom = rect.bottom;
+      }
 
       const padding = 24;
-      const x = Math.max(0, rect.left - padding);
-      const y = Math.max(0, rect.top - padding);
+      const x = Math.max(0, left - padding);
+      const y = Math.max(0, top - padding);
       const maxWidth = window.innerWidth - x;
       const maxHeight = window.innerHeight - y;
 
       return {
         x,
         y,
-        width: Math.max(1, Math.min(rect.width + padding * 2, maxWidth)),
-        height: Math.max(1, Math.min(rect.height + padding * 2, maxHeight)),
+        width: Math.max(1, Math.min(right - left + padding * 2, maxWidth)),
+        height: Math.max(1, Math.min(bottom - top + padding * 2, maxHeight)),
       };
     });
 
