@@ -31,6 +31,7 @@ export type PreviewBuildResult =
 export async function buildPreviewBundle(
   bundle: ComponentBundle,
   previewProps: unknown,
+  options?: { mode?: "default" | "thumbnail" },
 ): Promise<PreviewBuildResult> {
   // 注意：为了避免 Next.js 在服务器 bundle 时把 esbuild 的可执行文件等一起打包，
   // 我们只在运行时动态引入它，而不是作为顶层静态依赖。
@@ -99,6 +100,7 @@ export async function buildPreviewBundle(
       serializedProps = "{}";
     }
 
+    const mode = options?.mode === "thumbnail" ? "thumbnail" : "default";
     const previewEntryContent = `import React from "react";
 import { createRoot } from "react-dom/client";
 import * as Mod from "./index";
@@ -127,21 +129,28 @@ if (!Component) {
 
 function App() {
   const props = ${serializedProps};
+  const mode = ${JSON.stringify(mode)};
+  const isThumbnail = mode === "thumbnail";
   return (
     <div
       style={{
         width: "100%",
-        padding: 24,
+        minHeight: "100vh",
+        padding: isThumbnail ? 0 : 24,
         boxSizing: "border-box",
         display: "flex",
         justifyContent: "center",
+        alignItems: isThumbnail ? "flex-start" : "center",
+        overflow: "hidden",
       }}
     >
       <div
         style={{
-          width: "fit-content",
+          width: isThumbnail ? "min(100%, 1280px)" : "fit-content",
           maxWidth: "100%",
           margin: "0 auto",
+          transform: isThumbnail ? "scale(1.18)" : "none",
+          transformOrigin: "top center",
         }}
       >
         <Component {...props} />

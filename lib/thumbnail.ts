@@ -211,7 +211,7 @@ export function getPreviewCapturePlan(params: {
   version: string;
 }) : PreviewCapturePlan {
   return {
-    previewPath: `/preview/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.name)}?v=${encodeURIComponent(params.version)}`,
+    previewPath: `/preview/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.name)}?v=${encodeURIComponent(params.version)}&thumbnail=1`,
     viewport: { width: 1440, height: 960 },
     output: { width: 1200, height: 900 },
     fit: "cover",

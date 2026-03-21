@@ -98,6 +98,8 @@ export async function GET(
   const { owner, name } = await params;
   const url = new URL(request.url);
   const version = url.searchParams.get("v") ?? null;
+  const previewMode =
+    url.searchParams.get("thumbnail") === "1" ? "thumbnail" : "default";
 
   const session = await auth.api.getSession({ headers: request.headers });
   const userId = session?.user?.id ?? (await getUserIdFromToken(request));
@@ -244,6 +246,7 @@ export async function GET(
       dependencies: runtimeDependencies,
     },
     previewProps,
+    { mode: previewMode },
   );
 
   if (!buildResult.ok) {
@@ -336,7 +339,7 @@ export async function GET(
 ${importMapJson}
     </script>
   </head>
-  <body class="min-h-screen bg-white">
+  <body class="${previewMode === "thumbnail" ? "min-h-screen overflow-hidden bg-white" : "min-h-screen bg-white"}">
     <div id="root"></div>
     <script type="module">
 ${buildResult.code}
