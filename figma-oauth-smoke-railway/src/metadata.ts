@@ -2,7 +2,7 @@ import { getOAuthClient } from "./oauth-config.js";
 
 export function requestOrigin(req: Request): string {
   const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "localhost:3000";
-  const proto = req.headers.get("x-forwarded-proto") ?? "https";
+  const proto = req.headers.get("x-forwarded-proto") ?? "http";
   return `${proto}://${host}`;
 }
 

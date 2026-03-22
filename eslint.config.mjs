@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Nested Next apps (monorepo smoke projects)
+    "figma-oauth-smoke/.next/**",
+    "figma-oauth-smoke-railway/dist/**",
   ]),
 ]);
 

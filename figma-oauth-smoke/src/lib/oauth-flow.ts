@@ -1,11 +1,6 @@
-import type { Context } from "hono";
-import { Hono } from "hono";
-import { cors } from "hono/cors";
-import { signObject, verifySignedObject } from "./crypto.js";
-import { getOAuthClient, validateClient } from "./oauth-config.js";
-import { validatePkce } from "./pkce.js";
-import { requestOrigin } from "./metadata.js";
-import { handleMcpRequest, mcpOptionsResponse } from "./mcp.js";
+import { signObject, verifySignedObject } from "./crypto";
+import { getOAuthClient, validateClient } from "./oauth-config";
+import { validatePkce } from "./pkce";
 
 type CodePayload = {
   typ: "code";
@@ -25,47 +20,48 @@ type AtPayload = {
 
 const AT_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
-async function parseTokenBody(c: Context): Promise<Record<string, string>> {
-  const ct = c.req.header("content-type") ?? "";
+function json(body: unknown, status: number, headers?: Record<string, string>): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...headers,
+    },
+  });
+}
+
+async function parseTokenBody(request: Request): Promise<Record<string, string>> {
+  const ct = request.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) {
-    const j = (await c.req.json()) as Record<string, string>;
-    return j ?? {};
+    try {
+      const j = (await request.json()) as Record<string, string>;
+      return j ?? {};
+    } catch {
+      return {};
+    }
   }
-  const text = await c.req.text();
+  const text = await request.text();
   return Object.fromEntries(new URLSearchParams(text)) as Record<string, string>;
 }
 
-export const app = new Hono();
-
-app.use(
-  "*",
-  cors({
-    origin: "*",
-    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization", "Mcp-Session-Id", "Mcp-Protocol-Version"],
-    maxAge: 86400,
-  }),
-);
-
-app.get("/api/health", (c) => c.json({ ok: true, service: "figma-oauth-smoke" }));
-
-app.get("/api/oauth/authorize", (c) => {
-  const clientId = c.req.query("client_id");
-  const redirectUri = c.req.query("redirect_uri");
-  const responseType = c.req.query("response_type");
-  const state = c.req.query("state");
-  const scope = c.req.query("scope");
-  const codeChallenge = c.req.query("code_challenge");
-  const codeChallengeMethod = c.req.query("code_challenge_method");
+export async function authorizeGet(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const clientId = url.searchParams.get("client_id");
+  const redirectUri = url.searchParams.get("redirect_uri");
+  const responseType = url.searchParams.get("response_type");
+  const state = url.searchParams.get("state");
+  const scope = url.searchParams.get("scope");
+  const codeChallenge = url.searchParams.get("code_challenge");
+  const codeChallengeMethod = url.searchParams.get("code_challenge_method");
 
   if (!clientId || !redirectUri) {
-    return c.json({ error: "invalid_request" }, 400);
+    return json({ error: "invalid_request" }, 400);
   }
   if (responseType !== "code") {
-    return c.json({ error: "unsupported_response_type" }, 400);
+    return json({ error: "unsupported_response_type" }, 400);
   }
   if (!validateClient(clientId, redirectUri)) {
-    return c.json({ error: "invalid_client" }, 400);
+    return json({ error: "invalid_client" }, 400);
   }
 
   const q = new URLSearchParams({
@@ -89,23 +85,33 @@ app.get("/api/oauth/authorize", (c) => {
   </form>
 </body>
 </html>`;
-  return c.html(html);
-});
+  return new Response(html, {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
+}
 
-app.post("/api/oauth/authorize", async (c) => {
-  const clientId = c.req.query("client_id");
-  const redirectUri = c.req.query("redirect_uri");
-  const state = c.req.query("state");
-  const scope = c.req.query("scope");
-  const codeChallenge = c.req.query("code_challenge");
-  const codeChallengeMethod = c.req.query("code_challenge_method");
+export async function authorizePost(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const clientId = url.searchParams.get("client_id");
+  const redirectUri = url.searchParams.get("redirect_uri");
+  const state = url.searchParams.get("state");
+  const scope = url.searchParams.get("scope");
+  const codeChallenge = url.searchParams.get("code_challenge");
+  const codeChallengeMethod = url.searchParams.get("code_challenge_method");
 
-  const body = await c.req.parseBody();
-  if (body.confirm !== "yes" || !clientId || !redirectUri) {
-    return c.json({ error: "invalid_request" }, 400);
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return json({ error: "invalid_request" }, 400);
+  }
+
+  if (form.get("confirm") !== "yes" || !clientId || !redirectUri) {
+    return json({ error: "invalid_request" }, 400);
   }
   if (!validateClient(clientId, redirectUri)) {
-    return c.json({ error: "invalid_client" }, 400);
+    return json({ error: "invalid_client" }, 400);
   }
 
   const payload: CodePayload = {
@@ -122,11 +128,11 @@ app.post("/api/oauth/authorize", async (c) => {
   const redir = new URL(redirectUri);
   redir.searchParams.set("code", code);
   if (state) redir.searchParams.set("state", state);
-  return c.redirect(redir.toString(), 302);
-});
+  return Response.redirect(redir.toString(), 302);
+}
 
-app.post("/api/oauth/token", async (c) => {
-  const basicAuth = c.req.header("authorization");
+export async function tokenPost(request: Request): Promise<Response> {
+  const basicAuth = request.headers.get("authorization");
   let basicClientId: string | undefined;
   let basicSecret: string | undefined;
   if (basicAuth?.startsWith("Basic ")) {
@@ -134,11 +140,11 @@ app.post("/api/oauth/token", async (c) => {
       const decoded = Buffer.from(basicAuth.slice(6), "base64").toString("utf8");
       [basicClientId, basicSecret] = decoded.split(":", 2);
     } catch {
-      return c.json({ error: "invalid_client" }, 401);
+      return json({ error: "invalid_client" }, 401);
     }
   }
 
-  const body = await parseTokenBody(c);
+  const body = await parseTokenBody(request);
   const client = getOAuthClient();
   const explicitId = (body.client_id ?? basicClientId)?.trim();
   const clientId = explicitId || client.clientId;
@@ -149,23 +155,23 @@ app.post("/api/oauth/token", async (c) => {
   const redirectUri = body.redirect_uri;
 
   if (grantType !== "authorization_code") {
-    return c.json({ error: "unsupported_grant_type" }, 400);
+    return json({ error: "unsupported_grant_type" }, 400);
   }
   if (!code || !redirectUri) {
-    return c.json({ error: "invalid_request" }, 400);
+    return json({ error: "invalid_request" }, 400);
   }
   if (clientId !== client.clientId) {
-    return c.json({ error: "invalid_client" }, 401);
+    return json({ error: "invalid_client" }, 401);
   }
 
   if (client.clientSecret) {
     const provided = (clientSecret ?? "").trim();
     const hasVerifier = Boolean(codeVerifier?.trim());
     if (provided.length > 0 && provided !== client.clientSecret) {
-      return c.json({ error: "invalid_client" }, 401);
+      return json({ error: "invalid_client" }, 401);
     }
     if (provided.length === 0 && !hasVerifier) {
-      return c.json({ error: "invalid_client" }, 401);
+      return json({ error: "invalid_client" }, 401);
     }
   }
 
@@ -176,10 +182,10 @@ app.post("/api/oauth/token", async (c) => {
     typeof payload.exp !== "number" ||
     payload.exp < Date.now()
   ) {
-    return c.json({ error: "invalid_grant" }, 400);
+    return json({ error: "invalid_grant" }, 400);
   }
   if (payload.clientId !== clientId || payload.redirectUri !== redirectUri) {
-    return c.json({ error: "invalid_grant" }, 400);
+    return json({ error: "invalid_grant" }, 400);
   }
   if (
     !validatePkce({
@@ -188,7 +194,7 @@ app.post("/api/oauth/token", async (c) => {
       codeVerifier,
     })
   ) {
-    return c.json({ error: "invalid_grant" }, 400);
+    return json({ error: "invalid_grant" }, 400);
   }
 
   const atPayload: AtPayload = {
@@ -197,24 +203,20 @@ app.post("/api/oauth/token", async (c) => {
   };
   const accessToken = signObject(atPayload);
 
-  return c.json(
-    {
+  return new Response(
+    JSON.stringify({
       access_token: accessToken,
       token_type: "Bearer",
       expires_in: Math.floor(AT_TTL_MS / 1000),
       scope: "mcp:tools",
-    },
-    200,
+    }),
     {
-      "Cache-Control": "no-store",
-      Pragma: "no-cache",
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        Pragma: "no-cache",
+      },
     },
   );
-});
-
-app.on(["GET", "POST", "DELETE"], "/api/mcp", async (c) => {
-  const res = await handleMcpRequest(c.req.raw, requestOrigin(c.req.raw));
-  return res;
-});
-
-app.options("/api/mcp", () => mcpOptionsResponse());
+}

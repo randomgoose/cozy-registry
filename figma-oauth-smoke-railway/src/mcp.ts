@@ -110,8 +110,31 @@ function withCors(res: Response): Response {
   return new Response(res.body, { status: res.status, headers: h });
 }
 
+async function logTransportResponse(response: Response, ctx: { rpcMethod: string | null }): Promise<void> {
+  const st = response.status;
+  const ct = response.headers.get("content-type") ?? "";
+  const entry: Record<string, unknown> = {
+    mcp: "transport",
+    httpStatus: st,
+    rpcMethod: ctx.rpcMethod,
+    contentType: ct,
+  };
+  if ((st === 200 || st === 202) && (ct.includes("json") || ct.includes("application/json"))) {
+    try {
+      const text = await response.clone().text();
+      if (text.length > 0) {
+        entry.bodySnippet = text.length > 2000 ? `${text.slice(0, 2000)}…` : text;
+        if (text.includes('"error"')) entry.jsonRpcHasErrorKey = true;
+      }
+    } catch {
+      entry.bodyReadFailed = true;
+    }
+  }
+  console.info("[MCP] transport response", entry);
+}
+
 function createSmokeServer(): McpServer {
-  const server = new McpServer({ name: "figma-oauth-smoke", version: "0.0.1" });
+  const server = new McpServer({ name: "figma-oauth-smoke-railway", version: "0.0.1" });
   server.registerTool(
     "ping",
     { title: "Ping", description: "Smoke-test tool", inputSchema: z.object({}) },
@@ -128,7 +151,6 @@ export async function handleMcpRequest(request: Request, origin: string): Promis
   const token = extractBearer(authHeader);
   const hasToken = Boolean(token);
   const accept = request.headers.get("accept") ?? "";
-  const hasMcpSessionId = Boolean(request.headers.get("mcp-session-id"));
 
   let rpcMethod: string | null = null;
   let isNonEmptyBatch = false;
@@ -172,7 +194,7 @@ export async function handleMcpRequest(request: Request, origin: string): Promis
           },
         },
         rpcId,
-        { "WWW-Authenticate": `Bearer realm="figma-oauth-smoke", resource_metadata="${prmUrl}"` },
+        { "WWW-Authenticate": `Bearer realm="figma-oauth-smoke-railway", resource_metadata="${prmUrl}"` },
       ),
     );
   }
@@ -184,7 +206,6 @@ export async function handleMcpRequest(request: Request, origin: string): Promis
   const isLikelyAuthProbe =
     request.method === "POST" &&
     hasToken &&
-    !hasMcpSessionId &&
     accept.includes("application/json") &&
     postJsonText !== null &&
     !postJsonParseFailed &&
@@ -192,6 +213,7 @@ export async function handleMcpRequest(request: Request, origin: string): Promis
     !rpcMethod;
 
   if (isLikelyAuthProbe) {
+    console.info("[MCP] auth_probe_short_circuit", { rpcId });
     return withCors(
       jsonRpcResponse(200, { result: { ok: true, authenticated: true } }, rpcId),
     );
@@ -218,6 +240,7 @@ export async function handleMcpRequest(request: Request, origin: string): Promis
     const handleOpts =
       postJsonText !== null && !postJsonParseFailed ? { parsedBody: postParsedBody } : undefined;
     const response = await transport.handleRequest(reqForMcp, handleOpts);
+    await logTransportResponse(response, { rpcMethod });
     return withCors(response);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

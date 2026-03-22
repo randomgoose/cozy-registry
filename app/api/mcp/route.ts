@@ -135,7 +135,6 @@ async function handleMcpRequest(request: Request): Promise<Response> {
   const hasToken = !!extractBearerToken(authHeader);
   const accept = request.headers.get("accept") ?? "";
   const mcpProtocolVersion = request.headers.get("mcp-protocol-version");
-  const hasMcpSessionId = !!request.headers.get("mcp-session-id");
 
   // Read JSON POST body once: avoids request.clone().json() + transport both touching the stream
   // (Undici/Next can be finicky). Pass parsedBody into the SDK when parse succeeded.
@@ -180,7 +179,6 @@ async function handleMcpRequest(request: Request): Promise<Response> {
       accept,
       contentType: request.headers.get("content-type"),
       mcpProtocolVersion,
-      hasMcpSessionId,
     });
     return jsonRpcResponse(
       401,
@@ -203,11 +201,11 @@ async function handleMcpRequest(request: Request): Promise<Response> {
   }
 
   // Ping-style POST with no JSON-RPC method: not a batch (Figma may send initialize as a one-element array).
-  // Do not require absence of mcp-protocol-version — some clients send it on every POST.
+  // Do not require absence of mcp-protocol-version or Mcp-Session-Id — some clients send them on the
+  // post-OAuth probe; requiring no session id skipped this path and led to SDK 406 / stuck check_auth.
   const isLikelyAuthProbe =
     request.method === "POST" &&
     hasToken &&
-    !hasMcpSessionId &&
     accept.includes("application/json") &&
     postJsonText !== null &&
     !postJsonParseFailed &&
@@ -239,7 +237,6 @@ async function handleMcpRequest(request: Request): Promise<Response> {
       rpcMethod,
       accept,
       hasToken,
-      hasMcpSessionId,
       mcpProtocolVersion,
     });
     return jsonRpcResponse(
