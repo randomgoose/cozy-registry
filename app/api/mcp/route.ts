@@ -34,20 +34,18 @@ function extractMessageId(msg: unknown): JsonRpcId {
 }
 
 /**
- * Parse JSON-RPC shape from body (single object or batch). Figma may send batch `[initialize]`;
- * treating that as an empty "auth probe" breaks verification (wrong response id / wrong result).
+ * Parse JSON-RPC shape from an already-parsed body (single object or batch). Figma may send
+ * batch `[initialize]`; treating that as an empty "auth probe" breaks verification.
  */
-async function readJsonRpcInfo(request: Request): Promise<{
+function readJsonRpcInfoFromParsed(body: unknown): {
   method: string | null;
   isNonEmptyBatch: boolean;
   rpcId: JsonRpcId;
-}> {
+} {
   try {
-    const contentType = request.headers.get("content-type") ?? "";
-    if (!contentType.includes("application/json")) {
+    if (body === undefined || body === null) {
       return { method: null, isNonEmptyBatch: false, rpcId: null };
     }
-    const body: unknown = await request.clone().json();
     if (Array.isArray(body)) {
       if (body.length === 0) {
         return { method: null, isNonEmptyBatch: false, rpcId: null };
@@ -63,7 +61,7 @@ async function readJsonRpcInfo(request: Request): Promise<{
         rpcId: extractMessageId(first),
       };
     }
-    if (body && typeof body === "object") {
+    if (typeof body === "object") {
       const m =
         typeof (body as { method?: unknown }).method === "string"
           ? (body as { method: string }).method
@@ -138,7 +136,39 @@ async function handleMcpRequest(request: Request): Promise<Response> {
   const accept = request.headers.get("accept") ?? "";
   const mcpProtocolVersion = request.headers.get("mcp-protocol-version");
   const hasMcpSessionId = !!request.headers.get("mcp-session-id");
-  const { method: rpcMethod, isNonEmptyBatch, rpcId } = await readJsonRpcInfo(request);
+
+  // Read JSON POST body once: avoids request.clone().json() + transport both touching the stream
+  // (Undici/Next can be finicky). Pass parsedBody into the SDK when parse succeeded.
+  let rpcMethod: string | null = null;
+  let isNonEmptyBatch = false;
+  let rpcId: JsonRpcId = null;
+  let postJsonText: string | null = null;
+  let postParsedBody: unknown = undefined;
+  let postJsonParseFailed = false;
+
+  if (request.method === "POST") {
+    const ct = request.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
+      postJsonText = await request.text();
+      const trimmed = postJsonText.trim();
+      if (trimmed.length === 0) {
+        postParsedBody = null;
+      } else {
+        try {
+          postParsedBody = JSON.parse(trimmed) as unknown;
+        } catch {
+          postJsonParseFailed = true;
+          postParsedBody = undefined;
+        }
+      }
+      if (!postJsonParseFailed) {
+        const info = readJsonRpcInfoFromParsed(postParsedBody);
+        rpcMethod = info.method;
+        isNonEmptyBatch = info.isNonEmptyBatch;
+        rpcId = info.rpcId;
+      }
+    }
+  }
 
   if (!hasToken) {
     const baseUrl = new URL(request.url).origin;
@@ -179,6 +209,8 @@ async function handleMcpRequest(request: Request): Promise<Response> {
     hasToken &&
     !hasMcpSessionId &&
     accept.includes("application/json") &&
+    postJsonText !== null &&
+    !postJsonParseFailed &&
     !isNonEmptyBatch &&
     !rpcMethod;
 
@@ -218,8 +250,21 @@ async function handleMcpRequest(request: Request): Promise<Response> {
   }
 
   try {
-    const reqForMcp = ensureStreamableHttpAccept(request);
-    if (reqForMcp !== request) {
+    const requestForTransport =
+      postJsonText !== null
+        ? new Request(
+            request.url,
+            {
+              method: "POST",
+              headers: request.headers,
+              body: postJsonText,
+              duplex: "half",
+            } as RequestInit & { duplex: "half" },
+          )
+        : request;
+
+    const reqForMcp = ensureStreamableHttpAccept(requestForTransport);
+    if (reqForMcp !== requestForTransport) {
       console.info("[MCP] merged Accept for Streamable HTTP compatibility", {
         url: request.url,
         originalAccept: accept || "(empty)",
@@ -231,11 +276,14 @@ async function handleMcpRequest(request: Request): Promise<Response> {
       enableJsonResponse: true,
     });
     await server.connect(transport);
-    const response = await transport.handleRequest(reqForMcp);
+    const handleOpts =
+      postJsonText !== null && !postJsonParseFailed
+        ? { parsedBody: postParsedBody }
+        : undefined;
+    const response = await transport.handleRequest(reqForMcp, handleOpts);
 
     // Notification-only POSTs (e.g. notifications/initialized) get 202 + empty body per MCP
-    // Streamable HTTP. Do not rewrite to 200 JSON-RPC — clients like Figma expect 202 and will
-    // retry forever if the response shape is wrong.
+    // Streamable HTTP. Do not rewrite to 200 JSON-RPC — Figma expects 202 here.
 
     return response;
   } catch (err) {

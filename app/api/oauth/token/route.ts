@@ -67,12 +67,29 @@ export async function POST(request: Request) {
     console.error("[OAuth] token invalid client id", { clientId });
     return NextResponse.json({ error: "invalid_client" }, { status: 401 });
   }
-  if (client.clientSecret && clientSecret !== client.clientSecret) {
-    console.error("[OAuth] token invalid client secret", {
-      clientId,
-      hasClientSecret: !!clientSecret,
-    });
-    return NextResponse.json({ error: "invalid_client" }, { status: 401 });
+
+  // When OAUTH_FIGMA_CLIENT_SECRET is set we still must accept Figma Make's PKCE-only token POSTs
+  // (no client_secret in body or Basic). PKCE proves control of the authorize flow; optional secret
+  // in Figma Advanced settings can still be sent and must match when present.
+  if (client.clientSecret) {
+    const provided = (clientSecret ?? "").trim();
+    const hasVerifier = Boolean(codeVerifier?.trim());
+    if (provided.length > 0 && provided !== client.clientSecret) {
+      console.error("[OAuth] token invalid client secret", { clientId });
+      return NextResponse.json({ error: "invalid_client" }, { status: 401 });
+    }
+    if (provided.length === 0 && !hasVerifier) {
+      console.error("[OAuth] token missing client_secret and no PKCE code_verifier", {
+        clientId,
+      });
+      return NextResponse.json(
+        {
+          error: "invalid_client",
+          error_description: "client_secret or code_verifier required",
+        },
+        { status: 401 },
+      );
+    }
   }
 
   const userId = await consumeAuthorizationCode(code, clientId, redirectUri, codeVerifier);
