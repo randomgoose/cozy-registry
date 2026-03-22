@@ -14,6 +14,7 @@ import {
 import { buildRegistryAssetPath, uploadPublicAsset } from "@/lib/storage";
 
 export const GENERATE_THUMBNAIL_JOB = "generate_thumbnail" as const;
+const THUMBNAIL_DEVICE_SCALE = 2;
 
 type ThumbnailJobPayload = {
   ownerId: string;
@@ -56,7 +57,7 @@ export async function capturePreviewThumbnail(params: {
         width: plan.viewport.width,
         height: plan.viewport.height,
       },
-      deviceScaleFactor: 1,
+      deviceScaleFactor: THUMBNAIL_DEVICE_SCALE,
     });
     const page = await context.newPage();
     await page.goto(`${baseUrl}${plan.previewPath}`, {
@@ -625,8 +626,8 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
     const thumbnail = {
       url: uploaded.url,
       kind: "preview-capture" as const,
-      width: plan.viewport.width,
-      height: plan.viewport.height,
+      width: plan.viewport.width * THUMBNAIL_DEVICE_SCALE,
+      height: plan.viewport.height * THUMBNAIL_DEVICE_SCALE,
       generatedAt: new Date().toISOString(),
     };
 
