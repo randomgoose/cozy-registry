@@ -7,10 +7,12 @@ export function xAuthorizationServerMetadata(origin: string) {
     issuer: origin,
     authorization_endpoint: `${origin}/api/x/oauth/authorize`,
     token_endpoint: `${origin}/api/x/oauth/token`,
+    registration_endpoint: `${origin}/api/x/oauth/register`,
     scopes_supported: ["mcp:tools"],
     response_types_supported: ["code"],
-    grant_types_supported: ["authorization_code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256", "plain"],
+    authorization_response_iss_parameter_supported: true,
     token_endpoint_auth_methods_supported: client.clientSecret
       ? ["client_secret_post", "client_secret_basic"]
       : ["none", "client_secret_post", "client_secret_basic"],

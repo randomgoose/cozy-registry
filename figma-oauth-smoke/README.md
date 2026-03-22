@@ -5,8 +5,10 @@ Minimal **[Next.js](https://nextjs.org) on [Vercel](https://vercel.com)** to iso
 ## What it implements
 
 - `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource` (Next.js `rewrites` in `next.config.ts` → `/api/meta/*`)
-- OAuth **authorization code** + **PKCE** (`/api/oauth/authorize`, `/api/oauth/token`)
-- **Stateless signed codes/tokens** (no DB; safe across serverless instances)
+- OAuth **authorization code** + **PKCE** + **`refresh_token`** grant (`/api/oauth/authorize`, `/api/oauth/token`)
+- **`iss`** on authorize redirect; AS metadata lists **`refresh_token`**, **`authorization_response_iss_parameter_supported`**, **`registration_endpoint`**
+- **`POST /api/oauth/register`** — minimal dynamic registration response (fixed `client_id` = env default, for Figma probes)
+- **Stateless signed** codes / access / refresh tokens (no DB; see `docs/20-engineering/figma-oauth-findings-2026-03-22.md`)
 - MCP Streamable HTTP at **`/api/mcp`** with one tool `ping`
 
 ## Deploy

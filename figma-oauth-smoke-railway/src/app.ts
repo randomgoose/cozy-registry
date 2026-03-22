@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { diagPublicUrl } from "./diag.js";
+import { oauthRegisterResponse } from "./oauth-register.js";
 import { authorizeGet, authorizePost, tokenPost } from "./oauth-flow.js";
 import { xAuthorizeGet, xAuthorizePost, xTokenPost } from "./oauth-x-flow.js";
 import { handleMcpRequest, mcpOptionsResponse } from "./mcp.js";
@@ -70,6 +71,7 @@ app.get("/.well-known/oauth-protected-resource", (c) => {
 app.get("/api/oauth/authorize", (c) => authorizeGet(c.req.raw));
 app.post("/api/oauth/authorize", (c) => authorizePost(c.req.raw));
 app.post("/api/oauth/token", (c) => tokenPost(c.req.raw));
+app.post("/api/oauth/register", (c) => oauthRegisterResponse(c.req.raw));
 
 app.get("/api/mcp", (c) => handleMcpRequest(c.req.raw, requestOrigin(c.req.raw)));
 app.post("/api/mcp", (c) => handleMcpRequest(c.req.raw, requestOrigin(c.req.raw)));
@@ -90,6 +92,7 @@ app.get("/api/x/well-known/oauth-protected-resource", (c) => {
 app.get("/api/x/oauth/authorize", (c) => xAuthorizeGet(c.req.raw));
 app.post("/api/x/oauth/authorize", (c) => xAuthorizePost(c.req.raw));
 app.post("/api/x/oauth/token", (c) => xTokenPost(c.req.raw));
+app.post("/api/x/oauth/register", (c) => oauthRegisterResponse(c.req.raw));
 
 const xPrm = (origin: string) => `${origin}/api/x/well-known/oauth-protected-resource`;
 

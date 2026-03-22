@@ -5,7 +5,8 @@ Same **Figma Make MCP + OAuth smoke** as `figma-oauth-smoke` (Next on Vercel), b
 ## Endpoints
 
 - **MCP:** `https://<host>/api/mcp`
-- **OAuth:** `/api/oauth/authorize`, `/api/oauth/token`
+- **OAuth:** `/api/oauth/authorize`, `/api/oauth/token` ( **`refresh_token` grant** + **`iss` on redirect**; aligned with `docs/20-engineering/figma-oauth-findings-2026-03-22.md` )
+- **`POST /api/oauth/register`** — minimal dynamic registration (same fixed `client_id` as env)
 - **Discovery:** `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`
 - **Debug body:** `POST /api/mcp-inspect` + header `X-MCP-Inspect` (requires env `MCP_INSPECT_SECRET`)
 
@@ -15,7 +16,7 @@ Use a **second Figma connector** (or switch URL) to:
 
 - **MCP URL:** `https://<host>/api/x/mcp`
 - **PRM:** `GET /api/x/well-known/oauth-protected-resource` (linked from 401 `resource_metadata`)
-- **OAuth:** `/api/x/oauth/authorize`, `/api/x/oauth/token`
+- **OAuth:** `/api/x/oauth/authorize`, `/api/x/oauth/token`, **`POST /api/x/oauth/register`**
 
 This path **does not validate** the `resource` query/body (only logs `[x-oauth]`). If Figma works here but not on `/api/mcp`, the blocker is likely **resource/origin matching**, not MCP transport.
 

@@ -1,6 +1,7 @@
 import { signObject, verifySignedObject } from "./crypto.js";
 import { getOAuthClient, validateClient } from "./oauth-config.js";
 import { validatePkce } from "./pkce.js";
+import { requestOrigin } from "./metadata.js";
 
 type CodePayload = {
   typ: "code";
@@ -18,7 +19,15 @@ type AtPayload = {
   exp: number;
 };
 
+type RtPayload = {
+  typ: "rt";
+  exp: number;
+  clientId: string;
+  scope: string | null;
+};
+
 const AT_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+const RT_TTL_MS = AT_TTL_MS;
 
 function json(body: unknown, status: number, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
@@ -28,6 +37,26 @@ function json(body: unknown, status: number, headers?: Record<string, string>): 
       ...headers,
     },
   });
+}
+
+function tokenSuccessJson(accessToken: string, refreshToken: string, scope: string): Response {
+  return new Response(
+    JSON.stringify({
+      access_token: accessToken,
+      token_type: "Bearer",
+      expires_in: Math.floor(AT_TTL_MS / 1000),
+      refresh_token: refreshToken,
+      scope,
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        Pragma: "no-cache",
+      },
+    },
+  );
 }
 
 async function parseTokenBody(request: Request): Promise<Record<string, string>> {
@@ -42,6 +71,22 @@ async function parseTokenBody(request: Request): Promise<Record<string, string>>
   }
   const text = await request.text();
   return Object.fromEntries(new URLSearchParams(text)) as Record<string, string>;
+}
+
+function checkClientCredentials(
+  client: ReturnType<typeof getOAuthClient>,
+  clientId: string,
+  clientSecret: string | undefined,
+  codeVerifier: string | undefined,
+  grantType: "authorization_code" | "refresh_token",
+): boolean {
+  if (clientId !== client.clientId) return false;
+  if (!client.clientSecret) return true;
+  const provided = (clientSecret ?? "").trim();
+  const hasVerifier = Boolean(codeVerifier?.trim());
+  if (provided.length > 0 && provided !== client.clientSecret) return false;
+  if (grantType === "authorization_code" && provided.length === 0 && !hasVerifier) return false;
+  return true;
 }
 
 export async function authorizeGet(request: Request): Promise<Response> {
@@ -130,6 +175,7 @@ export async function authorizePost(request: Request): Promise<Response> {
   const redir = new URL(redirectUri);
   redir.searchParams.set("code", code);
   if (state) redir.searchParams.set("state", state);
+  redir.searchParams.set("iss", requestOrigin(request));
   return Response.redirect(redir.toString(), 302);
 }
 
@@ -153,28 +199,48 @@ export async function tokenPost(request: Request): Promise<Response> {
   const clientSecret = body.client_secret ?? basicSecret;
   const codeVerifier = body.code_verifier;
   const grantType = body.grant_type;
-  const code = body.code;
-  const redirectUri = body.redirect_uri;
+
+  if (grantType === "refresh_token") {
+    if (!checkClientCredentials(client, clientId, clientSecret, codeVerifier, "refresh_token")) {
+      return json({ error: "invalid_client" }, 401);
+    }
+    const refreshToken = body.refresh_token?.trim();
+    if (!refreshToken) {
+      return json({ error: "invalid_request", error_description: "refresh_token required" }, 400);
+    }
+    const rt = verifySignedObject<RtPayload>(refreshToken);
+    if (!rt || rt.typ !== "rt" || typeof rt.exp !== "number" || rt.exp < Date.now()) {
+      return json({ error: "invalid_grant" }, 400);
+    }
+    if (rt.clientId !== clientId) {
+      return json({ error: "invalid_grant" }, 400);
+    }
+    const scopeStr = rt.scope ?? "mcp:tools";
+    const accessToken = signObject({
+      typ: "at",
+      exp: Date.now() + AT_TTL_MS,
+    } satisfies AtPayload);
+    const newRefresh = signObject({
+      typ: "rt",
+      exp: Date.now() + RT_TTL_MS,
+      clientId,
+      scope: rt.scope,
+    } satisfies RtPayload);
+    return tokenSuccessJson(accessToken, newRefresh, scopeStr);
+  }
 
   if (grantType !== "authorization_code") {
     return json({ error: "unsupported_grant_type" }, 400);
   }
+
+  const code = body.code;
+  const redirectUri = body.redirect_uri;
+
   if (!code || !redirectUri) {
     return json({ error: "invalid_request" }, 400);
   }
-  if (clientId !== client.clientId) {
+  if (!checkClientCredentials(client, clientId, clientSecret, codeVerifier, "authorization_code")) {
     return json({ error: "invalid_client" }, 401);
-  }
-
-  if (client.clientSecret) {
-    const provided = (clientSecret ?? "").trim();
-    const hasVerifier = Boolean(codeVerifier?.trim());
-    if (provided.length > 0 && provided !== client.clientSecret) {
-      return json({ error: "invalid_client" }, 401);
-    }
-    if (provided.length === 0 && !hasVerifier) {
-      return json({ error: "invalid_client" }, 401);
-    }
   }
 
   const payload = verifySignedObject<CodePayload>(code);
@@ -199,26 +265,17 @@ export async function tokenPost(request: Request): Promise<Response> {
     return json({ error: "invalid_grant" }, 400);
   }
 
-  const atPayload: AtPayload = {
+  const scopeStr = payload.scope ?? "mcp:tools";
+  const accessToken = signObject({
     typ: "at",
     exp: Date.now() + AT_TTL_MS,
-  };
-  const accessToken = signObject(atPayload);
+  } satisfies AtPayload);
+  const refreshToken = signObject({
+    typ: "rt",
+    exp: Date.now() + RT_TTL_MS,
+    clientId,
+    scope: payload.scope,
+  } satisfies RtPayload);
 
-  return new Response(
-    JSON.stringify({
-      access_token: accessToken,
-      token_type: "Bearer",
-      expires_in: Math.floor(AT_TTL_MS / 1000),
-      scope: "mcp:tools",
-    }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-        Pragma: "no-cache",
-      },
-    },
-  );
+  return tokenSuccessJson(accessToken, refreshToken, scopeStr);
 }
