@@ -36,7 +36,11 @@ export async function POST(request: Request) {
   const grantType = body.grant_type;
   const code = body.code;
   const redirectUri = body.redirect_uri;
-  const clientId = body.client_id ?? basicClientId;
+  const client = getOAuthClient();
+  // Figma Make often sends PKCE (code_verifier) without client_id in the body; Basic auth may omit
+  // the id as well. We only register one MCP OAuth client, so default when absent or blank.
+  const explicitClientId = (body.client_id ?? basicClientId)?.trim();
+  const clientId = explicitClientId || client.clientId;
   const clientSecret = body.client_secret ?? basicClientSecret;
   const codeVerifier = body.code_verifier;
 
@@ -47,20 +51,18 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  if (!code || !redirectUri || !clientId) {
+  if (!code || !redirectUri) {
     console.error("[OAuth] token missing required fields", {
       hasCode: !!code,
       hasRedirectUri: !!redirectUri,
-      hasClientId: !!clientId,
       hasCodeVerifier: !!codeVerifier,
     });
     return NextResponse.json(
-      { error: "invalid_request", error_description: "code, redirect_uri, client_id required" },
+      { error: "invalid_request", error_description: "code and redirect_uri required" },
       { status: 400 }
     );
   }
 
-  const client = getOAuthClient();
   if (clientId !== client.clientId) {
     console.error("[OAuth] token invalid client id", { clientId });
     return NextResponse.json({ error: "invalid_client" }, { status: 401 });
