@@ -1,0 +1,17 @@
+{
+  "rewrites": [
+    {
+      "source": "/.well-known/oauth-authorization-server",
+      "destination": "/api/meta/as"
+    },
+    {
+      "source": "/.well-known/oauth-protected-resource",
+      "destination": "/api/meta/prm"
+    }
+  ],
+  "functions": {
+    "api/[[...slug]].ts": { "includeFiles": "src/**" },
+    "api/meta/as.ts": { "includeFiles": "src/**" },
+    "api/meta/prm.ts": { "includeFiles": "src/**" }
+  }
+}
