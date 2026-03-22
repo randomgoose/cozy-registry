@@ -9,17 +9,59 @@ const FIGMA_REDIRECT_URI = "https://www.figma.com/oauth/mcp/callback";
 const CODE_TTL_MS = 10 * 60 * 1000; // 10 min
 const API_KEY_PREFIX = "vbr_";
 
-export function getBaseUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL ??
-    process.env.APP_URL ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined) ??
-    "http://localhost:3000"
-  );
+function originFromEnvUrl(url: string): string {
+  return new URL(url).origin;
 }
 
+/** Public site URL for links and metadata (no Request). Prefer explicit env on PaaS. */
+export function getBaseUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL;
+  if (explicit) {
+    try {
+      return originFromEnvUrl(explicit);
+    } catch {
+      /* ignore */
+    }
+  }
+  const railway = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
+  if (railway) {
+    const host = railway.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+    return `https://${host}`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  return "http://localhost:3000";
+}
+
+/**
+ * Origin as the browser / Figma sees it. Behind Railway, Vercel, etc., `request.url` is often an
+ * internal host or http: — then `resource` from Figma (public https URL) fails validation and
+ * PRM/WWW-Authenticate URLs are wrong.
+ */
 export function getCanonicalBaseUrlFromRequest(request: Request): string {
   try {
+    const forwardedHost = request.headers.get("x-forwarded-host");
+    const forwardedProto = request.headers.get("x-forwarded-proto");
+    if (forwardedHost) {
+      const host = forwardedHost.split(",")[0]?.trim();
+      if (host) {
+        const proto = forwardedProto?.split(",")[0]?.trim() || "https";
+        return `${proto}://${host}`;
+      }
+    }
+
+    const envUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL;
+    if (envUrl) {
+      return originFromEnvUrl(envUrl);
+    }
+
+    const railway = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
+    if (railway) {
+      const host = railway.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+      return `https://${host}`;
+    }
+
     return new URL(request.url).origin;
   } catch {
     return getBaseUrl();
