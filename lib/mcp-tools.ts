@@ -1723,6 +1723,7 @@ ${fileContent}
     try {
       const { name, title, description, visibility, bump } = args;
       const type = normalizeRegistryItemType(args.type);
+      const isTheme = type === REGISTRY_THEME_TYPE;
 
       const nameRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
       if (!nameRegex.test(name)) {
@@ -1737,13 +1738,25 @@ ${fileContent}
       // - 多文件：校验所有相对 import 都能在 files 中解析到对应文件，否则报缺失列表
       // - 同时检查是否包含 app hooks / Provider（如 useLanguage / LanguageProvider），若有则拒绝发布
       if (content) {
-        const validation = validateTsx(content);
-        if (!validation.valid) {
+        if (!isTheme) {
+          const validation = validateTsx(content);
+          if (!validation.valid) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Invalid TSX: ${validation.error}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+        } else if (content.trim().length === 0) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: `Invalid TSX: ${validation.error}`,
+                text: "Theme content is required (either CSS or tokens JSON).",
               },
             ],
             isError: true,
@@ -1795,46 +1808,63 @@ ${fileContent}
       }
 
       if (files) {
-        const bundleValidation = validateComponentBundle(files);
-        if (bundleValidation.invalidFiles?.length) {
-          const list = bundleValidation.invalidFiles
-            .slice(0, 20)
-            .map((x) => `- ${x}`)
-            .join("\n");
-          const more =
-            bundleValidation.invalidFiles.length > 20
-              ? `\n- ... and ${bundleValidation.invalidFiles.length - 20} more`
-              : "";
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text:
-                  "Multi-file bundle contains invalid code files. Please fix these files before publishing:\n" +
-                  list +
-                  more,
-              },
-            ],
-            isError: true,
-          };
-        }
+        if (!isTheme) {
+          const bundleValidation = validateComponentBundle(files);
+          if (bundleValidation.invalidFiles?.length) {
+            const list = bundleValidation.invalidFiles
+              .slice(0, 20)
+              .map((x) => `- ${x}`)
+              .join("\n");
+            const more =
+              bundleValidation.invalidFiles.length > 20
+                ? `\n- ... and ${bundleValidation.invalidFiles.length - 20} more`
+                : "";
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text:
+                    "Multi-file bundle contains invalid code files. Please fix these files before publishing:\n" +
+                    list +
+                    more,
+                },
+              ],
+              isError: true,
+            };
+          }
 
-        const missing = bundleValidation.missingImports ?? findMissingRelativeImports(files);
-        if (missing.length > 0) {
-          const list = missing.slice(0, 20).map((x) => `- ${x}`).join("\n");
-          const more = missing.length > 20 ? `\n- ... and ${missing.length - 20} more` : "";
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text:
-                  "Multi-file bundle is missing local import targets. Please include these files in `files` (paths must match relative imports):\n" +
-                  list +
-                  more,
-              },
-            ],
-            isError: true,
-          };
+          const missing = bundleValidation.missingImports ?? findMissingRelativeImports(files);
+          if (missing.length > 0) {
+            const list = missing.slice(0, 20).map((x) => `- ${x}`).join("\n");
+            const more = missing.length > 20 ? `\n- ... and ${missing.length - 20} more` : "";
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text:
+                    "Multi-file bundle is missing local import targets. Please include these files in `files` (paths must match relative imports):\n" +
+                    list +
+                    more,
+                },
+              ],
+              isError: true,
+            };
+          }
+        } else {
+          const hasThemePayload = Object.values(files).some(
+            (value) => typeof value === "string" && value.trim().length > 0,
+          );
+          if (!hasThemePayload) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "Theme files must include CSS or tokens JSON content.",
+                },
+              ],
+              isError: true,
+            };
+          }
         }
 
         const appUsages = findAppSpecificUsage(
