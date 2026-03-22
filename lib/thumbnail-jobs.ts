@@ -64,14 +64,96 @@ export async function capturePreviewThumbnail(params: {
       timeout: 30_000,
     });
     await page.waitForTimeout(600);
+    const surfaceDiagnostics = await page.evaluate(() => {
+      const htmlNode = document.documentElement;
+      const bodyNode = document.body;
+      const rootNode = document.querySelector("#root") as HTMLElement | null;
+      const contentNode = document.querySelector(
+        "[data-cozy-preview-content]",
+      ) as HTMLElement | null;
+      const subjectNode = document.querySelector(
+        "[data-cozy-preview-subject]",
+      ) as HTMLElement | null;
+
+      const htmlStyle = window.getComputedStyle(htmlNode);
+      const bodyStyle = window.getComputedStyle(bodyNode);
+      const rootStyle = rootNode ? window.getComputedStyle(rootNode) : null;
+      const contentStyle = contentNode
+        ? window.getComputedStyle(contentNode)
+        : null;
+      const subjectStyle = subjectNode
+        ? window.getComputedStyle(subjectNode)
+        : null;
+
+      const htmlRect = htmlNode.getBoundingClientRect();
+      const bodyRect = bodyNode.getBoundingClientRect();
+      const rootRect = rootNode?.getBoundingClientRect() ?? null;
+      const contentRect = contentNode?.getBoundingClientRect() ?? null;
+      const subjectRect = subjectNode?.getBoundingClientRect() ?? null;
+
+      return {
+        html: {
+          selector: "html",
+          backgroundColor: htmlStyle.backgroundColor,
+          backgroundImage: htmlStyle.backgroundImage,
+          opacity: htmlStyle.opacity,
+          width: htmlRect.width,
+          height: htmlRect.height,
+        },
+        body: {
+          selector: "body",
+          backgroundColor: bodyStyle.backgroundColor,
+          backgroundImage: bodyStyle.backgroundImage,
+          opacity: bodyStyle.opacity,
+          width: bodyRect.width,
+          height: bodyRect.height,
+        },
+        root: rootNode
+          ? {
+              selector: "#root",
+              backgroundColor: rootStyle?.backgroundColor ?? null,
+              backgroundImage: rootStyle?.backgroundImage ?? null,
+              opacity: rootStyle?.opacity ?? null,
+              width: rootRect?.width ?? null,
+              height: rootRect?.height ?? null,
+            }
+          : null,
+        content: contentNode
+          ? {
+              selector: "[data-cozy-preview-content]",
+              backgroundColor: contentStyle?.backgroundColor ?? null,
+              backgroundImage: contentStyle?.backgroundImage ?? null,
+              opacity: contentStyle?.opacity ?? null,
+              width: contentRect?.width ?? null,
+              height: contentRect?.height ?? null,
+            }
+          : null,
+        subject: subjectNode
+          ? {
+              selector: "[data-cozy-preview-subject]",
+              backgroundColor: subjectStyle?.backgroundColor ?? null,
+              backgroundImage: subjectStyle?.backgroundImage ?? null,
+              opacity: subjectStyle?.opacity ?? null,
+              width: subjectRect?.width ?? null,
+              height: subjectRect?.height ?? null,
+            }
+          : null,
+      };
+    });
     const preferredStrategy = params.strategy ?? "locator";
     if (preferredStrategy === "locator") {
       try {
         const locator = page.locator("[data-cozy-preview-subject]").first();
         await locator.waitFor({ state: "visible", timeout: 10_000 });
         const targetRect = await locator.boundingBox();
-        const buffer = await locator.screenshot({
+        if (!targetRect) {
+          throw new Error("Locator is visible but returned no bounding box.");
+        }
+        const buffer = await page.screenshot({
           type: "png",
+          fullPage: false,
+          omitBackground: true,
+          clip: targetRect,
         });
 
         await context.close().catch(() => undefined);
@@ -84,6 +166,7 @@ export async function capturePreviewThumbnail(params: {
             clip: targetRect,
             targetRect,
             candidates: [],
+            surfaces: surfaceDiagnostics,
           },
         };
       } catch (error) {
@@ -281,6 +364,7 @@ export async function capturePreviewThumbnail(params: {
     const buffer = await page.screenshot({
       type: "png",
       fullPage: false,
+      omitBackground: true,
       ...(clip ? { clip } : {}),
     });
 
@@ -292,6 +376,7 @@ export async function capturePreviewThumbnail(params: {
       diagnostics: {
         strategy: "computed",
         ...diagnostics,
+        surfaces: surfaceDiagnostics,
       },
     };
   } finally {

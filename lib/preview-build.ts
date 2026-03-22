@@ -142,6 +142,7 @@ function App() {
         justifyContent: "center",
         alignItems: isThumbnail ? "flex-start" : "center",
         overflow: "hidden",
+        background: isThumbnail ? "transparent" : undefined,
       }}
     >
       <div

@@ -85,6 +85,7 @@ export function ComponentCard({
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string>("");
   const [adding, setAdding] = useState(false);
+  const [thumbnailScale, setThumbnailScale] = useState(1);
 
   const cardLayoutId = `registry-card-${itemId}`;
   const preferredFile =
@@ -422,14 +423,41 @@ export function ComponentCard({
           className="relative h-56 w-full overflow-hidden rounded-[24px] bg-[linear-gradient(180deg,rgba(255,251,245,1),rgba(255,255,255,1))] dark:bg-[linear-gradient(180deg,rgba(39,39,42,0.7),rgba(9,9,11,0.2))]"
         >
           {thumbnailUrl ? (
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.9),rgba(255,255,255,0.72)_62%,rgba(255,255,255,0.5))] dark:bg-[radial-gradient(circle_at_top,rgba(39,39,42,0.9),rgba(24,24,27,0.8)_62%,rgba(9,9,11,0.68))]">
+            <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.9),rgba(255,255,255,0.72)_62%,rgba(255,255,255,0.5))] dark:bg-[radial-gradient(circle_at_top,rgba(39,39,42,0.9),rgba(24,24,27,0.8)_62%,rgba(9,9,11,0.68))]">
               <Image
                 src={thumbnailUrl}
                 alt={`${title} thumbnail`}
                 fill
                 unoptimized
                 sizes="(min-width: 768px) 50vw, 100vw"
-                className="object-contain p-2"
+                className="object-contain p-4"
+                style={{
+                  objectPosition: "center center",
+                  transform: `scale(${thumbnailScale})`,
+                }}
+                onLoad={(event) => {
+                  const img = event.currentTarget;
+                  const width = img.naturalWidth || 1;
+                  const height = img.naturalHeight || 1;
+                  const ratio = width / height;
+
+                  if (ratio >= 0.82 && ratio <= 1.25) {
+                    setThumbnailScale(0.72);
+                    return;
+                  }
+
+                  if (ratio < 0.82) {
+                    setThumbnailScale(0.8);
+                    return;
+                  }
+
+                  if (ratio > 2.4) {
+                    setThumbnailScale(0.9);
+                    return;
+                  }
+
+                  setThumbnailScale(1);
+                }}
                 draggable={false}
               />
             </div>

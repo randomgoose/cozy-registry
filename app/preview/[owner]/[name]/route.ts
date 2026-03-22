@@ -159,7 +159,7 @@ export async function GET(
       "20px",
     );
     const html = `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}">
   <head>
     <meta charset="UTF-8" />
     <title>Theme: ${item.title ?? name}</title>
@@ -256,7 +256,7 @@ export async function GET(
         ? `${err.file}:${err.line}:${err.column ?? 0}`
         : "";
     const html = `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}">
   <head>
     <meta charset="UTF-8" />
     <title>Preview build error</title>
@@ -339,7 +339,7 @@ export async function GET(
 ${importMapJson}
     </script>
   </head>
-  <body class="${previewMode === "thumbnail" ? "min-h-screen overflow-hidden bg-white" : "min-h-screen bg-white"}">
+  <body class="${previewMode === "thumbnail" ? "min-h-screen overflow-hidden bg-transparent" : "min-h-screen bg-white"}" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}">
     <div id="root"></div>
     <script type="module">
 ${buildResult.code}
