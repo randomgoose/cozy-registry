@@ -5,6 +5,7 @@ import {
   validateClient,
   createAuthorizationCode,
   getCanonicalBaseUrlFromRequest,
+  validateOAuthResourceParam,
 } from "@/lib/oauth";
 
 export async function GET(request: Request) {
@@ -16,6 +17,7 @@ export async function GET(request: Request) {
   const scope = searchParams.get("scope");
   const codeChallenge = searchParams.get("code_challenge");
   const codeChallengeMethod = searchParams.get("code_challenge_method");
+  const resource = searchParams.get("resource");
 
   if (!clientId || !redirectUri) {
     return NextResponse.json(
@@ -40,6 +42,16 @@ export async function GET(request: Request) {
     return NextResponse.json(
       { error: validation.error, error_description: "Invalid client or redirect_uri" },
       { status: 400 }
+    );
+  }
+
+  if (!validateOAuthResourceParam(request, resource).ok) {
+    return NextResponse.json(
+      {
+        error: "invalid_request",
+        error_description: "resource does not match this server's MCP URL",
+      },
+      { status: 400 },
     );
   }
 
@@ -73,6 +85,7 @@ export async function GET(request: Request) {
   if (scope) params.set("scope", scope);
   if (codeChallenge) params.set("code_challenge", codeChallenge);
   if (codeChallengeMethod) params.set("code_challenge_method", codeChallengeMethod);
+  if (resource) params.set("resource", resource);
   const postUrl = `/api/oauth/authorize?${params.toString()}`;
 
   const html = `<!DOCTYPE html>
@@ -103,6 +116,7 @@ export async function POST(request: Request) {
   const scope = searchParams.get("scope");
   const codeChallenge = searchParams.get("code_challenge");
   const codeChallengeMethod = searchParams.get("code_challenge_method");
+  const resource = searchParams.get("resource");
 
   let bodyConfirm: string | null = null;
   try {
@@ -129,6 +143,16 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: validation.error, error_description: "Invalid client or redirect_uri" },
       { status: 400 }
+    );
+  }
+
+  if (!validateOAuthResourceParam(request, resource).ok) {
+    return NextResponse.json(
+      {
+        error: "invalid_request",
+        error_description: "resource does not match this server's MCP URL",
+      },
+      { status: 400 },
     );
   }
 

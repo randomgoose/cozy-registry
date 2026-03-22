@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { getOAuthClient, consumeAuthorizationCode, createApiKeyForOAuth } from "@/lib/oauth";
+import {
+  getOAuthClient,
+  consumeAuthorizationCode,
+  createApiKeyForOAuth,
+  validateOAuthResourceParam,
+} from "@/lib/oauth";
 
 export async function POST(request: Request) {
   const basicAuth = request.headers.get("authorization");
@@ -43,6 +48,17 @@ export async function POST(request: Request) {
   const clientId = explicitClientId || client.clientId;
   const clientSecret = body.client_secret ?? basicClientSecret;
   const codeVerifier = body.code_verifier;
+  const resource = body.resource;
+
+  if (!validateOAuthResourceParam(request, resource).ok) {
+    return NextResponse.json(
+      {
+        error: "invalid_request",
+        error_description: "resource does not match this server's MCP URL",
+      },
+      { status: 400 },
+    );
+  }
 
   if (grantType !== "authorization_code") {
     console.error("[OAuth] token unsupported grant", { grantType });

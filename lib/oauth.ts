@@ -30,6 +30,31 @@ export function getMcpResourceUrl(): string {
   return `${getBaseUrl()}/api/mcp`;
 }
 
+/** Expected MCP resource URL for this deployment (RFC 8707 / Figma Make). */
+export function getExpectedMcpResourceUrlFromRequest(request: Request): string {
+  return `${getCanonicalBaseUrlFromRequest(request)}/api/mcp`;
+}
+
+/**
+ * Figma sends `resource` on authorize and sometimes on token. If present, it must match our MCP URL
+ * for this host (otherwise check_auth can stay needsAuthorization after a successful-looking flow).
+ */
+export function validateOAuthResourceParam(
+  request: Request,
+  resource: string | null | undefined,
+): { ok: true } | { ok: false } {
+  if (resource == null || resource.trim() === "") {
+    return { ok: true };
+  }
+  const expected = getExpectedMcpResourceUrlFromRequest(request).replace(/\/$/, "");
+  const got = resource.trim().replace(/\/$/, "");
+  if (got !== expected) {
+    console.warn("[OAuth] resource param mismatch", { expected, got });
+    return { ok: false };
+  }
+  return { ok: true };
+}
+
 /** Pre-registered OAuth client for Figma Make. */
 export function getOAuthClient(): { clientId: string; clientSecret: string; redirectUris: string[] } {
   return {
