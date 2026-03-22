@@ -145,8 +145,20 @@ function createSmokeServer(): McpServer {
   return server;
 }
 
-export async function handleMcpRequest(request: Request, origin: string): Promise<Response> {
-  const prmUrl = `${origin}/.well-known/oauth-protected-resource`;
+export type McpRequestOptions = {
+  /** Full URL in WWW-Authenticate resource_metadata (default: origin + /.well-known/oauth-protected-resource) */
+  resourceMetadataUrl?: string;
+  realm?: string;
+};
+
+export async function handleMcpRequest(
+  request: Request,
+  origin: string,
+  options: McpRequestOptions = {},
+): Promise<Response> {
+  const prmUrl =
+    options.resourceMetadataUrl ?? `${origin}/.well-known/oauth-protected-resource`;
+  const realm = options.realm ?? "figma-oauth-smoke-railway";
   const authHeader = request.headers.get("authorization");
   const token = extractBearer(authHeader);
   const hasToken = Boolean(token);
@@ -194,7 +206,7 @@ export async function handleMcpRequest(request: Request, origin: string): Promis
           },
         },
         rpcId,
-        { "WWW-Authenticate": `Bearer realm="figma-oauth-smoke-railway", resource_metadata="${prmUrl}"` },
+        { "WWW-Authenticate": `Bearer realm="${realm}", resource_metadata="${prmUrl}"` },
       ),
     );
   }

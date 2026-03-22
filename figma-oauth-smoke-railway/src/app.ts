@@ -1,12 +1,15 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { diagPublicUrl } from "./diag.js";
 import { authorizeGet, authorizePost, tokenPost } from "./oauth-flow.js";
+import { xAuthorizeGet, xAuthorizePost, xTokenPost } from "./oauth-x-flow.js";
 import { handleMcpRequest, mcpOptionsResponse } from "./mcp.js";
 import {
   authorizationServerMetadata,
   protectedResourceMetadata,
   requestOrigin,
 } from "./metadata.js";
+import { xAuthorizationServerMetadata, xProtectedResourceMetadata } from "./metadata-x.js";
 
 const app = new Hono();
 
@@ -34,16 +37,21 @@ app.get("/", (c) =>
   <h1>figma-oauth-smoke-railway</h1>
   <p>Hono on Node — for <a href="https://railway.app">Railway</a> (long-lived process).</p>
   <ul>
-    <li>MCP (Figma): <code>/api/mcp</code></li>
+    <li>Default MCP: <code>/api/mcp</code></li>
+    <li><strong>Experiment MCP</strong> (no <code>resource</code> validation): <code>/api/x/mcp</code></li>
     <li><a href="/api/health">/api/health</a></li>
+    <li><a href="/api/diag/public-url">/api/diag/public-url</a> — proxy / origin diagnostic</li>
     <li><a href="/.well-known/oauth-authorization-server">/.well-known/oauth-authorization-server</a></li>
     <li><a href="/.well-known/oauth-protected-resource">/.well-known/oauth-protected-resource</a></li>
+    <li><a href="/api/x/well-known/oauth-protected-resource">/api/x/well-known/oauth-protected-resource</a> (experiment PRM)</li>
   </ul>
 </body>
 </html>`),
 );
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "figma-oauth-smoke-railway" }));
+
+app.get("/api/diag/public-url", (c) => c.json(diagPublicUrl(c.req.raw)));
 
 app.get("/.well-known/oauth-authorization-server", (c) => {
   const origin = requestOrigin(c.req.raw);
@@ -67,6 +75,43 @@ app.get("/api/mcp", (c) => handleMcpRequest(c.req.raw, requestOrigin(c.req.raw))
 app.post("/api/mcp", (c) => handleMcpRequest(c.req.raw, requestOrigin(c.req.raw)));
 app.delete("/api/mcp", (c) => handleMcpRequest(c.req.raw, requestOrigin(c.req.raw)));
 app.options("/api/mcp", () => mcpOptionsResponse());
+
+/* --- Experiment stack: point Figma MCP URL to /api/x/mcp to isolate strict resource / PRM issues --- */
+app.get("/api/x/well-known/oauth-authorization-server", (c) => {
+  const origin = requestOrigin(c.req.raw);
+  return c.json(xAuthorizationServerMetadata(origin), 200, { "Cache-Control": "no-store" });
+});
+
+app.get("/api/x/well-known/oauth-protected-resource", (c) => {
+  const origin = requestOrigin(c.req.raw);
+  return c.json(xProtectedResourceMetadata(origin), 200, { "Cache-Control": "no-store" });
+});
+
+app.get("/api/x/oauth/authorize", (c) => xAuthorizeGet(c.req.raw));
+app.post("/api/x/oauth/authorize", (c) => xAuthorizePost(c.req.raw));
+app.post("/api/x/oauth/token", (c) => xTokenPost(c.req.raw));
+
+const xPrm = (origin: string) => `${origin}/api/x/well-known/oauth-protected-resource`;
+
+app.get("/api/x/mcp", (c) =>
+  handleMcpRequest(c.req.raw, requestOrigin(c.req.raw), {
+    resourceMetadataUrl: xPrm(requestOrigin(c.req.raw)),
+    realm: "figma-oauth-x",
+  }),
+);
+app.post("/api/x/mcp", (c) =>
+  handleMcpRequest(c.req.raw, requestOrigin(c.req.raw), {
+    resourceMetadataUrl: xPrm(requestOrigin(c.req.raw)),
+    realm: "figma-oauth-x",
+  }),
+);
+app.delete("/api/x/mcp", (c) =>
+  handleMcpRequest(c.req.raw, requestOrigin(c.req.raw), {
+    resourceMetadataUrl: xPrm(requestOrigin(c.req.raw)),
+    realm: "figma-oauth-x",
+  }),
+);
+app.options("/api/x/mcp", () => mcpOptionsResponse());
 
 app.post("/api/mcp-inspect", async (c) => {
   const secret = process.env.MCP_INSPECT_SECRET?.trim();

@@ -1,6 +1,16 @@
+/**
+ * Parallel OAuth implementation for A/B debugging vs ./oauth-flow.ts
+ *
+ * Differences:
+ * - Endpoints under /api/x/oauth/*
+ * - Always forwards `resource` in the consent form (if present)
+ * - Never rejects requests based on resource (only logs) — isolates "strict resource match" issues
+ * - Verbose [x-oauth] logs on every step
+ */
 import { signObject, verifySignedObject } from "./crypto.js";
 import { getOAuthClient, validateClient } from "./oauth-config.js";
 import { validatePkce } from "./pkce.js";
+import { requestOrigin } from "./metadata.js";
 
 type CodePayload = {
   typ: "code";
@@ -20,13 +30,10 @@ type AtPayload = {
 
 const AT_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
-function json(body: unknown, status: number, headers?: Record<string, string>): Response {
+function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
+    headers: { "Content-Type": "application/json" },
   });
 }
 
@@ -44,8 +51,13 @@ async function parseTokenBody(request: Request): Promise<Record<string, string>>
   return Object.fromEntries(new URLSearchParams(text)) as Record<string, string>;
 }
 
-export async function authorizeGet(request: Request): Promise<Response> {
+function log(phase: string, data: Record<string, unknown>): void {
+  console.info(`[x-oauth] ${phase}`, { ...data, stack: "experiment /api/x" });
+}
+
+export async function xAuthorizeGet(request: Request): Promise<Response> {
   const url = new URL(request.url);
+  const origin = requestOrigin(request);
   const clientId = url.searchParams.get("client_id");
   const redirectUri = url.searchParams.get("redirect_uri");
   const responseType = url.searchParams.get("response_type");
@@ -54,6 +66,16 @@ export async function authorizeGet(request: Request): Promise<Response> {
   const codeChallenge = url.searchParams.get("code_challenge");
   const codeChallengeMethod = url.searchParams.get("code_challenge_method");
   const resource = url.searchParams.get("resource");
+
+  log("authorize GET", {
+    origin,
+    clientId,
+    redirectUri,
+    hasState: !!state,
+    hasResource: !!resource,
+    resource,
+    fullSearch: url.search,
+  });
 
   if (!clientId || !redirectUri) {
     return json({ error: "invalid_request" }, 400);
@@ -78,10 +100,11 @@ export async function authorizeGet(request: Request): Promise<Response> {
 
   const html = `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="utf-8"/><title>Authorize (smoke)</title></head>
+<head><meta charset="utf-8"/><title>x-oauth (experiment)</title></head>
 <body>
-  <p><strong>figma-oauth-smoke-railway</strong> — no real login; click to issue code.</p>
-  <form method="post" action="/api/oauth/authorize?${q.toString()}">
+  <p><strong>/api/x/oauth</strong> — experiment: resource is never validated, only logged.</p>
+  <pre style="background:#f4f4f5;padding:8px;font-size:12px;">resource param: ${resource ? escapeHtml(resource) : "(none)"}</pre>
+  <form method="post" action="/api/x/oauth/authorize?${q.toString()}">
     <input type="hidden" name="confirm" value="yes" />
     <button type="submit">Authorize</button>
   </form>
@@ -93,14 +116,26 @@ export async function authorizeGet(request: Request): Promise<Response> {
   });
 }
 
-export async function authorizePost(request: Request): Promise<Response> {
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export async function xAuthorizePost(request: Request): Promise<Response> {
   const url = new URL(request.url);
+  const origin = requestOrigin(request);
   const clientId = url.searchParams.get("client_id");
   const redirectUri = url.searchParams.get("redirect_uri");
   const state = url.searchParams.get("state");
   const scope = url.searchParams.get("scope");
   const codeChallenge = url.searchParams.get("code_challenge");
   const codeChallengeMethod = url.searchParams.get("code_challenge_method");
+  const resource = url.searchParams.get("resource");
+
+  log("authorize POST (query)", { origin, clientId, resource });
 
   let form: FormData;
   try {
@@ -130,10 +165,14 @@ export async function authorizePost(request: Request): Promise<Response> {
   const redir = new URL(redirectUri);
   redir.searchParams.set("code", code);
   if (state) redir.searchParams.set("state", state);
+
+  log("authorize POST issued code", { clientId, hasResourceInQuery: !!resource });
+
   return Response.redirect(redir.toString(), 302);
 }
 
-export async function tokenPost(request: Request): Promise<Response> {
+export async function xTokenPost(request: Request): Promise<Response> {
+  const origin = requestOrigin(request);
   const basicAuth = request.headers.get("authorization");
   let basicClientId: string | undefined;
   let basicSecret: string | undefined;
@@ -155,6 +194,16 @@ export async function tokenPost(request: Request): Promise<Response> {
   const grantType = body.grant_type;
   const code = body.code;
   const redirectUri = body.redirect_uri;
+  const resource = body.resource;
+
+  log("token POST", {
+    origin,
+    grantType,
+    clientId,
+    hasCode: !!code,
+    hasVerifier: !!codeVerifier?.trim(),
+    resourceFromBody: resource ?? "(absent)",
+  });
 
   if (grantType !== "authorization_code") {
     return json({ error: "unsupported_grant_type" }, 400);
@@ -204,6 +253,8 @@ export async function tokenPost(request: Request): Promise<Response> {
     exp: Date.now() + AT_TTL_MS,
   };
   const accessToken = signObject(atPayload);
+
+  log("token POST success", { clientId, tokenLen: accessToken.length });
 
   return new Response(
     JSON.stringify({
