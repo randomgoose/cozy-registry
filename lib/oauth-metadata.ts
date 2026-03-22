@@ -1,7 +1,13 @@
-import { getBaseUrl, getOAuthClient } from "@/lib/oauth";
+import { getBaseUrl, getOAuthClients } from "@/lib/oauth";
 
 export function getAuthorizationServerMetadata(baseUrl: string = getBaseUrl()) {
-  const client = getOAuthClient();
+  const clients = getOAuthClients();
+  const supportsNone = clients.some((client) => !client.clientSecret);
+  const supportsSecret = clients.some((client) => !!client.clientSecret);
+  const tokenEndpointAuthMethodsSupported = [
+    ...(supportsNone ? ["none"] : []),
+    ...(supportsSecret || supportsNone ? ["client_secret_post", "client_secret_basic"] : []),
+  ];
 
   return {
     issuer: baseUrl,
@@ -12,9 +18,7 @@ export function getAuthorizationServerMetadata(baseUrl: string = getBaseUrl()) {
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256", "plain"],
-    token_endpoint_auth_methods_supported: client.clientSecret
-      ? ["client_secret_post", "client_secret_basic"]
-      : ["none", "client_secret_post", "client_secret_basic"],
+    token_endpoint_auth_methods_supported: tokenEndpointAuthMethodsSupported,
     authorization_response_iss_parameter_supported: true,
   };
 }

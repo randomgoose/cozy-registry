@@ -119,8 +119,8 @@ export async function POST(request: Request) {
   }
 
   const grantType = body.grant_type;
-  const client = getOAuthClient();
   const explicitClientId = (body.client_id ?? basicClientId)?.trim();
+  const client = getOAuthClient(explicitClientId || basicClientId || undefined);
   const clientId = explicitClientId || client.clientId;
   const clientSecret = body.client_secret ?? basicClientSecret;
   const codeVerifier = body.code_verifier;

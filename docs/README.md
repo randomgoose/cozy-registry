@@ -44,6 +44,7 @@ Source of truth: yes
 
 - [`20-engineering/component-preview-runtime.md`](./20-engineering/component-preview-runtime.md)
 - [`20-engineering/figma-make-mcp.md`](./20-engineering/figma-make-mcp.md)
+- [`20-engineering/oauth-client-strategy.md`](./20-engineering/oauth-client-strategy.md)
 - [`20-engineering/install-protocol.md`](./20-engineering/install-protocol.md)
 - [`20-engineering/resource-types.md`](./20-engineering/resource-types.md)
 - [`20-engineering/style-and-theme-spec.md`](./20-engineering/style-and-theme-spec.md)

@@ -6,12 +6,25 @@ import { signOAuthRefreshPayload, verifyOAuthRefreshPayload } from "./oauth-refr
 
 const COZY_FIGMA_CLIENT_ID = process.env.OAUTH_FIGMA_CLIENT_ID ?? "cozy-figma-make";
 const COZY_FIGMA_CLIENT_SECRET = process.env.OAUTH_FIGMA_CLIENT_SECRET ?? "";
+const COZY_CURSOR_CLIENT_ID = process.env.OAUTH_CURSOR_CLIENT_ID ?? "cozy-cursor";
+const COZY_CURSOR_CLIENT_SECRET = process.env.OAUTH_CURSOR_CLIENT_SECRET ?? "";
 const FIGMA_REDIRECT_URI = "https://www.figma.com/oauth/mcp/callback";
+const CURSOR_CALLBACK_URI = "cursor://anysphere.cursor-mcp/oauth/callback";
 const CODE_TTL_MS = 10 * 60 * 1000; // 10 min
 /** Align token response `expires_in` (seconds) with refresh token lifetime. */
 export const OAUTH_ACCESS_EXPIRES_IN_SEC = 31536000;
 const REFRESH_TTL_MS = OAUTH_ACCESS_EXPIRES_IN_SEC * 1000;
 const API_KEY_PREFIX = "vbr_";
+
+export type OAuthTool = "figma-make" | "cursor";
+export type OAuthClientConfig = {
+  clientId: string;
+  clientSecret: string;
+  redirectUris: string[];
+  redirectUriPrefixes?: string[];
+  tool: OAuthTool;
+  tokenEndpointAuthMethod: "none" | "client_secret_post" | "client_secret_basic";
+};
 
 type OAuthRefreshTokenPayload = {
   typ: "rt";
@@ -24,6 +37,13 @@ type OAuthRefreshTokenPayload = {
 
 function originFromEnvUrl(url: string): string {
   return new URL(url).origin;
+}
+
+function parseRedirectUris(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 /** Public site URL for links and metadata (no Request). Prefer explicit env on PaaS. */
@@ -111,23 +131,108 @@ export function validateOAuthResourceParam(
 }
 
 /** Pre-registered OAuth client for Figma Make. */
-export function getOAuthClient(): { clientId: string; clientSecret: string; redirectUris: string[] } {
-  return {
-    clientId: COZY_FIGMA_CLIENT_ID,
-    clientSecret: COZY_FIGMA_CLIENT_SECRET,
-    redirectUris: [FIGMA_REDIRECT_URI],
-  };
+export function getOAuthClients(): OAuthClientConfig[] {
+  const cursorRedirectUris = parseRedirectUris(process.env.OAUTH_CURSOR_REDIRECT_URIS);
+  const cursorRedirectUriPrefixes = parseRedirectUris(
+    process.env.OAUTH_CURSOR_REDIRECT_URI_PREFIXES
+  );
+  const cursorTokenEndpointAuthMethodRaw = (
+    process.env.OAUTH_CURSOR_TOKEN_ENDPOINT_AUTH_METHOD ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  const cursorTokenEndpointAuthMethod =
+    cursorTokenEndpointAuthMethodRaw === "client_secret_post" ||
+    cursorTokenEndpointAuthMethodRaw === "client_secret_basic" ||
+    cursorTokenEndpointAuthMethodRaw === "none"
+      ? cursorTokenEndpointAuthMethodRaw
+      : COZY_CURSOR_CLIENT_SECRET
+        ? "client_secret_post"
+        : "none";
+  const resolvedCursorRedirectUriPrefixes =
+    cursorRedirectUriPrefixes.length > 0
+      ? cursorRedirectUriPrefixes
+      : ["cursor://anysphere.cursor-mcp/oauth/"];
+  const resolvedCursorRedirectUris =
+    cursorRedirectUris.length > 0 ? cursorRedirectUris : [CURSOR_CALLBACK_URI];
+
+  const clients: OAuthClientConfig[] = [
+    {
+      clientId: COZY_FIGMA_CLIENT_ID,
+      clientSecret: COZY_FIGMA_CLIENT_SECRET,
+      redirectUris: [FIGMA_REDIRECT_URI],
+      tool: "figma-make",
+      tokenEndpointAuthMethod: "client_secret_post",
+    },
+    {
+      clientId: COZY_CURSOR_CLIENT_ID,
+      clientSecret: COZY_CURSOR_CLIENT_SECRET,
+      redirectUris: resolvedCursorRedirectUris,
+      redirectUriPrefixes: resolvedCursorRedirectUriPrefixes,
+      tool: "cursor",
+      tokenEndpointAuthMethod: cursorTokenEndpointAuthMethod,
+    },
+  ];
+
+  return clients.filter((client) => client.clientId.trim().length > 0);
+}
+
+export function getOAuthClient(clientId?: string | null): OAuthClientConfig {
+  if (clientId) {
+    const match = getOAuthClients().find((client) => client.clientId === clientId);
+    if (match) return match;
+  }
+
+  return (
+    getOAuthClients().find((client) => client.tool === "figma-make") ??
+    getOAuthClients()[0] ?? {
+      clientId: COZY_FIGMA_CLIENT_ID,
+      clientSecret: COZY_FIGMA_CLIENT_SECRET,
+      redirectUris: [FIGMA_REDIRECT_URI],
+      tool: "figma-make",
+      tokenEndpointAuthMethod: "client_secret_post",
+    }
+  );
+}
+
+function matchesRedirectUri(client: OAuthClientConfig, redirectUri: string): boolean {
+  if (client.redirectUris.includes(redirectUri)) return true;
+  return (client.redirectUriPrefixes ?? []).some((prefix) => redirectUri.startsWith(prefix));
+}
+
+export function getOAuthClientByRedirectUri(redirectUri: string): OAuthClientConfig | null {
+  return (
+    getOAuthClients().find((client) => matchesRedirectUri(client, redirectUri)) ??
+    null
+  );
+}
+
+export function selectOAuthClientForRegistration(body: Record<string, unknown>): OAuthClientConfig {
+  const requestedClientId =
+    typeof body.client_id === "string" ? body.client_id.trim() : "";
+  if (requestedClientId) {
+    return getOAuthClient(requestedClientId);
+  }
+
+  const redirectUris = Array.isArray(body.redirect_uris)
+    ? body.redirect_uris.filter((u): u is string => typeof u === "string")
+    : [];
+  const matchedByRedirect = redirectUris
+    .map((uri) => getOAuthClientByRedirectUri(uri))
+    .find((client): client is OAuthClientConfig => !!client);
+
+  return matchedByRedirect ?? getOAuthClient();
 }
 
 export function validateClient(
   clientId: string,
   redirectUri: string
 ): { valid: boolean; error?: string } {
-  const client = getOAuthClient();
+  const client = getOAuthClient(clientId);
   if (clientId !== client.clientId) {
     return { valid: false, error: "invalid_client" };
   }
-  if (!client.redirectUris.includes(redirectUri)) {
+  if (!matchesRedirectUri(client, redirectUri)) {
     return { valid: false, error: "invalid_redirect_uri" };
   }
   return { valid: true };
@@ -274,7 +379,7 @@ export async function createApiKeyForOAuth(userId: string): Promise<string> {
     configId: "default",
     referenceId: userId,
     key: hashedKey,
-    name: "Figma Make OAuth",
+    name: "OAuth Access Token",
     prefix: API_KEY_PREFIX,
     enabled: true,
     rateLimitEnabled: false,
