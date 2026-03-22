@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import Link from "next/link";
 import { getRegistryItemTypeLabel } from "@/lib/registry-types";
 import { ComponentCard } from "./ComponentCard";
@@ -27,28 +27,41 @@ export function RegistryBrowser({
   isSignedIn,
 }: RegistryBrowserProps) {
   const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
+  const deferredQuery = useDeferredValue(query);
+  const normalizedQuery = deferredQuery.trim().toLowerCase();
 
-  const filteredItems = items.filter((item) => {
-    const matchesQuery =
+  const indexedItems = useMemo(
+    () =>
+      items.map((item) => ({
+        ...item,
+        searchText: [
+          item.title,
+          item.name,
+          item.owner,
+          item.description ?? "",
+          getRegistryItemTypeLabel(item.type),
+        ]
+          .join(" ")
+          .toLowerCase(),
+      })),
+    [items],
+  );
+
+  const { filteredItems, publicCount, privateCount } = useMemo(() => {
+    const publicCount = items.filter((item) => item.visibility === "public").length;
+    const privateCount = items.length - publicCount;
+    const filteredItems =
       normalizedQuery.length === 0
-        ? true
-        : [
-            item.title,
-            item.name,
-            item.owner,
-            item.description ?? "",
-            getRegistryItemTypeLabel(item.type),
-          ]
-            .join(" ")
-            .toLowerCase()
-            .includes(normalizedQuery);
+        ? indexedItems
+        : indexedItems.filter((item) => item.searchText.includes(normalizedQuery));
 
-    return matchesQuery;
-  });
+    return {
+      filteredItems,
+      publicCount,
+      privateCount,
+    };
+  }, [indexedItems, items, normalizedQuery]);
 
-  const publicCount = items.filter((item) => item.visibility === "public").length;
-  const privateCount = items.length - publicCount;
   const hasFilters = normalizedQuery.length > 0;
 
   return (
