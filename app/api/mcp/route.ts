@@ -24,15 +24,79 @@ function noContentSseResponse(): Response {
   });
 }
 
-async function readJsonRpcMethod(request: Request): Promise<string | null> {
+type JsonRpcId = string | number | null;
+
+function extractMessageId(msg: unknown): JsonRpcId {
+  if (!msg || typeof msg !== "object" || !("id" in msg)) return null;
+  const id = (msg as { id?: unknown }).id;
+  if (id === null || typeof id === "string" || typeof id === "number") return id;
+  return null;
+}
+
+/**
+ * Parse JSON-RPC shape from body (single object or batch). Figma may send batch `[initialize]`;
+ * treating that as an empty "auth probe" breaks verification (wrong response id / wrong result).
+ */
+async function readJsonRpcInfo(request: Request): Promise<{
+  method: string | null;
+  isNonEmptyBatch: boolean;
+  rpcId: JsonRpcId;
+}> {
   try {
     const contentType = request.headers.get("content-type") ?? "";
-    if (!contentType.includes("application/json")) return null;
-    const body = await request.clone().json() as { method?: unknown };
-    return typeof body?.method === "string" ? body.method : null;
+    if (!contentType.includes("application/json")) {
+      return { method: null, isNonEmptyBatch: false, rpcId: null };
+    }
+    const body: unknown = await request.clone().json();
+    if (Array.isArray(body)) {
+      if (body.length === 0) {
+        return { method: null, isNonEmptyBatch: false, rpcId: null };
+      }
+      const first = body[0];
+      const m =
+        first && typeof first === "object" && typeof (first as { method?: unknown }).method === "string"
+          ? (first as { method: string }).method
+          : null;
+      return {
+        method: m,
+        isNonEmptyBatch: true,
+        rpcId: extractMessageId(first),
+      };
+    }
+    if (body && typeof body === "object") {
+      const m =
+        typeof (body as { method?: unknown }).method === "string"
+          ? (body as { method: string }).method
+          : null;
+      return {
+        method: m,
+        isNonEmptyBatch: false,
+        rpcId: extractMessageId(body),
+      };
+    }
+    return { method: null, isNonEmptyBatch: false, rpcId: null };
   } catch {
-    return null;
+    return { method: null, isNonEmptyBatch: false, rpcId: null };
   }
+}
+
+function jsonRpcResponse(
+  status: number,
+  payload: { result?: unknown; error?: { code: number; message: string } },
+  id: JsonRpcId,
+  extraHeaders?: Record<string, string>,
+): Response {
+  const body =
+    payload.error !== undefined
+      ? { jsonrpc: "2.0" as const, error: payload.error, id }
+      : { jsonrpc: "2.0" as const, result: payload.result, id };
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...extraHeaders,
+    },
+  });
 }
 
 /**
@@ -74,7 +138,7 @@ async function handleMcpRequest(request: Request): Promise<Response> {
   const accept = request.headers.get("accept") ?? "";
   const mcpProtocolVersion = request.headers.get("mcp-protocol-version");
   const hasMcpSessionId = !!request.headers.get("mcp-session-id");
-  const rpcMethod = await readJsonRpcMethod(request);
+  const { method: rpcMethod, isNonEmptyBatch, rpcId } = await readJsonRpcInfo(request);
 
   if (!hasToken) {
     const baseUrl = new URL(request.url).origin;
@@ -88,22 +152,18 @@ async function handleMcpRequest(request: Request): Promise<Response> {
       mcpProtocolVersion,
       hasMcpSessionId,
     });
-    return new Response(
-      JSON.stringify({
-        jsonrpc: "2.0",
+    return jsonRpcResponse(
+      401,
+      {
         error: {
           code: -32001,
           message: "Authorization required. Use OAuth or Bearer token.",
         },
-        id: null,
-      }),
+      },
+      rpcId,
       {
-        status: 401,
-        headers: {
-          "Content-Type": "application/json",
-          "WWW-Authenticate": `Bearer realm="cozy-registry", resource_metadata="${prmUrl}"`,
-        },
-      }
+        "WWW-Authenticate": `Bearer realm="cozy-registry", resource_metadata="${prmUrl}"`,
+      },
     );
   }
 
@@ -112,12 +172,14 @@ async function handleMcpRequest(request: Request): Promise<Response> {
     return noContentSseResponse();
   }
 
+  // Ping-style POST with no JSON-RPC method: not a batch (Figma may send initialize as a one-element array).
+  // Do not require absence of mcp-protocol-version — some clients send it on every POST.
   const isLikelyAuthProbe =
     request.method === "POST" &&
     hasToken &&
     !hasMcpSessionId &&
-    !mcpProtocolVersion &&
     accept.includes("application/json") &&
+    !isNonEmptyBatch &&
     !rpcMethod;
 
   if (isLikelyAuthProbe) {
@@ -125,21 +187,17 @@ async function handleMcpRequest(request: Request): Promise<Response> {
     if (!ctx) {
       const baseUrl = new URL(request.url).origin;
       const prmUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
-      return new Response(
-        JSON.stringify({
-          jsonrpc: "2.0",
+      return jsonRpcResponse(
+        401,
+        {
           error: {
             code: -32001,
             message: "Invalid or expired token.",
           },
-          id: null,
-        }),
+        },
+        rpcId,
         {
-          status: 401,
-          headers: {
-            "Content-Type": "application/json",
-            "WWW-Authenticate": `Bearer realm="cozy-registry", resource_metadata="${prmUrl}"`,
-          },
+          "WWW-Authenticate": `Bearer realm="cozy-registry", resource_metadata="${prmUrl}"`,
         },
       );
     }
@@ -152,19 +210,15 @@ async function handleMcpRequest(request: Request): Promise<Response> {
       hasMcpSessionId,
       mcpProtocolVersion,
     });
-    return Response.json(
-      {
-        jsonrpc: "2.0",
-        result: { ok: true, authenticated: true },
-        id: null,
-      },
-      { status: 200, headers: { "Content-Type": "application/json" } },
+    return jsonRpcResponse(
+      200,
+      { result: { ok: true, authenticated: true } },
+      rpcId,
     );
   }
 
   try {
     const reqForMcp = ensureStreamableHttpAccept(request);
-    const mcpAccept = reqForMcp.headers.get("accept") ?? "";
     if (reqForMcp !== request) {
       console.info("[MCP] merged Accept for Streamable HTTP compatibility", {
         url: request.url,
@@ -179,31 +233,9 @@ async function handleMcpRequest(request: Request): Promise<Response> {
     await server.connect(transport);
     const response = await transport.handleRequest(reqForMcp);
 
-    // Figma auth probes may negotiate stream mode and receive 202, then spin on retries.
-    // For stateless serverless, convert this specific probe shape into a synchronous JSON success.
-    const isLikelyStreamProbe =
-      request.method === "POST" &&
-      mcpAccept.includes("application/json") &&
-      mcpAccept.includes("text/event-stream") &&
-      !hasMcpSessionId;
-    if (response.status === 202 && isLikelyStreamProbe) {
-      console.info("[MCP] collapsing async probe response", {
-        method: request.method,
-        url: request.url,
-        rpcMethod,
-        accept,
-        hasToken,
-        hasMcpSessionId,
-      });
-      return Response.json(
-        {
-          jsonrpc: "2.0",
-          result: { ok: true, authenticated: hasToken },
-          id: null,
-        },
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }
+    // Notification-only POSTs (e.g. notifications/initialized) get 202 + empty body per MCP
+    // Streamable HTTP. Do not rewrite to 200 JSON-RPC — clients like Figma expect 202 and will
+    // retry forever if the response shape is wrong.
 
     return response;
   } catch (err) {
@@ -217,13 +249,10 @@ async function handleMcpRequest(request: Request): Promise<Response> {
       message,
       stack,
     });
-    return Response.json(
-      {
-        jsonrpc: "2.0",
-        error: { code: -32603, message: `Internal error: ${message}` },
-        id: null,
-      },
-      { status: 500, headers: { "Content-Type": "application/json" } }
+    return jsonRpcResponse(
+      500,
+      { error: { code: -32603, message: `Internal error: ${message}` } },
+      rpcId,
     );
   }
 }
