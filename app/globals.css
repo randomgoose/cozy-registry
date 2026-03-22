@@ -38,6 +38,16 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-on-inverse-fg: var(--on-inverse-fg);
+  --color-on-inverse-muted-fg: var(--on-inverse-muted-fg);
+  --color-on-inverse-border: var(--on-inverse-border);
+  --color-on-inverse-surface: var(--on-inverse-surface);
+  --color-on-inverse-surface-hover: var(--on-inverse-surface-hover);
+  --color-on-inverse-surface-active: var(--on-inverse-surface-active);
+  --color-on-inverse-ring: var(--on-inverse-ring);
+  --color-on-inverse-popover: var(--on-inverse-popover);
+  --color-on-inverse-popover-fg: var(--on-inverse-popover-fg);
+  --color-on-inverse-popover-border: var(--on-inverse-popover-border);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -82,6 +92,17 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /* Controls on dark / frosted panels (not flipped with page .dark) */
+  --on-inverse-fg: oklch(0.97 0 0);
+  --on-inverse-muted-fg: oklch(0.62 0 0);
+  --on-inverse-border: oklch(1 0 0 / 0.2);
+  --on-inverse-surface: oklch(1 0 0 / 0.1);
+  --on-inverse-surface-hover: oklch(1 0 0 / 0.14);
+  --on-inverse-surface-active: oklch(1 0 0 / 0.2);
+  --on-inverse-ring: oklch(1 0 0 / 0.35);
+  --on-inverse-popover: oklch(0.22 0 0);
+  --on-inverse-popover-fg: oklch(0.97 0 0);
+  --on-inverse-popover-border: oklch(1 0 0 / 0.14);
 }
 
 .dark {

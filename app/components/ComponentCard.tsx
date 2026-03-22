@@ -2,17 +2,22 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/ui/button";
-import { PreviewFrame } from "./PreviewFrame";
+import { PreviewPropsDebugPanel } from "./PreviewPropsDebugPanel";
+import { RegistryFileTree } from "./RegistryFileTree";
+import {
+  PreviewFrame,
+  type PreviewFrameHandle,
+} from "./PreviewFrame";
 import { CodeBlock } from "@/app/registry/[owner]/[name]/CodeBlock";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowRight01Icon,
-  CollectionsBookmarkIcon,
   Copy01Icon,
   CopyCheckIcon,
+  ExpandIcon,
+  StarIcon,
 } from "@hugeicons/core-free-icons";
 import {
   Dialog,
@@ -30,6 +35,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PREVIEW_MSG_INITIAL_PROPS } from "@/lib/preview-messages";
+import { filterControllableProps } from "@/lib/preview-prop-controls";
+import { cn } from "@/lib/utils";
 import { extractPropsFromTsx, type PropField } from "@/lib/validate-tsx";
 
 interface ComponentCardProps {
@@ -49,8 +57,40 @@ type ExpandedDetailData = {
   files: { path: string; content: string; type: string }[];
 };
 
+function normalizeExpandedDetailData(
+  value: unknown,
+): ExpandedDetailData | null {
+  if (!value || typeof value !== "object") return null;
+
+  const data = value as Record<string, unknown>;
+  const rawFiles = Array.isArray(data.files) ? data.files : [];
+  const files = rawFiles
+    .filter((file): file is Record<string, unknown> => !!file && typeof file === "object")
+    .map((file) => ({
+      path: typeof file.path === "string" ? file.path : "",
+      content: typeof file.content === "string" ? file.content : "",
+      type: typeof file.type === "string" ? file.type : "registry:ui",
+    }))
+    .filter((file) => file.path.length > 0);
+
+  return {
+    type: typeof data.type === "string" ? data.type : "registry:ui",
+    dependencies: Array.isArray(data.dependencies)
+      ? data.dependencies.filter((dep): dep is string => typeof dep === "string")
+      : [],
+    registryDependencies: Array.isArray(data.registryDependencies)
+      ? data.registryDependencies.filter((dep): dep is string => typeof dep === "string")
+      : [],
+    files,
+  };
+}
+
 function isCodeFile(path: string): boolean {
   return /\.(tsx?|jsx?|css|json)$/i.test(path);
+}
+
+function registryItemJsonUrl(owner: string, name: string) {
+  return `/api/r/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 }
 
 export function ComponentCard({
@@ -78,6 +118,8 @@ export function ComponentCard({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  /** 已成功拉取详情的 owner/name，避免重复请求；与 props 变化时在 effect 中清空 */
+  const detailLoadedKeyRef = useRef<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [collections, setCollections] = useState<
     Array<{ id: string; title: string; slug: string }>
@@ -86,19 +128,155 @@ export function ComponentCard({
   const [selectedCollectionId, setSelectedCollectionId] = useState<string>("");
   const [adding, setAdding] = useState(false);
   const [thumbnailScale, setThumbnailScale] = useState(1);
+  const expandedPreviewRef = useRef<PreviewFrameHandle>(null);
+  const [livePreviewProps, setLivePreviewProps] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [expandedMainTab, setExpandedMainTab] = useState<"preview" | "code">(
+    "preview",
+  );
+
+  function applyFallbackThumbnailScale(width: number, height: number) {
+    const ratio = width / height;
+
+    if (ratio >= 0.82 && ratio <= 1.25) {
+      setThumbnailScale(0.72);
+      return;
+    }
+
+    if (ratio < 0.82) {
+      setThumbnailScale(0.8);
+      return;
+    }
+
+    if (ratio > 2.4) {
+      setThumbnailScale(0.9);
+      return;
+    }
+
+    setThumbnailScale(1);
+  }
+
+  async function handleThumbnailLoad(
+    event: React.SyntheticEvent<HTMLImageElement>,
+  ) {
+    const img = event.currentTarget;
+    const width = img.naturalWidth || 1;
+    const height = img.naturalHeight || 1;
+
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) {
+        applyFallbackThumbnailScale(width, height);
+        return;
+      }
+
+      context.drawImage(img, 0, 0, width, height);
+      const imageData = context.getImageData(0, 0, width, height).data;
+
+      let minX = width;
+      let minY = height;
+      let maxX = -1;
+      let maxY = -1;
+
+      const step = Math.max(1, Math.floor(Math.min(width, height) / 320));
+
+      for (let y = 0; y < height; y += step) {
+        for (let x = 0; x < width; x += step) {
+          const alpha = imageData[(y * width + x) * 4 + 3];
+          if (alpha <= 8) continue;
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        }
+      }
+
+      if (maxX < minX || maxY < minY) {
+        applyFallbackThumbnailScale(width, height);
+        return;
+      }
+
+      const visibleWidth = Math.max(1, maxX - minX);
+      const visibleHeight = Math.max(1, maxY - minY);
+      const widthFill = visibleWidth / width;
+      const heightFill = visibleHeight / height;
+      const visibleRatio = visibleWidth / visibleHeight;
+      const visibleAreaFill = (visibleWidth * visibleHeight) / (width * height);
+
+      if (visibleAreaFill < 0.12) {
+        setThumbnailScale(0.58);
+        return;
+      }
+
+      if (visibleAreaFill < 0.2) {
+        setThumbnailScale(0.66);
+        return;
+      }
+
+      if (widthFill < 0.42 && heightFill < 0.42) {
+        setThumbnailScale(0.68);
+        return;
+      }
+
+      if (visibleRatio >= 0.82 && visibleRatio <= 1.25) {
+        setThumbnailScale(0.74);
+        return;
+      }
+
+      if (visibleRatio < 0.82) {
+        setThumbnailScale(0.8);
+        return;
+      }
+
+      if (visibleRatio > 2.4) {
+        setThumbnailScale(0.9);
+        return;
+      }
+
+      setThumbnailScale(0.96);
+    } catch {
+      applyFallbackThumbnailScale(width, height);
+    }
+  }
 
   const cardLayoutId = `registry-card-${itemId}`;
+  const firstDisplayableFile =
+    detailData?.files?.find(
+      (file) =>
+        isCodeFile(file.path) &&
+        typeof file.content === "string" &&
+        file.content.trim().length > 0,
+    ) ??
+    detailData?.files?.find(
+      (file) =>
+        typeof file.content === "string" && file.content.trim().length > 0,
+    ) ??
+    detailData?.files?.[0] ??
+    null;
   const preferredFile =
     detailData?.files?.find((file) => file.path === selectedPath) ??
     detailData?.files?.find((file) => /\.(tsx?|jsx?)$/i.test(file.path)) ??
     detailData?.files?.find((file) => isCodeFile(file.path)) ??
-    detailData?.files?.[0] ??
+    firstDisplayableFile ??
     null;
   const code = preferredFile?.content ?? "";
-  const propsFromCode: PropField[] =
-    detailData?.type && detailData.type !== "registry:theme" && code
-      ? extractPropsFromTsx(code)
-      : [];
+  const isDetailPending = detailLoading && !detailData;
+  const propsFromCode = useMemo((): PropField[] => {
+    if (!detailData?.type || detailData.type === "registry:theme" || !code) {
+      return [];
+    }
+    return extractPropsFromTsx(code);
+  }, [detailData?.type, code]);
+  const controllablePreviewFields = useMemo(
+    () => filterControllableProps(propsFromCode),
+    [propsFromCode],
+  );
   const installCommand =
     typeof window !== "undefined"
       ? `npx shadcn@latest add ${window.location.origin}/api/r/${owner}/${name}`
@@ -106,17 +284,38 @@ export function ComponentCard({
 
   async function handleCopy() {
     try {
-      const res = await fetch(
-        `/api/r/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
-      );
+      const currentCode =
+        code || firstDisplayableFile?.content || (detailData?.files?.[0]?.content ?? "");
+      if (currentCode) {
+        await navigator.clipboard.writeText(currentCode);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        return;
+      }
+
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(registryItemJsonUrl(owner, name), {
+        signal: controller.signal,
+      });
+      window.clearTimeout(timeout);
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
-      const code = data.files?.[0]?.content ?? "";
-      await navigator.clipboard.writeText(code);
+      const fetchedCode =
+        data.files?.find((file: { path?: string }) =>
+          /\.(tsx?|jsx?|css|json)$/i.test(file.path ?? ""),
+        )?.content ??
+        data.files?.[0]?.content ??
+        "";
+      if (!fetchedCode) {
+        throw new Error("No code available");
+      }
+      await navigator.clipboard.writeText(fetchedCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
+      alert("复制失败，请稍后再试");
     }
   }
 
@@ -185,47 +384,123 @@ export function ComponentCard({
   }, [expanded]);
 
   useEffect(() => {
-    if (!expanded || detailData || detailLoading) return;
+    detailLoadedKeyRef.current = null;
+    setDetailData(null);
+    setDetailError(null);
+    setSelectedPath(null);
+    setLivePreviewProps(null);
+    setExpandedMainTab("preview");
+  }, [name, owner]);
+
+  useEffect(() => {
+    if (!expanded) return;
+
+    const itemKey = `${owner}\0${name}`;
+    if (detailLoadedKeyRef.current === itemKey) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 10000);
     let cancelled = false;
+
     async function loadDetailData() {
       setDetailLoading(true);
       setDetailError(null);
       try {
-        const res = await fetch(
-          `/api/r/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
-          { cache: "no-store" },
-        );
+        const res = await fetch(registryItemJsonUrl(owner, name), {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         if (!res.ok) {
           if (!cancelled) {
             setDetailError(`加载失败（${res.status}）`);
           }
           return;
         }
-        const data = (await res.json()) as ExpandedDetailData;
+        const rawData = (await res.json()) as unknown;
+        const data = normalizeExpandedDetailData(rawData);
+        if (!data) {
+          if (!cancelled) {
+            setDetailError("详情数据格式无效");
+          }
+          return;
+        }
         if (!cancelled) {
+          detailLoadedKeyRef.current = itemKey;
           setDetailData(data);
           const nextSelectedPath =
             data.files?.find((file) => /\.(tsx?|jsx?)$/i.test(file.path))?.path ??
             data.files?.find((file) => isCodeFile(file.path))?.path ??
+            data.files?.find(
+              (file) =>
+                typeof file.content === "string" &&
+                file.content.trim().length > 0,
+            )?.path ??
             data.files?.[0]?.path ??
             null;
           setSelectedPath(nextSelectedPath);
         }
-      } catch {
+      } catch (error) {
+        if (cancelled || controller.signal.aborted) return;
+        const isAbort =
+          error instanceof DOMException && error.name === "AbortError";
+        if (isAbort) return;
         if (!cancelled) {
-          setDetailError("加载失败");
+          setDetailError("加载失败或超时");
         }
       } finally {
+        window.clearTimeout(timeoutId);
         if (!cancelled) {
           setDetailLoading(false);
         }
       }
     }
+
     void loadDetailData();
     return () => {
       cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeoutId);
+      setDetailLoading(false);
     };
-  }, [detailData, detailLoading, expanded, name, owner]);
+  }, [expanded, name, owner]);
+
+  useEffect(() => {
+    if (expanded) return;
+    setDetailError(null);
+    setLivePreviewProps(null);
+    setExpandedMainTab("preview");
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    function onPreviewMessage(ev: MessageEvent) {
+      const data = ev.data as { type?: string; props?: unknown };
+      if (data?.type !== PREVIEW_MSG_INITIAL_PROPS) return;
+      const iframeWin = expandedPreviewRef.current?.getContentWindow();
+      if (!iframeWin || ev.source !== iframeWin) return;
+      // allow-same-origin: matches location.origin. Legacy sandbox-only scripts use opaque origin → "null"
+      const originOk =
+        ev.origin === window.location.origin || ev.origin === "null";
+      if (!originOk) return;
+      const next = data.props;
+      if (next && typeof next === "object" && !Array.isArray(next)) {
+        setLivePreviewProps({ ...(next as Record<string, unknown>) });
+      }
+    }
+    window.addEventListener("message", onPreviewMessage);
+    return () => window.removeEventListener("message", onPreviewMessage);
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!expanded || livePreviewProps == null) return;
+    expandedPreviewRef.current?.sendPreviewProps(livePreviewProps);
+  }, [expanded, livePreviewProps]);
+
+  const handlePreviewPropChange = useCallback((propName: string, value: unknown) => {
+    setLivePreviewProps((prev) => (prev ? { ...prev, [propName]: value } : null));
+  }, []);
 
   function renderActionButtons() {
     return (
@@ -263,7 +538,7 @@ export function ComponentCard({
               />
             }
           >
-            <HugeiconsIcon icon={CollectionsBookmarkIcon} strokeWidth={1.8} />
+            <HugeiconsIcon icon={StarIcon} strokeWidth={1.8} />
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -325,6 +600,16 @@ export function ComponentCard({
         exit={{ opacity: 0, x: -6 }}
         transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1], delay: 0.04 }}
       >
+        <Link
+          href={`/registry/${owner}/${name}`}
+          className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/12 bg-zinc-950/88 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur transition-colors hover:bg-zinc-950 dark:border-white/12 dark:bg-zinc-950/88 dark:hover:bg-zinc-950"
+          onClick={(event) => stopCardClick(event)}
+          aria-label="展开详情页"
+          title="展开详情"
+        >
+          <HugeiconsIcon icon={ExpandIcon} strokeWidth={1.8} />
+        </Link>
+
         <Button
           variant="ghost"
           size="icon"
@@ -358,7 +643,7 @@ export function ComponentCard({
               />
             }
           >
-            <HugeiconsIcon icon={CollectionsBookmarkIcon} strokeWidth={1.8} />
+            <HugeiconsIcon icon={StarIcon} strokeWidth={1.8} />
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -431,32 +716,13 @@ export function ComponentCard({
                 unoptimized
                 sizes="(min-width: 768px) 50vw, 100vw"
                 className="object-contain p-4"
+                crossOrigin="anonymous"
                 style={{
                   objectPosition: "center center",
                   transform: `scale(${thumbnailScale})`,
                 }}
                 onLoad={(event) => {
-                  const img = event.currentTarget;
-                  const width = img.naturalWidth || 1;
-                  const height = img.naturalHeight || 1;
-                  const ratio = width / height;
-
-                  if (ratio >= 0.82 && ratio <= 1.25) {
-                    setThumbnailScale(0.72);
-                    return;
-                  }
-
-                  if (ratio < 0.82) {
-                    setThumbnailScale(0.8);
-                    return;
-                  }
-
-                  if (ratio > 2.4) {
-                    setThumbnailScale(0.9);
-                    return;
-                  }
-
-                  setThumbnailScale(1);
+                  void handleThumbnailLoad(event);
                 }}
                 draggable={false}
               />
@@ -466,21 +732,18 @@ export function ComponentCard({
               src={`/preview/${owner}/${name}`}
               title={`${title} 预览`}
               className="h-full w-full"
-              allowUpscale
-              alignY="top"
-              fitMode="cover"
+              alignY="center"
+              fitMode="actual"
               stageSize={{ width: 1200, height: 900 }}
             />
           )}
           <div
-            className={`absolute inset-0 z-20 bg-linear-to-t from-black/80 via-black/28 to-transparent transition duration-200 ${
-              expanded ? "opacity-0" : "opacity-0 group-hover:opacity-100"
-            }`}
+            className={`absolute inset-0 z-20 bg-linear-to-t from-black/80 via-black/28 to-transparent transition duration-200 ${expanded ? "opacity-0" : "opacity-0 group-hover:opacity-100"
+              }`}
           />
           <div
-            className={`absolute inset-x-0 bottom-0 z-30 flex items-end justify-between gap-3 p-4 transition duration-200 ${
-              expanded ? "opacity-0" : "opacity-0 group-hover:opacity-100"
-            }`}
+            className={`absolute inset-x-0 bottom-0 z-30 flex items-end justify-between gap-3 p-4 transition duration-200 ${expanded ? "opacity-0" : "opacity-0 group-hover:opacity-100"
+              }`}
           >
             <div className="min-w-0">
               {visibility === "private" ? (
@@ -510,34 +773,21 @@ export function ComponentCard({
               transition={{ duration: 0.2, delay: 0.06 }}
               onClick={() => setExpanded(false)}
             />
-            {renderFloatingActionButtons()}
             <motion.div
-              className="pointer-events-none fixed inset-0 z-50 overflow-y-auto px-4 py-10 sm:px-6"
+              className="pointer-events-none fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden px-4 pt-[max(0.75rem,env(safe-area-inset-top,0px))] pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] sm:px-6 sm:pt-[max(1rem,env(safe-area-inset-top,0px))] sm:pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.18, ease: "easeOut" }}
             >
-              <div className="relative mx-auto max-w-5xl pointer-events-none">
+              <div className="relative mx-auto flex min-h-0 w-full max-w-[min(92rem,calc(100vw-1.5rem))] flex-1 flex-col pointer-events-none sm:max-w-[min(92rem,calc(100vw-2rem))]">
                 <motion.div
                   layoutId={cardLayoutId}
                   transition={layoutTransition}
-                  className="pointer-events-auto flex h-[calc(100vh-144px)] min-h-[640px] flex-col overflow-hidden rounded-[28px] border border-zinc-200/80 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950"
+                  className="pointer-events-auto flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-zinc-200/80 bg-white shadow-2xl lg:flex-row dark:border-zinc-800 dark:bg-zinc-950"
                 >
-                  <div className="relative min-h-[360px] flex-[1_1_0%] overflow-hidden bg-[linear-gradient(180deg,rgba(255,251,245,1),rgba(255,255,255,1))] dark:bg-[linear-gradient(180deg,rgba(39,39,42,0.7),rgba(9,9,11,0.2))]">
-                    <PreviewFrame
-                      key={`expanded-preview-${owner}-${name}`}
-                      src={`/preview/${owner}/${name}`}
-                      title={`${title} 预览`}
-                      className="h-full w-full"
-                      allowUpscale
-                      alignY="center"
-                      fitMode="cover"
-                      stageSize={{ width: 1200, height: 900 }}
-                    />
-                  </div>
                   <motion.div
-                    className="shrink-0 border-t border-zinc-200/80 bg-white/96 px-5 py-5 backdrop-blur sm:px-6 dark:border-zinc-800 dark:bg-zinc-950/96"
+                    className="order-2 flex w-full min-h-[min(52dvh,22rem)] shrink-0 flex-col overflow-y-auto overscroll-y-contain border-zinc-200/80 bg-white/96 px-5 py-5 backdrop-blur sm:px-6 lg:order-1 lg:min-h-0 lg:w-[min(420px,36vw)] lg:max-w-md lg:border-r dark:border-zinc-800 dark:bg-zinc-950/96"
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 10 }}
@@ -555,26 +805,27 @@ export function ComponentCard({
                             </span>
                           ) : null}
                         </div>
-                        <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-zinc-950 sm:text-3xl dark:text-zinc-50">
+                        <h2 className="mt-3 text-xl font-semibold tracking-[-0.03em] text-zinc-950 sm:text-2xl dark:text-zinc-50">
                           {title}
                         </h2>
                         <p className="mt-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
                           {owner} / {name}
                         </p>
                         {description ? (
-                          <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-600 sm:text-base dark:text-zinc-300">
+                          <p className="mt-3 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
                             {description}
                           </p>
                         ) : null}
                       </div>
-                      <div className="relative z-40 flex shrink-0 items-center gap-2">
+                      <div className="relative z-40 flex shrink-0 lg:hidden">
                         <Link
                           href={`/registry/${owner}/${name}`}
-                          className="inline-flex items-center gap-1 rounded-full bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
+                          className="inline-flex size-9 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-800 shadow-sm transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                           onClick={(event) => event.stopPropagation()}
+                          aria-label="展开详情页"
+                          title="展开详情"
                         >
-                          展开详情
-                          <HugeiconsIcon icon={ArrowRight01Icon} strokeWidth={1.8} />
+                          <HugeiconsIcon icon={ExpandIcon} strokeWidth={1.8} />
                         </Link>
                       </div>
                     </div>
@@ -604,144 +855,186 @@ export function ComponentCard({
                       </div>
                     ) : null}
 
-                    <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-                      <div className="space-y-6">
+                    <div className="mt-6 space-y-6 pb-2">
+                      <section className="space-y-3">
+                        <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                          用于项目
+                        </h3>
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-100 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+                          <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+                            shadcn CLI 安装
+                          </p>
+                          <code className="block break-all font-mono text-sm text-zinc-800 dark:text-zinc-200">
+                            {installCommand}
+                          </code>
+                        </div>
+                      </section>
+
+                      {propsFromCode.length > 0 ? (
                         <section className="space-y-3">
                           <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                            用于项目
+                            Props
                           </h3>
-                          <div className="rounded-2xl border border-zinc-200 bg-zinc-100 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                            <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
-                              shadcn CLI 安装
-                            </p>
-                            <code className="block break-all font-mono text-sm text-zinc-800 dark:text-zinc-200">
-                              {installCommand}
-                            </code>
+                          <div className="overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
+                                  <TableHead className="text-zinc-500 dark:text-zinc-400">
+                                    属性
+                                  </TableHead>
+                                  <TableHead className="text-zinc-500 dark:text-zinc-400">
+                                    类型
+                                  </TableHead>
+                                  <TableHead className="text-zinc-500 dark:text-zinc-400">
+                                    可选
+                                  </TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {propsFromCode.map((prop) => (
+                                  <TableRow
+                                    key={prop.name}
+                                    className="border-zinc-100 dark:border-zinc-800"
+                                  >
+                                    <TableCell className="font-mono text-zinc-800 dark:text-zinc-200">
+                                      {prop.name}
+                                    </TableCell>
+                                    <TableCell className="font-mono text-zinc-600 dark:text-zinc-400">
+                                      {prop.type}
+                                    </TableCell>
+                                    <TableCell className="text-zinc-500 dark:text-zinc-400">
+                                      {prop.optional ? "是" : "—"}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
                           </div>
                         </section>
+                      ) : null}
+                    </div>
+                  </motion.div>
 
-                        {propsFromCode.length > 0 ? (
-                          <section className="space-y-3">
-                            <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                              Props
-                            </h3>
-                            <div className="overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800">
-                              <Table>
-                                <TableHeader>
-                                  <TableRow className="border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
-                                    <TableHead className="text-zinc-500 dark:text-zinc-400">
-                                      属性
-                                    </TableHead>
-                                    <TableHead className="text-zinc-500 dark:text-zinc-400">
-                                      类型
-                                    </TableHead>
-                                    <TableHead className="text-zinc-500 dark:text-zinc-400">
-                                      可选
-                                    </TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {propsFromCode.map((prop) => (
-                                    <TableRow
-                                      key={prop.name}
-                                      className="border-zinc-100 dark:border-zinc-800"
-                                    >
-                                      <TableCell className="font-mono text-zinc-800 dark:text-zinc-200">
-                                        {prop.name}
-                                      </TableCell>
-                                      <TableCell className="font-mono text-zinc-600 dark:text-zinc-400">
-                                        {prop.type}
-                                      </TableCell>
-                                      <TableCell className="text-zinc-500 dark:text-zinc-400">
-                                        {prop.optional ? "是" : "—"}
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </div>
-                          </section>
-                        ) : null}
-                      </div>
+                  <div className="order-1 flex w-full flex-1 flex-col overflow-hidden border-b border-zinc-200/80 bg-zinc-50/40 min-h-[min(42dvh,20rem)] sm:min-h-[min(44dvh,22rem)] lg:order-2 lg:min-h-0 lg:border-b-0 dark:border-zinc-800 dark:bg-zinc-950/40">
+                    <div
+                      className="flex shrink-0 items-center gap-1 border-b border-zinc-200/90 bg-white/95 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/95"
+                      role="tablist"
+                      aria-label="预览与代码"
+                    >
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={expandedMainTab === "preview"}
+                        className={cn(
+                          "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                          expandedMainTab === "preview"
+                            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                            : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800",
+                        )}
+                        onClick={() => setExpandedMainTab("preview")}
+                      >
+                        预览
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={expandedMainTab === "code"}
+                        className={cn(
+                          "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                          expandedMainTab === "code"
+                            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                            : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800",
+                        )}
+                        onClick={() => setExpandedMainTab("code")}
+                      >
+                        代码
+                      </button>
+                    </div>
 
-                      <section className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                            代码
-                          </h3>
-                          {detailLoading ? (
-                            <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                              加载中…
-                            </span>
-                          ) : detailError ? (
-                            <span className="text-xs text-amber-600 dark:text-amber-400">
-                              {detailError}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="grid overflow-hidden rounded-2xl border border-zinc-200 lg:grid-cols-[220px_minmax(0,1fr)] dark:border-zinc-800">
-                          <div className="border-b border-zinc-200 bg-zinc-50/80 p-2 lg:max-h-[320px] lg:overflow-auto lg:border-b-0 lg:border-r dark:border-zinc-800 dark:bg-zinc-900/40">
-                            {detailLoading ? (
-                              <p className="px-2 py-2 text-sm text-zinc-500 dark:text-zinc-400">
+                    <div
+                      className={cn(
+                        "relative min-h-0 flex-1 bg-[linear-gradient(180deg,rgba(255,251,245,1),rgba(255,255,255,1))] dark:bg-[linear-gradient(180deg,rgba(39,39,42,0.7),rgba(9,9,11,0.2))]",
+                        expandedMainTab !== "preview" && "hidden",
+                      )}
+                      role="tabpanel"
+                      aria-hidden={expandedMainTab !== "preview"}
+                    >
+                      <PreviewFrame
+                        ref={expandedPreviewRef}
+                        key={`expanded-preview-${owner}-${name}`}
+                        src={`/preview/${owner}/${name}`}
+                        title={`${title} 预览`}
+                        className="h-full w-full min-h-[12rem] lg:min-h-0"
+                        interactive
+                        alignY="center"
+                        fitMode="actual"
+                        stageSize={{ width: 1200, height: 900 }}
+                      />
+                      {controllablePreviewFields.length > 0 ? (
+                        <PreviewPropsDebugPanel
+                          fields={controllablePreviewFields}
+                          values={livePreviewProps}
+                          onChange={handlePreviewPropChange}
+                        />
+                      ) : null}
+                    </div>
+
+                    <div
+                      className={cn(
+                        "flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-zinc-950",
+                        expandedMainTab !== "code" && "hidden",
+                      )}
+                      role="tabpanel"
+                      aria-hidden={expandedMainTab !== "code"}
+                    >
+                      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,0.34fr)_minmax(0,0.66fr)] gap-0 overflow-hidden lg:grid-cols-[minmax(0,200px)_minmax(0,1fr)] lg:grid-rows-1">
+                          <div className="min-h-0 overflow-auto bg-zinc-50/70 p-1 dark:bg-zinc-900/35">
+                            {isDetailPending ? (
+                              <p className="px-1.5 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                                 加载中…
                               </p>
                             ) : detailData?.files?.length ? (
-                              <div className="space-y-1">
-                                {detailData.files.map((file) => {
-                                  const selected = file.path === preferredFile?.path;
-                                  return (
-                                    <button
-                                      key={file.path}
-                                      type="button"
-                                      onClick={() => setSelectedPath(file.path)}
-                                      className={`block w-full rounded-xl px-3 py-2 text-left text-sm transition ${
-                                        selected
-                                          ? "bg-zinc-950 text-white dark:bg-white dark:text-zinc-950"
-                                          : "text-zinc-600 hover:bg-zinc-200/70 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                                      }`}
-                                    >
-                                      <span className="block truncate font-mono text-xs">
-                                        {file.path}
-                                      </span>
-                                      <span
-                                        className={`mt-1 block text-[11px] ${
-                                          selected
-                                            ? "text-white/70 dark:text-zinc-600"
-                                            : "text-zinc-400 dark:text-zinc-500"
-                                        }`}
-                                      >
-                                        {file.type.replace("registry:", "")}
-                                      </span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
+                              <RegistryFileTree
+                                files={detailData.files}
+                                selectedPath={selectedPath}
+                                onSelectFile={setSelectedPath}
+                              />
                             ) : (
-                              <p className="px-2 py-2 text-sm text-zinc-500 dark:text-zinc-400">
+                              <p className="px-1.5 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                                 没有可显示的文件
                               </p>
                             )}
                           </div>
-                          <div className="max-h-[320px] overflow-auto">
-                            <CodeBlock
-                              code={
-                                detailLoading
-                                  ? "// loading…"
-                                  : code || "// source unavailable"
-                              }
-                              language={
-                                preferredFile?.path?.endsWith(".css")
-                                  ? "css"
-                                  : preferredFile?.path?.endsWith(".json")
-                                    ? "json"
-                                    : "tsx"
-                              }
-                            />
+                          <div className="min-h-[12rem] overflow-auto lg:min-h-0">
+                            {isDetailPending ? (
+                              <div className="flex min-h-[200px] items-center justify-center bg-[#0d1117] px-4 text-sm text-zinc-400">
+                                正在加载代码…
+                              </div>
+                            ) : detailError ? (
+                              <div className="flex min-h-[200px] items-center justify-center bg-[#0d1117] px-4 text-sm text-amber-400">
+                                {detailError}
+                              </div>
+                            ) : (
+                              <CodeBlock
+                                key={preferredFile?.path ?? "source-unavailable"}
+                                code={code || "// source unavailable"}
+                                language={
+                                  preferredFile?.path?.endsWith(".css")
+                                    ? "css"
+                                    : preferredFile?.path?.endsWith(".json")
+                                      ? "json"
+                                      : "tsx"
+                                }
+                                variant="flush"
+                                overflowMode="narrow"
+                              />
+                            )}
                           </div>
                         </div>
-                      </section>
+                      </div>
                     </div>
-                  </motion.div>
+                  </div>
                 </motion.div>
                 {renderFloatingActionButtons()}
               </div>

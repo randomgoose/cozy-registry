@@ -33,6 +33,7 @@ Source of truth: yes
 - [`10-product/vision.md`](./10-product/vision.md)
 - [`10-product/roadmap.md`](./10-product/roadmap.md)
 - [`10-product/phase-1-plan.md`](./10-product/phase-1-plan.md)
+- [`10-product/ai-selection-and-scope.md`](./10-product/ai-selection-and-scope.md)
 
 ### `20-engineering`
 

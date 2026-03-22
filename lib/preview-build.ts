@@ -105,6 +105,9 @@ export async function buildPreviewBundle(
 import { createRoot } from "react-dom/client";
 import * as Mod from "./index";
 
+const COZY_PREVIEW_INITIAL = "cozy-preview-initial-props";
+const COZY_PREVIEW_SET = "cozy-preview-set-props";
+
 const Component =
   // 优先使用默认导出
   (Mod as any).default ??
@@ -127,10 +130,49 @@ if (!Component) {
   throw new Error("No suitable component export found from ./index for preview");
 }
 
+const INITIAL_PROPS = ${serializedProps} as Record<string, unknown>;
+
 function App() {
-  const props = ${serializedProps};
   const mode = ${JSON.stringify(mode)};
   const isThumbnail = mode === "thumbnail";
+  const [props, setProps] = React.useState<Record<string, unknown>>(INITIAL_PROPS);
+
+  React.useEffect(() => {
+    if (isThumbnail) return;
+    function onMessage(ev: MessageEvent) {
+      if (ev.source !== window.parent) return;
+      if (!ev.data || typeof ev.data !== "object") return;
+      if ((ev.data as { type?: string }).type !== COZY_PREVIEW_SET) return;
+      const next = (ev.data as { props?: unknown }).props;
+      if (!next || typeof next !== "object" || Array.isArray(next)) return;
+      setProps(next as Record<string, unknown>);
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [isThumbnail]);
+
+  React.useEffect(() => {
+    if (isThumbnail) return;
+    try {
+      const targetOrigin = window.location.origin;
+      window.parent.postMessage(
+        { type: COZY_PREVIEW_INITIAL, props: INITIAL_PROPS },
+        targetOrigin && targetOrigin !== "null"
+          ? targetOrigin
+          : "*",
+      );
+    } catch {
+      try {
+        window.parent.postMessage(
+          { type: COZY_PREVIEW_INITIAL, props: INITIAL_PROPS },
+          "*",
+        );
+      } catch {
+        // ignore
+      }
+    }
+  }, [isThumbnail]);
+
   return (
     <div
       style={{

@@ -432,6 +432,8 @@ export function ComponentDetail({
               title={`${title} 预览`}
               src={previewHref}
               className="h-[420px] w-full"
+              fitMode="actual"
+              alignY="center"
             />
           </div>
         </section>

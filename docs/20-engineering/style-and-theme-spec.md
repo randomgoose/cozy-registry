@@ -126,7 +126,7 @@
 
 ### 5.3 Theme 单独预览（可选）
 
-若产品需要「仅预览某 theme 效果」：可提供单独路由或查询参数，仅注入该 theme 的 CSS + 简单占位内容（如一段使用 `var(--...)` 的示例 HTML），不加载组件 bundle。此为可选扩展，不要求 v1 实现。
+当请求 `GET /preview/<owner>/<name>` 且条目类型为 `registry:theme` 时：服务端仅注入该 theme 的入口 CSS（如 `theme.css`），**不加载组件 bundle**。页面为 **2×2 等分网格**，四格依次为 **primary、secondary、accent、background**（候选变量名顺序与 `lib/thumbnail` 生成卡片 SVG、本路由实现一致）。每格铺满对应颜色，**左上角**显示实际命中的 **CSS 变量名**（若未命中则回退默认值并仍标注首选候选名）。`?thumbnail=1` 时页面背景透明，供缩略图截图流水线使用。列表卡片用的 **theme-template** SVG 缩略图与上述网格布局一致。
 
 ---
 

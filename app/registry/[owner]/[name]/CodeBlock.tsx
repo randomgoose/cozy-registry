@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const LINES_TO_SHOW = 14;
 const LINE_HEIGHT_REM = 1.625;
@@ -14,19 +15,58 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function useLgUp(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      if (typeof window === "undefined") return () => {};
+      const mq = window.matchMedia("(min-width: 1024px)");
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia("(min-width: 1024px)").matches,
+    () => false,
+  );
+}
+
+export type CodeBlockProps = {
+  code: string;
+  language?: string;
+  /**
+   * default: rounded + border; long code can collapse with 展开.
+   * flush: no border-radius / border — fills rectangular panel.
+   */
+  variant?: "default" | "flush";
+  /**
+   * default: collapse when many lines (all breakpoints).
+   * full: always show full height, no expand control.
+   * narrow: full height from lg up; below lg, collapse + 展开/收起 when many lines.
+   */
+  overflowMode?: "default" | "full" | "narrow";
+};
+
 export function CodeBlock({
   code,
   language = "tsx",
-}: {
-  code: string;
-  language?: string;
-}) {
+  variant = "default",
+  overflowMode = "default",
+}: CodeBlockProps) {
   const [highlightedHtml, setHighlightedHtml] = useState<string>("");
   const [collapsed, setCollapsed] = useState(true);
+  const isLgUp = useLgUp();
 
   const safeCode = typeof code === "string" ? code : "";
   const lines = safeCode.split("\n");
   const hasManyLines = lines.length > LINES_TO_SHOW;
+
+  const showCollapseUi =
+    hasManyLines &&
+    overflowMode !== "full" &&
+    (overflowMode === "default" || !isLgUp);
+
+  const applyClamp =
+    hasManyLines &&
+    collapsed &&
+    (overflowMode === "default" || (overflowMode === "narrow" && !isLgUp));
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -57,9 +97,14 @@ export function CodeBlock({
   return (
     <div className="relative">
       <div
-        className="overflow-x-auto rounded-lg border border-zinc-200 bg-[#0d1117] dark:border-zinc-800"
+        className={cn(
+          "relative overflow-x-auto bg-[#0d1117]",
+          variant === "flush"
+            ? "rounded-none border-0"
+            : "rounded-lg border border-zinc-200 dark:border-zinc-800",
+        )}
         style={
-          hasManyLines && collapsed
+          applyClamp
             ? {
                 maxHeight: `${LINES_TO_SHOW * LINE_HEIGHT_REM}rem`,
                 overflow: "hidden",
@@ -80,19 +125,19 @@ export function CodeBlock({
             </code>
           </pre>
         )}
-        {hasManyLines && collapsed && (
+        {applyClamp && (
           <div
             className="pointer-events-none absolute bottom-0 left-0 right-0 h-20 bg-linear-to-t from-[#0d1117] to-transparent"
             aria-hidden
           />
         )}
       </div>
-      {hasManyLines && (
+      {showCollapseUi && (
         <Button
           type="button"
           variant="outline"
           size="sm"
-          className="mt-2 w-full"
+          className={cn("mt-2 w-full", variant === "flush" && "rounded-md")}
           onClick={() => setCollapsed((c) => !c)}
         >
           {collapsed ? (

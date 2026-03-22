@@ -35,17 +35,23 @@ function parseCssVariables(css: string) {
   return vars;
 }
 
-function pickCssVar(
+function pickCssVarWithName(
   vars: Map<string, string>,
   candidates: string[],
   fallback: string,
-) {
+): { value: string; varName: string } {
   for (const candidate of candidates) {
     const key = candidate.toLowerCase();
     const value = vars.get(key);
-    if (value) return value;
+    if (value) return { value, varName: candidate };
   }
-  return fallback;
+  return { value: fallback, varName: candidates[0] ?? "--" };
+}
+
+function themeSwatchSection(color: string, varName: string) {
+  return `<section style="position:relative;min-height:0;min-width:0;background:${escapeHtml(color)};">
+      <div style="position:absolute;top:0;left:0;padding:10px 12px;font:600 11px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:rgba(255,255,255,0.96);text-shadow:0 1px 2px rgba(0,0,0,0.55),0 0 10px rgba(0,0,0,0.2);max-width:calc(100% - 16px);word-break:break-word;">${escapeHtml(varName)}</div>
+    </section>`;
 }
 
 const DEMO_PROPS: Record<string, unknown> = {
@@ -118,46 +124,33 @@ export async function GET(
   if (item.type === "registry:theme") {
     const themeCss = getThemeEntryCss(item);
     const cssVars = parseCssVariables(themeCss);
-    const background = pickCssVar(
-      cssVars,
-      ["--color-background", "--background", "--surface", "--color-surface"],
-      "#ffffff",
-    );
-    const foreground = pickCssVar(
-      cssVars,
-      ["--color-foreground", "--foreground", "--color-text", "--text"],
-      "#111827",
-    );
-    const muted = pickCssVar(
-      cssVars,
-      ["--color-muted", "--muted", "--color-muted-foreground", "--muted-foreground"],
-      "rgba(107,114,128,0.9)",
-    );
-    const border = pickCssVar(
-      cssVars,
-      ["--color-border", "--border", "--color-outline", "--outline"],
-      "rgba(17,24,39,0.12)",
-    );
-    const primary = pickCssVar(
+    const primary = pickCssVarWithName(
       cssVars,
       ["--color-primary", "--primary", "--brand", "--color-brand"],
       "#2563eb",
     );
-    const secondary = pickCssVar(
+    const secondary = pickCssVarWithName(
       cssVars,
-      ["--color-secondary", "--secondary", "--color-primary-hover", "--primary-hover"],
+      [
+        "--color-secondary",
+        "--secondary",
+        "--color-primary-hover",
+        "--primary-hover",
+      ],
       "#1d4ed8",
     );
-    const accent = pickCssVar(
+    const accent = pickCssVarWithName(
       cssVars,
       ["--color-accent", "--accent", "--color-highlight", "--highlight"],
       "#f59e0b",
     );
-    const radius = pickCssVar(
+    const background = pickCssVarWithName(
       cssVars,
-      ["--radius-lg", "--radius-md", "--radius", "--rounded"],
-      "20px",
+      ["--color-background", "--background", "--surface", "--color-surface"],
+      "#ffffff",
     );
+    const pageBg =
+      previewMode === "thumbnail" ? "transparent" : background.value;
     const html = `<!DOCTYPE html>
 <html lang="en" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}">
   <head>
@@ -167,27 +160,12 @@ export async function GET(
     <script src="https://cdn.tailwindcss.com"></script>
     <style>${escapeHtmlCss(themeCss)}</style>
   </head>
-  <body style="min-height:100vh;margin:0;background:${escapeHtml(background)};color:${escapeHtml(foreground)};">
-    <main style="position:relative;display:grid;min-height:100vh;grid-template-columns:1.7fr 1.2fr 0.9fr;overflow:hidden;">
-      <section style="background:${escapeHtml(primary)};"></section>
-      <section style="background:${escapeHtml(secondary)};"></section>
-      <section style="background:${escapeHtml(accent)};"></section>
-
-      <div style="position:absolute;right:20px;bottom:20px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;padding:14px 16px;border:1px solid ${escapeHtml(border)};border-radius:${escapeHtml(radius)};background:color-mix(in srgb, ${escapeHtml(background)} 88%, transparent);backdrop-filter:blur(10px);box-shadow:0 12px 40px rgba(0,0,0,0.12);">
-        <div style="font:600 11px/1 system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;letter-spacing:0.12em;text-transform:uppercase;color:${escapeHtml(muted)};">Theme</div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div style="height:10px;width:10px;border-radius:999px;background:${escapeHtml(primary)};"></div>
-          <div style="font:500 13px/1.2 system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;color:${escapeHtml(foreground)};">Primary</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div style="height:10px;width:10px;border-radius:999px;background:${escapeHtml(secondary)};"></div>
-          <div style="font:500 13px/1.2 system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;color:${escapeHtml(foreground)};">Secondary</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div style="height:10px;width:10px;border-radius:999px;background:${escapeHtml(accent)};"></div>
-          <div style="font:500 13px/1.2 system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;color:${escapeHtml(foreground)};">Accent</div>
-        </div>
-      </div>
+  <body style="min-height:100vh;margin:0;background:${escapeHtml(pageBg)};">
+    <main style="display:grid;min-height:100vh;width:100%;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;overflow:hidden;">
+      ${themeSwatchSection(primary.value, primary.varName)}
+      ${themeSwatchSection(secondary.value, secondary.varName)}
+      ${themeSwatchSection(accent.value, accent.varName)}
+      ${themeSwatchSection(background.value, background.varName)}
     </main>
   </body>
 </html>`;

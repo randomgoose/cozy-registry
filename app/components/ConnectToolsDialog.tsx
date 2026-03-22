@@ -21,7 +21,6 @@ type ToolDefinition = {
   description: string;
   actionLabel: string;
   actionHref: string;
-  authMode: string;
   steps: string[];
   note?: string;
   icon?: ReactNode;
@@ -40,7 +39,6 @@ const TOOLS: ToolDefinition[] = [
       "在 Figma Make 里连接 Cozy MCP，直接读取 registry、生成安装计划，并把 block 发布到 registry。",
     actionLabel: "打开 Figma Make",
     actionHref: "https://www.figma.com/make/",
-    authMode: "Custom request headers",
     steps: [
       "将 MCP server URL 设置为下方的 Cozy MCP URL。",
       "认证方式选择 Custom request headers。",
@@ -58,7 +56,6 @@ const TOOLS: ToolDefinition[] = [
       "把 Cozy Registry 接进 Cursor，让 agent 能读取 bundle、分析项目状态并规划安装与升级。",
     actionLabel: "打开 Cursor",
     actionHref: "https://www.cursor.com/",
-    authMode: "Bearer token",
     steps: [
       "将 MCP server URL 设置为下方的 Cozy MCP URL。",
       "在请求头中添加 Authorization: Bearer <你的 Token>。",
@@ -177,11 +174,13 @@ export function ConnectToolsDialog({
         ))}
       </div>
 
-      <DialogContent className="max-w-4xl overflow-hidden rounded-3xl p-0 sm:max-w-4xl">
-        <div className="grid min-h-[560px] md:grid-cols-[220px_minmax(0,1fr)]">
-          <aside className="border-b border-zinc-200 bg-zinc-50/80 p-4 md:border-b-0 md:border-r dark:border-zinc-800 dark:bg-zinc-950/80">
-            <p className="px-2 text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">
-              AI Tools
+      <DialogContent
+        className="flex max-h-[min(90vh,calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-1.5rem))] max-w-4xl flex-col gap-0 overflow-hidden rounded-3xl p-0 sm:max-w-4xl"
+      >
+        <div className="grid min-h-0 w-full flex-1 grid-rows-[auto_1fr] md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-1 md:min-h-[560px]">
+          <aside className="shrink-0 overflow-hidden border-b border-zinc-200 bg-zinc-50/80 p-4 md:border-b-0 md:border-r dark:border-zinc-800 dark:bg-zinc-950/80">
+            <p className="px-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
+              Connect
             </p>
             <div className="mt-3 space-y-1">
               {TOOLS.map((tool) => {
@@ -211,7 +210,7 @@ export function ConnectToolsDialog({
             </div>
           </aside>
 
-          <div className="p-6 sm:p-7">
+          <div className="min-h-0 overflow-y-auto overflow-x-hidden p-6 sm:p-7">
             <DialogHeader className="gap-2">
               <DialogTitle className="text-xl font-semibold">
                 {activeTool.title}
@@ -223,16 +222,7 @@ export function ConnectToolsDialog({
 
             <div className="mt-6 grid gap-4">
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
-                  Recommended auth
-                </p>
-                <p className="mt-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                  {activeTool.authMode}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                   MCP URL
                 </p>
                 <code className="mt-2 block break-all rounded-xl bg-white px-3 py-3 text-xs text-zinc-700 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:text-zinc-300 dark:ring-zinc-800">
@@ -248,7 +238,7 @@ export function ConnectToolsDialog({
               </div>
 
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                   Header template
                 </p>
                 <code className="mt-2 block break-all rounded-xl bg-white px-3 py-3 text-xs text-zinc-700 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:text-zinc-300 dark:ring-zinc-800">
@@ -264,7 +254,7 @@ export function ConnectToolsDialog({
               </div>
 
               <div className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                   Quick token
                 </p>
                 {isSignedIn ? (
@@ -302,7 +292,7 @@ export function ConnectToolsDialog({
               </div>
 
               <div className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                   Connection steps
                 </p>
                 <ol className="mt-3 space-y-3 text-sm leading-6 text-zinc-700 dark:text-zinc-300">

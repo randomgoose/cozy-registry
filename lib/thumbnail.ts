@@ -36,74 +36,72 @@ function parseCssVariables(css: string) {
   return vars;
 }
 
-function pickCssVar(
+function pickCssVarWithName(
   vars: Map<string, string>,
   candidates: string[],
   fallback: string,
-) {
+): { value: string; varName: string } {
   for (const candidate of candidates) {
     const value = vars.get(candidate.toLowerCase());
-    if (value) return value;
+    if (value) return { value, varName: candidate };
   }
-  return fallback;
+  return { value: fallback, varName: candidates[0] ?? "--" };
 }
 
-function buildThemeThumbnailDataUrl(params: {
-  primary: string;
-  secondary: string;
-  accent: string;
-  background: string;
-  foreground: string;
-}) {
-  const width = 1200;
-  const height = 900;
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" fill="none">
-      <rect width="${width}" height="${height}" fill="${escapeXml(params.background)}" />
-      <rect width="600" height="${height}" x="0" y="0" fill="${escapeXml(params.primary)}" />
-      <rect width="380" height="${height}" x="600" y="0" fill="${escapeXml(params.secondary)}" />
-      <rect width="220" height="${height}" x="980" y="0" fill="${escapeXml(params.accent)}" />
-      <g>
-        <rect x="870" y="650" width="290" height="176" rx="28" fill="rgba(255,255,255,0.78)" />
-        <text x="900" y="697" fill="${escapeXml(params.foreground)}" fill-opacity="0.52" font-size="26" font-family="Inter, system-ui, sans-serif" font-weight="700" letter-spacing="3.2">Theme</text>
-        <circle cx="916" cy="734" r="9" fill="${escapeXml(params.primary)}" />
-        <text x="939" y="741" fill="${escapeXml(params.foreground)}" font-size="28" font-family="Inter, system-ui, sans-serif" font-weight="600">Primary</text>
-        <circle cx="916" cy="776" r="9" fill="${escapeXml(params.secondary)}" />
-        <text x="939" y="783" fill="${escapeXml(params.foreground)}" font-size="28" font-family="Inter, system-ui, sans-serif" font-weight="600">Secondary</text>
-        <circle cx="916" cy="818" r="9" fill="${escapeXml(params.accent)}" />
-        <text x="939" y="825" fill="${escapeXml(params.foreground)}" font-size="28" font-family="Inter, system-ui, sans-serif" font-weight="600">Accent</text>
-      </g>
-    </svg>
-  `.trim();
+type ThemeSwatchPick = { value: string; varName: string };
 
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
-
-function buildThemeThumbnailSvg(params: {
-  primary: string;
-  secondary: string;
-  accent: string;
-  background: string;
-  foreground: string;
+/** 1200×900, 2×2 grid: primary | secondary / accent | background (matches /preview theme HTML). */
+function buildThemeThumbnailSvgString(swatches: {
+  primary: ThemeSwatchPick;
+  secondary: ThemeSwatchPick;
+  accent: ThemeSwatchPick;
+  background: ThemeSwatchPick;
 }) {
+  const W = 1200;
+  const H = 900;
+  const cw = 600;
+  const ch = 450;
+  const cells: Array<ThemeSwatchPick & { x: number; y: number }> = [
+    { ...swatches.primary, x: 0, y: 0 },
+    { ...swatches.secondary, x: 600, y: 0 },
+    { ...swatches.accent, x: 0, y: 450 },
+    { ...swatches.background, x: 600, y: 450 },
+  ];
+
+  const rects = cells
+    .map(
+      (c) =>
+        `<rect x="${c.x}" y="${c.y}" width="${cw}" height="${ch}" fill="${escapeXml(c.value)}"/>`,
+    )
+    .join("");
+
+  const labels = cells
+    .map(
+      (c) =>
+        `<text x="${c.x + 12}" y="${c.y + 26}" filter="url(#cozy-thumb-lbl)" fill="#f8fafc" font-size="20" font-family="ui-monospace, Menlo, Consolas, monospace" font-weight="600">${escapeXml(c.varName)}</text>`,
+    )
+    .join("");
+
   return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" fill="none">
-      <rect width="1200" height="900" fill="${escapeXml(params.background)}" />
-      <rect width="600" height="900" x="0" y="0" fill="${escapeXml(params.primary)}" />
-      <rect width="380" height="900" x="600" y="0" fill="${escapeXml(params.secondary)}" />
-      <rect width="220" height="900" x="980" y="0" fill="${escapeXml(params.accent)}" />
-      <g>
-        <rect x="870" y="650" width="290" height="176" rx="28" fill="rgba(255,255,255,0.78)" />
-        <text x="900" y="697" fill="${escapeXml(params.foreground)}" fill-opacity="0.52" font-size="26" font-family="Inter, system-ui, sans-serif" font-weight="700" letter-spacing="3.2">Theme</text>
-        <circle cx="916" cy="734" r="9" fill="${escapeXml(params.primary)}" />
-        <text x="939" y="741" fill="${escapeXml(params.foreground)}" font-size="28" font-family="Inter, system-ui, sans-serif" font-weight="600">Primary</text>
-        <circle cx="916" cy="776" r="9" fill="${escapeXml(params.secondary)}" />
-        <text x="939" y="783" fill="${escapeXml(params.foreground)}" font-size="28" font-family="Inter, system-ui, sans-serif" font-weight="600">Secondary</text>
-        <circle cx="916" cy="818" r="9" fill="${escapeXml(params.accent)}" />
-        <text x="939" y="825" fill="${escapeXml(params.foreground)}" font-size="28" font-family="Inter, system-ui, sans-serif" font-weight="600">Accent</text>
-      </g>
-    </svg>
-  `.trim();
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" fill="none">
+  <defs>
+    <filter id="cozy-thumb-lbl" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.2" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  ${rects}
+  ${labels}
+</svg>`.trim();
+}
+
+function buildThemeThumbnailDataUrl(swatches: {
+  primary: ThemeSwatchPick;
+  secondary: ThemeSwatchPick;
+  accent: ThemeSwatchPick;
+  background: ThemeSwatchPick;
+}) {
+  const svg = buildThemeThumbnailSvgString(swatches);
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 export async function maybeBuildRegistryThumbnail(params: {
@@ -124,39 +122,34 @@ export async function maybeBuildRegistryThumbnail(params: {
   if (!css || css.trim().length === 0) return undefined;
 
   const cssVars = parseCssVariables(css);
-  const background = pickCssVar(
-    cssVars,
-    ["--color-background", "--background", "--surface", "--color-surface"],
-    "#ffffff",
-  );
-  const foreground = pickCssVar(
-    cssVars,
-    ["--color-foreground", "--foreground", "--color-text", "--text"],
-    "#111827",
-  );
-  const primary = pickCssVar(
+  const primary = pickCssVarWithName(
     cssVars,
     ["--color-primary", "--primary", "--brand", "--color-brand"],
     "#2563eb",
   );
-  const secondary = pickCssVar(
+  const secondary = pickCssVarWithName(
     cssVars,
-    ["--color-secondary", "--secondary", "--color-primary-hover", "--primary-hover"],
+    [
+      "--color-secondary",
+      "--secondary",
+      "--color-primary-hover",
+      "--primary-hover",
+    ],
     "#1d4ed8",
   );
-  const accent = pickCssVar(
+  const accent = pickCssVarWithName(
     cssVars,
     ["--color-accent", "--accent", "--color-highlight", "--highlight"],
     "#f59e0b",
   );
+  const background = pickCssVarWithName(
+    cssVars,
+    ["--color-background", "--background", "--surface", "--color-surface"],
+    "#ffffff",
+  );
   const generatedAt = new Date().toISOString();
-  const svg = buildThemeThumbnailSvg({
-    primary,
-    secondary,
-    accent,
-    background,
-    foreground,
-  });
+  const swatches = { primary, secondary, accent, background };
+  const svg = buildThemeThumbnailSvgString(swatches);
 
   if (isSupabaseStorageConfigured()) {
     const path = buildRegistryAssetPath({
@@ -183,13 +176,7 @@ export async function maybeBuildRegistryThumbnail(params: {
   }
 
   return {
-    url: buildThemeThumbnailDataUrl({
-      primary,
-      secondary,
-      accent,
-      background,
-      foreground,
-    }),
+    url: buildThemeThumbnailDataUrl(swatches),
     kind: "theme-template",
     width: 1200,
     height: 900,
@@ -209,7 +196,7 @@ export function getPreviewCapturePlan(params: {
   owner: string;
   name: string;
   version: string;
-}) : PreviewCapturePlan {
+}): PreviewCapturePlan {
   return {
     previewPath: `/preview/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.name)}?v=${encodeURIComponent(params.version)}&thumbnail=1`,
     viewport: { width: 1440, height: 960 },
