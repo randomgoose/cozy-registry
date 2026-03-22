@@ -191,6 +191,8 @@ export async function POST(request: Request) {
   const redirect = new URL(redirectUri);
   redirect.searchParams.set("code", code);
   if (state) redirect.searchParams.set("state", state);
+  const issuer = getCanonicalBaseUrlFromRequest(request).replace(/\/$/, "");
+  redirect.searchParams.set("iss", issuer);
 
   return NextResponse.redirect(redirect.toString(), 302);
 }

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { getOAuthClient } from "@/lib/oauth-config";
+import { getOAuthClient } from "@/lib/oauth";
 
 const FIGMA_CALLBACK = "https://www.figma.com/oauth/mcp/callback";
 
 /**
- * Minimal dynamic client registration (Figma Make probes this when metadata lists registration_endpoint).
- * Smoke uses a fixed pre-registered client; we echo that id so Advanced settings stay aligned.
+ * Dynamic client registration probe (RFC 7591-style response). Cozy uses a fixed Figma Advanced client;
+ * we echo that id so settings stay aligned.
  */
 export async function POST(request: Request) {
   let body: Record<string, unknown> = {};
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   const issued = Math.floor(Date.now() / 1000);
   const secretFromBody = typeof body.client_secret === "string" ? body.client_secret : undefined;
   const clientSecret =
-    secretFromBody ?? (c.clientSecret ? c.clientSecret : "figma-make-smoke-placeholder");
+    secretFromBody ?? (c.clientSecret ? c.clientSecret : "figma-make-placeholder-secret");
 
   const redirectUris = Array.isArray(body.redirect_uris)
     ? (body.redirect_uris as unknown[]).filter((u): u is string => typeof u === "string")
@@ -37,6 +37,6 @@ export async function POST(request: Request) {
       token_endpoint_auth_method: "client_secret_post",
       scope: typeof body.scope === "string" ? body.scope : "mcp:tools",
     },
-    { status: 201 },
+    { status: 201 }
   );
 }

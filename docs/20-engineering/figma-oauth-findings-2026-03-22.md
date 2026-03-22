@@ -236,13 +236,12 @@ return jsonify(
 
 这份文档反映的是 2026-03-22 这一轮排查的结论，不代表最终唯一根因；但基于已跑通的对照实现，这几个点值得最高优先级处理。
 
-### Smoke 仓库对齐（便于对照主应用）
+### 主应用对齐（Cozy Registry）
 
-`figma-oauth-smoke`（Next / Vercel）与 `figma-oauth-smoke-railway`（Hono / Railway）已按上文要点实现：
+独立冒烟仓库已移除；主应用按上文要点实现，**access_token 仍为 Better Auth API key**，**refresh_token** 为 HMAC 签名不透明串（每次 refresh 轮换；可选独立密钥 `OAUTH_REFRESH_TOKEN_SECRET`，默认复用 `BETTER_AUTH_SECRET`）。
 
-- `grant_type=refresh_token`、签名的 `refresh_token` 轮换、`authorization_code` 响应含 `refresh_token`
-- AS metadata：`grant_types_supported` 含 `refresh_token`、`authorization_response_iss_parameter_supported: true`、`registration_endpoint`
-- 授权回调 query 增加 `iss`（与 `issuer` 一致）
-- `POST /api/oauth/register`（Railway 上 `/api/x/oauth/register` 同响应）返回较完整的 client metadata
-
-主应用 **Cozy Registry** 是否采纳同一套改动需单独评审（涉及 DB、Better Auth API key 等）。
+- `app/api/oauth/token/route.ts` — `authorization_code` 与 `refresh_token` grant，响应含 `refresh_token`
+- `lib/oauth.ts`、`lib/oauth-refresh-crypto.ts` — refresh 签发与校验
+- `lib/oauth-metadata.ts` — `registration_endpoint`、`grant_types_supported`、`authorization_response_iss_parameter_supported`
+- `app/api/oauth/authorize/route.ts` — 回调 query 含 `iss`
+- `app/api/oauth/register/route.ts` — 动态注册探测响应

@@ -1,20 +1,27 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-function getSecret(): string {
-  return process.env.OAUTH_CODE_SIGNING_SECRET ?? "change-me-in-production";
+export function getOAuthRefreshSigningSecret(): string {
+  const s =
+    process.env.OAUTH_REFRESH_TOKEN_SECRET?.trim() || process.env.BETTER_AUTH_SECRET?.trim();
+  if (!s) {
+    throw new Error(
+      "Set BETTER_AUTH_SECRET or OAUTH_REFRESH_TOKEN_SECRET to issue OAuth refresh tokens",
+    );
+  }
+  return s;
 }
 
 function signPayload(b64Payload: string): string {
-  return createHmac("sha256", getSecret()).update(b64Payload).digest("base64url");
+  return createHmac("sha256", getOAuthRefreshSigningSecret()).update(b64Payload).digest("base64url");
 }
 
-export function signObject(payload: unknown): string {
+export function signOAuthRefreshPayload(payload: unknown): string {
   const b64 = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   const sig = signPayload(b64);
   return `${b64}.${sig}`;
 }
 
-export function verifySignedObject<T>(token: string): T | null {
+export function verifyOAuthRefreshPayload<T>(token: string): T | null {
   const dot = token.lastIndexOf(".");
   if (dot <= 0) return null;
   const b64 = token.slice(0, dot);

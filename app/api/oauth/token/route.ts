@@ -4,7 +4,84 @@ import {
   consumeAuthorizationCode,
   createApiKeyForOAuth,
   validateOAuthResourceParam,
+  mintOAuthRefreshToken,
+  parseOAuthRefreshToken,
+  OAUTH_ACCESS_EXPIRES_IN_SEC,
 } from "@/lib/oauth";
+
+const DEFAULT_SCOPE = "mcp:tools";
+
+function validateClientForTokenEndpoint(
+  client: ReturnType<typeof getOAuthClient>,
+  clientId: string,
+  clientSecret: string | undefined,
+  codeVerifier: string | undefined,
+  grantType: "authorization_code" | "refresh_token"
+): boolean {
+  if (clientId !== client.clientId) return false;
+  if (!client.clientSecret) return true;
+  const provided = (clientSecret ?? "").trim();
+  const hasVerifier = Boolean(codeVerifier?.trim());
+  if (provided.length > 0 && provided !== client.clientSecret) return false;
+  if (grantType === "authorization_code" && provided.length === 0 && !hasVerifier) return false;
+  return true;
+}
+
+function rejectInvalidTokenClient(
+  client: ReturnType<typeof getOAuthClient>,
+  clientId: string,
+  clientSecret: string | undefined,
+  codeVerifier: string | undefined,
+  grantType: "authorization_code" | "refresh_token"
+): NextResponse | null {
+  if (validateClientForTokenEndpoint(client, clientId, clientSecret, codeVerifier, grantType)) {
+    return null;
+  }
+  if (clientId !== client.clientId) {
+    console.error("[OAuth] token invalid client id", { clientId, grantType });
+    return NextResponse.json({ error: "invalid_client" }, { status: 401 });
+  }
+  if (client.clientSecret) {
+    const provided = (clientSecret ?? "").trim();
+    const hasVerifier = Boolean(codeVerifier?.trim());
+    if (provided.length > 0 && provided !== client.clientSecret) {
+      console.error("[OAuth] token invalid client secret", { clientId, grantType });
+      return NextResponse.json({ error: "invalid_client" }, { status: 401 });
+    }
+    if (grantType === "authorization_code" && provided.length === 0 && !hasVerifier) {
+      console.error("[OAuth] token missing client_secret and no PKCE code_verifier", {
+        clientId,
+        grantType,
+      });
+      return NextResponse.json(
+        {
+          error: "invalid_client",
+          error_description: "client_secret or code_verifier required",
+        },
+        { status: 401 }
+      );
+    }
+  }
+  return NextResponse.json({ error: "invalid_client" }, { status: 401 });
+}
+
+function tokenSuccessResponse(accessToken: string, refreshToken: string, scope: string) {
+  return NextResponse.json(
+    {
+      access_token: accessToken,
+      token_type: "Bearer",
+      expires_in: OAUTH_ACCESS_EXPIRES_IN_SEC,
+      refresh_token: refreshToken,
+      scope,
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store",
+        Pragma: "no-cache",
+      },
+    }
+  );
+}
 
 export async function POST(request: Request) {
   const basicAuth = request.headers.get("authorization");
@@ -20,7 +97,10 @@ export async function POST(request: Request) {
       contentType,
     });
     return NextResponse.json(
-      { error: "invalid_request", error_description: "Content-Type must be application/json or application/x-www-form-urlencoded" },
+      {
+        error: "invalid_request",
+        error_description: "Content-Type must be application/json or application/x-www-form-urlencoded",
+      },
       { status: 400 }
     );
   }
@@ -39,11 +119,7 @@ export async function POST(request: Request) {
   }
 
   const grantType = body.grant_type;
-  const code = body.code;
-  const redirectUri = body.redirect_uri;
   const client = getOAuthClient();
-  // Figma Make often sends PKCE (code_verifier) without client_id in the body; Basic auth may omit
-  // the id as well. We only register one MCP OAuth client, so default when absent or blank.
   const explicitClientId = (body.client_id ?? basicClientId)?.trim();
   const clientId = explicitClientId || client.clientId;
   const clientSecret = body.client_secret ?? basicClientSecret;
@@ -56,17 +132,58 @@ export async function POST(request: Request) {
         error: "invalid_request",
         error_description: "resource does not match this server's MCP URL",
       },
-      { status: 400 },
+      { status: 400 }
     );
+  }
+
+  if (grantType === "refresh_token") {
+    const rejected = rejectInvalidTokenClient(client, clientId, clientSecret, codeVerifier, "refresh_token");
+    if (rejected) return rejected;
+
+    const refreshTokenRaw = body.refresh_token?.trim();
+    if (!refreshTokenRaw) {
+      return NextResponse.json(
+        { error: "invalid_request", error_description: "refresh_token required" },
+        { status: 400 }
+      );
+    }
+
+    const rt = parseOAuthRefreshToken(refreshTokenRaw);
+    if (!rt || rt.clientId !== clientId) {
+      console.error("[OAuth] token refresh invalid grant", { clientId });
+      return NextResponse.json(
+        { error: "invalid_grant", error_description: "Invalid or expired refresh token" },
+        { status: 400 }
+      );
+    }
+
+    const scopeStr = rt.scope?.trim() || DEFAULT_SCOPE;
+    const accessToken = await createApiKeyForOAuth(rt.userId);
+    const newRefresh = mintOAuthRefreshToken({
+      userId: rt.userId,
+      clientId,
+      scope: rt.scope,
+    });
+
+    console.info("[OAuth] token issued via refresh", { clientId, userId: rt.userId });
+
+    return tokenSuccessResponse(accessToken, newRefresh, scopeStr);
   }
 
   if (grantType !== "authorization_code") {
     console.error("[OAuth] token unsupported grant", { grantType });
     return NextResponse.json(
-      { error: "unsupported_grant_type", error_description: "grant_type=authorization_code only" },
+      {
+        error: "unsupported_grant_type",
+        error_description: "grant_type must be authorization_code or refresh_token",
+      },
       { status: 400 }
     );
   }
+
+  const code = body.code;
+  const redirectUri = body.redirect_uri;
+
   if (!code || !redirectUri) {
     console.error("[OAuth] token missing required fields", {
       hasCode: !!code,
@@ -79,37 +196,11 @@ export async function POST(request: Request) {
     );
   }
 
-  if (clientId !== client.clientId) {
-    console.error("[OAuth] token invalid client id", { clientId });
-    return NextResponse.json({ error: "invalid_client" }, { status: 401 });
-  }
+  const rejected = rejectInvalidTokenClient(client, clientId, clientSecret, codeVerifier, "authorization_code");
+  if (rejected) return rejected;
 
-  // When OAUTH_FIGMA_CLIENT_SECRET is set we still must accept Figma Make's PKCE-only token POSTs
-  // (no client_secret in body or Basic). PKCE proves control of the authorize flow; optional secret
-  // in Figma Advanced settings can still be sent and must match when present.
-  if (client.clientSecret) {
-    const provided = (clientSecret ?? "").trim();
-    const hasVerifier = Boolean(codeVerifier?.trim());
-    if (provided.length > 0 && provided !== client.clientSecret) {
-      console.error("[OAuth] token invalid client secret", { clientId });
-      return NextResponse.json({ error: "invalid_client" }, { status: 401 });
-    }
-    if (provided.length === 0 && !hasVerifier) {
-      console.error("[OAuth] token missing client_secret and no PKCE code_verifier", {
-        clientId,
-      });
-      return NextResponse.json(
-        {
-          error: "invalid_client",
-          error_description: "client_secret or code_verifier required",
-        },
-        { status: 401 },
-      );
-    }
-  }
-
-  const userId = await consumeAuthorizationCode(code, clientId, redirectUri, codeVerifier);
-  if (!userId) {
+  const consumed = await consumeAuthorizationCode(code, clientId, redirectUri, codeVerifier);
+  if (!consumed) {
     console.error("[OAuth] token invalid grant", {
       clientId,
       redirectUri,
@@ -121,27 +212,20 @@ export async function POST(request: Request) {
     );
   }
 
-  const accessToken = await createApiKeyForOAuth(userId);
+  const scopeStr = consumed.scope?.trim() || DEFAULT_SCOPE;
+  const accessToken = await createApiKeyForOAuth(consumed.userId);
+  const refreshToken = mintOAuthRefreshToken({
+    userId: consumed.userId,
+    clientId,
+    scope: consumed.scope,
+  });
 
-  console.info("[OAuth] token issued access token", {
+  console.info("[OAuth] token issued access + refresh", {
     clientId,
     redirectUri,
-    userId,
+    userId: consumed.userId,
     hasCodeVerifier: !!codeVerifier,
   });
 
-  return NextResponse.json(
-    {
-      access_token: accessToken,
-      token_type: "Bearer",
-      expires_in: 31536000,
-      scope: "mcp:tools",
-    },
-    {
-      headers: {
-        "Cache-Control": "no-store",
-        Pragma: "no-cache",
-      },
-    },
-  );
+  return tokenSuccessResponse(accessToken, refreshToken, scopeStr);
 }
