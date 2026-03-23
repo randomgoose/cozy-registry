@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import "./globals.css";
+import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { ThemeToggle } from "./components/ThemeToggle";
 
@@ -27,6 +28,7 @@ export default function RootLayout({
         />
         <ThemeProvider>
           {children}
+          <Toaster />
           <ThemeToggle />
         </ThemeProvider>
       </body>
