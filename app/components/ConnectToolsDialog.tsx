@@ -18,23 +18,28 @@ import { CursorIcon } from "./icons/CursorIcon";
 
 type ToolKey = "figma" | "cursor";
 
-type ToolDefinition = {
-  key: ToolKey;
-  title: string;
-  description: string;
-  actionLabel: string;
-  actionHref: string;
-  steps: string[];
-  /** OAuth method name in the tool (labels and titles) */
-  oauthMethodLabel: string;
-  /** How to fill OAuth in that tool (matches the copyable snippet below) */
-  oauthConfigSteps: string[];
-  /** Shown under OAuth method label; omit for tools that keep OAuth steps only. */
-  oauthSummary?: string;
-  headersSummary: string;
-  note?: string;
-  icon?: ReactNode;
-};
+type ToolDefinition =
+  | {
+      key: "figma";
+      title: string;
+      description: string;
+      steps: string[];
+      oauthMethodLabel: string;
+      oauthConfigSteps: string[];
+      oauthSummary?: string;
+      headersMethodLabel: string;
+      headersConfigSteps: string[];
+      headersSummary: string;
+      note?: string;
+      icon?: ReactNode;
+    }
+  | {
+      key: "cursor";
+      title: string;
+      description: string;
+      steps: string[];
+      icon?: ReactNode;
+    };
 
 type OAuthConfig = {
   clientId: string;
@@ -55,22 +60,21 @@ const TOOLS: ToolDefinition[] = [
     title: "Connect Figma Make",
     description:
       "Connect Cozy MCP in Figma Make to read the registry, generate install plans, and publish blocks to the registry.",
-    actionLabel: "Open Figma Make",
-    actionHref: "https://www.figma.com/make/",
     steps: [
       "Go to Add context → Connectors → Manage → Created by you, then click Create.",
       "Set the MCP server URL field to {{MCP_URL}}.",
-      "Prefer OAuth and use the client_id / client_secret below.",
-      "If Figma still prompts for authorization, fall back to Custom request headers.",
-      "For header fallback, use Authorization: Bearer <your-token>.",
+      "Choose one of the two authentication methods below (OAuth or Additional headers) and follow that section.",
     ],
     oauthMethodLabel: "Figma Make OAuth",
     oauthConfigSteps: [
       "In the connector editor, open Advanced settings.",
       "Under OAuth credentials, enter Client id and Client secret (copy each value below).",
     ],
-    note:
-      "This is still the custom connector phase, so OAuth client settings must be entered manually; after a formal listing, the platform will host this.",
+    headersMethodLabel: "Additional headers",
+    headersConfigSteps: [
+      "In the connector, open Additional headers (or Custom request headers, depending on the UI).",
+      "Add a row: set Name to Authorization and Value to the Bearer token from the fields below.",
+    ],
     headersSummary:
       "Keep a Bearer token as fallback for quick checks, troubleshooting, or when custom-connector OAuth is temporarily unstable.",
     icon: <FigmaMakeIcon className="size-4" />,
@@ -80,27 +84,10 @@ const TOOLS: ToolDefinition[] = [
     title: "Connect Cursor",
     description:
       "Wire Cozy Registry into Cursor so agents can read bundles, analyze project state, and plan installs and upgrades.",
-    actionLabel: "Open Cursor",
-    actionHref: "https://www.cursor.com/",
     steps: [
-      "Set the MCP server URL field to {{MCP_URL}}.",
-      "Prefer Static OAuth and enter CLIENT_ID / CLIENT_SECRET in auth.",
-      "To verify connectivity first, keep the Authorization headers fallback.",
+      "Use Open in Cursor below (or copy the install link). The link prefills Static OAuth (client id and secret) in Cursor—you do not need to type them by hand.",
       "After connecting, prefer get_project_registry_status and analyze_project_registry for project analysis.",
     ],
-    oauthMethodLabel: "Cursor Static OAuth",
-    oauthConfigSteps: [
-      "Open Cursor → Preferences → Cursor Settings → Tools & MCP → Add new global MCP server (or edit an existing cozy entry).",
-      "Set URL to {{MCP_URL}}; under Auth / OAuth, choose Static OAuth (or wording like “use client id/secret”).",
-      "Paste Client id and Client secret from below into Cursor’s OAuth / auth fields; add scopes mcp:tools if the UI asks.",
-      "If CLIENT_SECRET is unset, the server may use a public client (none); follow your environment variables.",
-    ],
-    note:
-      "Cursor supports both Static OAuth and manual headers. Prefer Static OAuth for now; headers remain a low-friction fallback.",
-    oauthSummary:
-      "Recommended. Cursor can connect to Cozy Registry via Static OAuth for production use and tighter permission control later.",
-    headersSummary:
-      "If you only need to verify connectivity or want to skip OAuth temporarily, keep using Authorization headers directly.",
     icon: <CursorIcon className="size-4" />,
   },
 ];
@@ -133,17 +120,37 @@ function ToolTriggerCard({
   );
 }
 
-function buildCursorInstallLink(mcpUrl: string, token: string | null) {
-  const config = {
-    url: mcpUrl,
-    headers: {
-      Authorization: `Bearer ${token ?? "<your-token>"}`,
+const CURSOR_MCP_SERVER_NAME = "cozy-registry";
+
+/**
+ * Cursor install `config` must mirror `mcp.json`: one entry per server name, with `url` + `auth` inside.
+ * @see https://cursor.com/docs/context/mcp/install-links
+ */
+function buildCursorInstallLink(mcpUrl: string, oauth: OAuthConfig) {
+  const auth: {
+    CLIENT_ID: string;
+    CLIENT_SECRET?: string;
+    scopes: string[];
+  } = {
+    CLIENT_ID: oauth.clientId,
+    scopes: ["mcp:tools"],
+  };
+  if (oauth.clientSecret) {
+    auth.CLIENT_SECRET = oauth.clientSecret;
+  }
+
+  const config: Record<
+    string,
+    { url: string; auth: typeof auth }
+  > = {
+    [CURSOR_MCP_SERVER_NAME]: {
+      url: mcpUrl,
+      auth,
     },
   };
-
   const encodedConfig = btoa(JSON.stringify(config));
   return `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodeURIComponent(
-    "cozy-registry",
+    CURSOR_MCP_SERVER_NAME,
   )}&config=${encodeURIComponent(encodedConfig)}`;
 }
 
@@ -151,8 +158,9 @@ type CopyKind =
   | "mcp"
   | "oauthClientId"
   | "oauthClientSecret"
-  | "header"
-  | "token";
+  | "headerName"
+  | "headerValue"
+  | "cursorInstall";
 
 function useAbsoluteMcpUrl(mcpUrl: string): string {
   const origin = useSyncExternalStore(
@@ -225,6 +233,8 @@ function CopyableSnippet(
         value: string;
         disabled: true;
         className?: string;
+        /** Single line; overflow shows ellipsis. */
+        truncate?: boolean;
       }
     | {
         value: string;
@@ -233,31 +243,40 @@ function CopyableSnippet(
         onCopy: (value: string, kind: CopyKind) => void;
         className?: string;
         disabled?: false;
+        truncate?: boolean;
       },
 ) {
   if ("disabled" in props && props.disabled) {
-    const { value, className } = props;
+    const { value, className, truncate } = props;
     return (
       <div
         className={cn(
-          "rounded-xl bg-zinc-50 px-3 py-3 text-xs text-zinc-400 ring-1 ring-zinc-200 dark:bg-zinc-900/50 dark:text-zinc-500 dark:ring-zinc-800",
+          "min-w-0 rounded-xl bg-zinc-50 px-3 py-3 text-xs text-zinc-400 ring-1 ring-zinc-200 dark:bg-zinc-900/50 dark:text-zinc-500 dark:ring-zinc-800",
           "pointer-events-none select-none",
           className,
         )}
         aria-disabled="true"
+        title={truncate ? value : undefined}
       >
-        <code className="block break-all whitespace-pre-wrap font-mono">
+        <code
+          className={cn(
+            "block font-mono",
+            truncate
+              ? "min-w-0 truncate"
+              : "break-all whitespace-pre-wrap",
+          )}
+        >
           {value}
         </code>
       </div>
     );
   }
-  const { value, kind, copied, onCopy, className } = props;
+  const { value, kind, copied, onCopy, className, truncate } = props;
   const done = copied === kind;
   return (
     <div
       tabIndex={0}
-      title="Click to copy"
+      title={truncate ? value : "Click to copy"}
       aria-label="Copy to clipboard"
       onClick={() => onCopy(value, kind)}
       onKeyDown={(e) => {
@@ -267,11 +286,18 @@ function CopyableSnippet(
         }
       }}
       className={cn(
-        "group relative cursor-pointer rounded-xl bg-white px-3 py-3 pr-14 text-xs text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300 focus-visible:outline focus-visible:ring-2 focus-visible:ring-zinc-400 dark:bg-zinc-950 dark:text-zinc-300 dark:ring-zinc-800 dark:hover:ring-zinc-700 dark:focus-visible:ring-zinc-500",
+        "group relative min-w-0 cursor-pointer rounded-xl bg-white px-3 py-3 pr-14 text-xs text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300 focus-visible:outline focus-visible:ring-2 focus-visible:ring-zinc-400 dark:bg-zinc-950 dark:text-zinc-300 dark:ring-zinc-800 dark:hover:ring-zinc-700 dark:focus-visible:ring-zinc-500",
         className,
       )}
     >
-      <code className="block break-all whitespace-pre-wrap">{value}</code>
+      <code
+        className={cn(
+          "block",
+          truncate ? "min-w-0 truncate" : "break-all whitespace-pre-wrap",
+        )}
+      >
+        {value}
+      </code>
       <button
         type="button"
         className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-white/95 px-2 py-1 text-[11px] font-medium text-zinc-600 opacity-0 transition-opacity hover:bg-zinc-50 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-zinc-700 dark:bg-zinc-950/95 dark:text-zinc-400 dark:hover:bg-zinc-900"
@@ -309,10 +335,12 @@ export function ConnectToolsDialog({
   );
   const activeOAuthConfig = oauthConfigs[activeKey];
   const absoluteMcpUrl = useAbsoluteMcpUrl(mcpUrl);
-  const authHeader = `Authorization: Bearer ${generatedToken ?? "<your-token>"}`;
+  const authHeaderName = "Authorization";
+  const authHeaderValue = `Bearer ${generatedToken ?? "<your-token>"}`;
+  const cursorOAuthConfig = oauthConfigs.cursor;
   const cursorInstallLink = useMemo(
-    () => buildCursorInstallLink(absoluteMcpUrl, generatedToken),
-    [generatedToken, absoluteMcpUrl],
+    () => buildCursorInstallLink(absoluteMcpUrl, cursorOAuthConfig),
+    [absoluteMcpUrl, cursorOAuthConfig],
   );
   const oauthSecretApplicable =
     activeOAuthConfig.tokenEndpointAuthMethod !== "none";
@@ -434,6 +462,48 @@ export function ConnectToolsDialog({
                 </ol>
               </div>
 
+              {activeTool.key === "cursor" ? (
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                        Install in Cursor
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+                        Cursor still uses Static OAuth (client id
+                        {cursorOAuthConfig.clientSecret ? " and secret" : ""}), but this
+                        install link embeds them so you do not have to paste values by hand.
+                        Complete sign-in in Cursor after opening the link.
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-zinc-300 bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                      Deeplink
+                    </span>
+                  </div>
+                  <div className="mt-4">
+                    <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                      Install link
+                    </p>
+                    <CopyableSnippet
+                      value={cursorInstallLink}
+                      kind="cursorInstall"
+                      copied={copied}
+                      onCopy={handleCopy}
+                    />
+                  </div>
+                  <div className="mt-4">
+                    <a
+                      href={cursorInstallLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
+                    >
+                      Open in Cursor
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <>
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -469,31 +539,6 @@ export function ConnectToolsDialog({
                     </li>
                   ))}
                 </ol>
-                {activeKey !== "figma" ? (
-                  <div className="mt-4 rounded-xl border border-zinc-200/80 bg-white/60 px-3 py-3 text-xs leading-5 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-zinc-400">
-                    <p className="font-medium text-zinc-700 dark:text-zinc-300">
-                      OAuth values matching this page
-                    </p>
-                    <dl className="mt-2 space-y-1.5">
-                      <div className="flex flex-wrap gap-x-2 gap-y-0.5">
-                        <dt className="font-mono text-[11px] text-zinc-500 dark:text-zinc-500">
-                          REDIRECT_URI
-                        </dt>
-                        <dd className="min-w-0 flex-1 break-all font-mono text-[11px] text-zinc-700 dark:text-zinc-300">
-                          {activeOAuthConfig.redirectUri}
-                        </dd>
-                      </div>
-                      <div className="flex flex-wrap gap-x-2 gap-y-0.5">
-                        <dt className="font-mono text-[11px] text-zinc-500 dark:text-zinc-500">
-                          TOKEN_ENDPOINT_AUTH_METHOD
-                        </dt>
-                        <dd className="min-w-0 flex-1 font-mono text-[11px] text-zinc-700 dark:text-zinc-300">
-                          {activeOAuthConfig.tokenEndpointAuthMethod}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
-                ) : null}
                 <div className="mt-3 grid grid-cols-1 gap-3 pl-8 sm:grid-cols-2 sm:items-start sm:gap-4">
                   <div className="min-w-0">
                     <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
@@ -519,6 +564,7 @@ export function ConnectToolsDialog({
                           kind="oauthClientSecret"
                           copied={copied}
                           onCopy={handleCopy}
+                          truncate
                         />
                       ) : (
                         <CopyableSnippet
@@ -528,6 +574,7 @@ export function ConnectToolsDialog({
                               : "Not configured"
                           }
                           disabled
+                          truncate
                         />
                       )}
                     </div>
@@ -541,68 +588,69 @@ export function ConnectToolsDialog({
                     <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                       Headers fallback
                     </p>
+                    <p className="mt-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                      {activeTool.headersMethodLabel}
+                    </p>
                     <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
                       {activeTool.headersSummary}
                     </p>
                   </div>
-                  <span className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400">
+                  <span className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
                     Bearer
                   </span>
                 </div>
-                <p className="mt-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  Header template
-                </p>
-                <CopyableSnippet
-                  className="mt-2"
-                  value={authHeader}
-                  kind="header"
-                  copied={copied}
-                  onCopy={handleCopy}
-                />
-                <div className="mt-4 border-t border-zinc-200/80 pt-4 dark:border-zinc-800">
-                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                    Generate token
-                  </p>
-                  {isSignedIn ? (
-                    <div className="mt-3 space-y-3">
-                      <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-                        Create a token for {activeTool.title} — the header template above updates as soon as it is generated.
-                      </p>
-                      {generatedToken ? (
-                        <CopyableSnippet
-                          className="bg-white/80 ring-zinc-200 dark:bg-zinc-950/80 dark:ring-zinc-800"
-                          value={generatedToken}
-                          kind="token"
-                          copied={copied}
-                          onCopy={handleCopy}
-                        />
-                      ) : null}
+                <ol className="mt-4 space-y-2 border-t border-zinc-200/80 pt-4 text-sm leading-6 text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">
+                  {activeTool.headersConfigSteps.map((line, index) => (
+                    <li key={`headers-step-${index}`} className="flex gap-3">
+                      <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-600/15 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">
+                        {index + 1}
+                      </span>
+                      <span className="min-w-0">{line}</span>
+                    </li>
+                  ))}
+                </ol>
+                <div className="mt-3 grid grid-cols-1 gap-3 pl-8 sm:grid-cols-2 sm:items-start sm:gap-4">
+                  <div className="min-w-0">
+                    <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                      Name
+                    </p>
+                    <CopyableSnippet
+                      value={authHeaderName}
+                      kind="headerName"
+                      copied={copied}
+                      onCopy={handleCopy}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                      Value
+                    </p>
+                    {generatedToken ? (
+                      <CopyableSnippet
+                        value={authHeaderValue}
+                        kind="headerValue"
+                        copied={copied}
+                        onCopy={handleCopy}
+                        truncate
+                      />
+                    ) : isSignedIn ? (
                       <button
                         type="button"
                         onClick={handleGenerateToken}
                         disabled={isGeneratingToken}
-                        className="inline-flex items-center justify-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                        className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                       >
-                        {isGeneratingToken
-                          ? "Generating…"
-                          : generatedToken
-                            ? "Regenerate token"
-                            : "Generate token"}
+                        {isGeneratingToken ? "Generating…" : "Generate token"}
                       </button>
-                    </div>
-                  ) : (
-                    <div className="mt-3 space-y-3">
-                      <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-                        Sign in to create a token here without opening Settings.
-                      </p>
+                    ) : (
                       <Link
                         href="/sign-in"
-                        className="inline-flex items-center justify-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                        className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                       >
                         Sign in to generate
                       </Link>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -611,23 +659,8 @@ export function ConnectToolsDialog({
                   {activeTool.note}
                 </div>
               ) : null}
-
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                <a
-                  href={activeTool.key === "cursor" ? cursorInstallLink : activeTool.actionHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
-                >
-                  {activeTool.key === "cursor" ? "Add to Cursor (Headers)" : activeTool.actionLabel}
-                </a>
-                <a
-                  href="/settings"
-                  className="inline-flex items-center justify-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                >
-                  Create token
-                </a>
-              </div>
+                </>
+              )}
             </div>
           </div>
         </div>
