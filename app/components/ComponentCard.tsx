@@ -141,21 +141,21 @@ export function ComponentCard({
     const ratio = width / height;
 
     if (ratio >= 0.82 && ratio <= 1.25) {
-      setThumbnailScale(0.72);
+      setThumbnailScale(0.58);
       return;
     }
 
     if (ratio < 0.82) {
-      setThumbnailScale(0.8);
+      setThumbnailScale(0.66);
       return;
     }
 
     if (ratio > 2.4) {
-      setThumbnailScale(0.9);
+      setThumbnailScale(0.88);
       return;
     }
 
-    setThumbnailScale(1);
+    setThumbnailScale(0.94);
   }
 
   async function handleThumbnailLoad(
@@ -164,6 +164,8 @@ export function ComponentCard({
     const img = event.currentTarget;
     const width = img.naturalWidth || 1;
     const height = img.naturalHeight || 1;
+    const logicalWidth = width / 2;
+    const logicalHeight = height / 2;
 
     try {
       const canvas = document.createElement("canvas");
@@ -209,37 +211,77 @@ export function ComponentCard({
       const visibleRatio = visibleWidth / visibleHeight;
       const visibleAreaFill = (visibleWidth * visibleHeight) / (width * height);
 
+      if (logicalHeight <= 56 && logicalWidth <= 220) {
+        setThumbnailScale(0.34);
+        return;
+      }
+
+      if (logicalHeight <= 56 && logicalWidth <= 320) {
+        setThumbnailScale(0.4);
+        return;
+      }
+
+      if (logicalHeight <= 64 && visibleRatio > 1.8) {
+        setThumbnailScale(0.42);
+        return;
+      }
+
+      if (logicalHeight <= 80 && visibleRatio > 2.2) {
+        setThumbnailScale(0.48);
+        return;
+      }
+
+      if (visibleAreaFill < 0.05) {
+        setThumbnailScale(0.34);
+        return;
+      }
+
+      if (visibleAreaFill < 0.08) {
+        setThumbnailScale(0.4);
+        return;
+      }
+
       if (visibleAreaFill < 0.12) {
-        setThumbnailScale(0.58);
+        setThumbnailScale(0.46);
         return;
       }
 
       if (visibleAreaFill < 0.2) {
-        setThumbnailScale(0.66);
+        setThumbnailScale(0.54);
         return;
       }
 
       if (widthFill < 0.42 && heightFill < 0.42) {
-        setThumbnailScale(0.68);
+        setThumbnailScale(0.42);
+        return;
+      }
+
+      if (widthFill < 0.55 && heightFill < 0.55) {
+        setThumbnailScale(0.52);
+        return;
+      }
+
+      if (visibleRatio >= 0.82 && visibleRatio <= 1.25 && visibleAreaFill < 0.28) {
+        setThumbnailScale(0.52);
         return;
       }
 
       if (visibleRatio >= 0.82 && visibleRatio <= 1.25) {
-        setThumbnailScale(0.74);
+        setThumbnailScale(0.64);
         return;
       }
 
       if (visibleRatio < 0.82) {
-        setThumbnailScale(0.8);
+        setThumbnailScale(0.72);
         return;
       }
 
       if (visibleRatio > 2.4) {
-        setThumbnailScale(0.9);
+        setThumbnailScale(0.88);
         return;
       }
 
-      setThumbnailScale(0.96);
+      setThumbnailScale(0.92);
     } catch {
       applyFallbackThumbnailScale(width, height);
     }

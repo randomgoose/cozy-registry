@@ -23,6 +23,8 @@ export type OAuthClientConfig = {
   redirectUris: string[];
   redirectUriPrefixes?: string[];
   tool: OAuthTool;
+  /** Shown on the OAuth consent screen (authorize page). */
+  displayName: string;
   tokenEndpointAuthMethod: "none" | "client_secret_post" | "client_secret_basic";
 };
 
@@ -179,6 +181,7 @@ export function getOAuthClients(): OAuthClientConfig[] {
       clientSecret: COZY_FIGMA_CLIENT_SECRET,
       redirectUris: [FIGMA_REDIRECT_URI],
       tool: "figma-make",
+      displayName: "Figma Make",
       tokenEndpointAuthMethod: "client_secret_post",
     },
     {
@@ -187,6 +190,7 @@ export function getOAuthClients(): OAuthClientConfig[] {
       redirectUris: resolvedCursorRedirectUris,
       redirectUriPrefixes: resolvedCursorRedirectUriPrefixes,
       tool: "cursor",
+      displayName: "Cursor",
       tokenEndpointAuthMethod: cursorTokenEndpointAuthMethod,
     },
   ];
@@ -207,6 +211,7 @@ export function getOAuthClient(clientId?: string | null): OAuthClientConfig {
       clientSecret: COZY_FIGMA_CLIENT_SECRET,
       redirectUris: [FIGMA_REDIRECT_URI],
       tool: "figma-make",
+      displayName: "Figma Make",
       tokenEndpointAuthMethod: "client_secret_post",
     }
   );

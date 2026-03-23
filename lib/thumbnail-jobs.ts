@@ -150,21 +150,55 @@ export async function capturePreviewThumbnail(params: {
         if (!targetRect) {
           throw new Error("Locator is visible but returned no bounding box.");
         }
+        const subjectWidth = Math.max(1, targetRect.width);
+        const subjectHeight = Math.max(1, targetRect.height);
+        const basePadding = Math.max(
+          2,
+          Math.min(8, Math.round(Math.min(subjectWidth, subjectHeight) * 0.04)),
+        );
+        const leftPad = Math.min(basePadding, Math.max(0, targetRect.x));
+        const topPad = Math.min(basePadding, Math.max(0, targetRect.y));
+        const rightPad = Math.min(
+          basePadding + 2,
+          Math.max(0, plan.viewport.width - (targetRect.x + targetRect.width)),
+        );
+        const bottomPad = Math.min(
+          basePadding + 2,
+          Math.max(0, plan.viewport.height - (targetRect.y + targetRect.height)),
+        );
+        const clip = {
+          x: Math.max(0, targetRect.x - leftPad),
+          y: Math.max(0, targetRect.y - topPad),
+          width: Math.max(
+            1,
+            Math.min(
+              targetRect.width + leftPad + rightPad,
+              plan.viewport.width - Math.max(0, targetRect.x - leftPad),
+            ),
+          ),
+          height: Math.max(
+            1,
+            Math.min(
+              targetRect.height + topPad + bottomPad,
+              plan.viewport.height - Math.max(0, targetRect.y - topPad),
+            ),
+          ),
+        };
         const buffer = await page.screenshot({
           type: "png",
           fullPage: false,
           omitBackground: true,
-          clip: targetRect,
+          clip,
         });
 
         await context.close().catch(() => undefined);
         return {
           buffer,
-          clip: targetRect,
+          clip,
           plan,
           diagnostics: {
             strategy: "locator",
-            clip: targetRect,
+            clip,
             targetRect,
             candidates: [],
             surfaces: surfaceDiagnostics,

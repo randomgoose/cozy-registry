@@ -5,8 +5,17 @@ import {
   validateClient,
   createAuthorizationCode,
   getCanonicalBaseUrlFromRequest,
+  getOAuthClient,
   validateOAuthResourceParam,
 } from "@/lib/oauth";
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -88,12 +97,14 @@ export async function GET(request: Request) {
   if (resource) params.set("resource", resource);
   const postUrl = `/api/oauth/authorize?${params.toString()}`;
 
+  const appDisplayName = escapeHtml(getOAuthClient(clientId).displayName);
+
   const html = `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>授权 Cozy Registry</title></head>
+<head><meta charset="utf-8"><title>授权 ${appDisplayName} · Cozy Registry</title></head>
 <body style="font-family: system-ui; max-width: 420px; margin: 2rem auto; padding: 0 1rem;">
-  <h1 style="font-size: 1.25rem;">授权访问 Cozy Registry</h1>
-  <p>Figma Make 请求访问你的组件列表与发布权限。</p>
+  <h1 style="font-size: 1.25rem;">授权 ${appDisplayName} 访问 Cozy Registry</h1>
+  <p>${appDisplayName} 正在请求访问你的 Cozy Registry 账户（组件列表与发布权限）。</p>
   <form method="post" action="${postUrl}" style="display: flex; gap: 0.75rem;">
     <input type="hidden" name="confirm" value="yes" />
     <button type="submit" style="padding: 0.5rem 1rem; background: #18181b; color: #fff; border: none; border-radius: 6px; cursor: pointer;">允许</button>
