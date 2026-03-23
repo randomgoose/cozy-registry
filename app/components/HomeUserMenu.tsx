@@ -30,7 +30,7 @@ export function HomeUserMenu({ fullName, username }: HomeUserMenuProps) {
         render={
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 data-[popup-open]:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:data-[popup-open]:bg-zinc-200"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 data-[popup-open]:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:data-[popup-open]:bg-zinc-200"
           />
         }
       >

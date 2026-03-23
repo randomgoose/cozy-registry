@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { authClient } from "@/lib/auth-client";
+import { FigmaAuthIcon } from "@/app/components/icons/FigmaAuthIcon";
 
 export default function SignUpPage() {
   const [name, setName] = useState("");
@@ -32,10 +33,10 @@ export default function SignUpPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-          注册
+          Sign up
         </h1>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          创建账号后即可发布组件
+          Create an account to publish and manage registry assets.
         </p>
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
@@ -43,7 +44,7 @@ export default function SignUpPage() {
               htmlFor="name"
               className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
             >
-              名称
+              Name
             </label>
             <input
               id="name"
@@ -59,7 +60,7 @@ export default function SignUpPage() {
               htmlFor="email"
               className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
             >
-              邮箱
+              Email
             </label>
             <input
               id="email"
@@ -75,7 +76,7 @@ export default function SignUpPage() {
               htmlFor="password"
               className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
             >
-              密码
+              Password
             </label>
             <input
               id="password"
@@ -95,7 +96,7 @@ export default function SignUpPage() {
             disabled={loading}
             className="w-full rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            {loading ? "注册中..." : "注册"}
+            {loading ? "Creating account..." : "Create account"}
           </button>
         </form>
 
@@ -105,7 +106,7 @@ export default function SignUpPage() {
           </div>
           <div className="relative flex justify-center text-sm">
             <span className="bg-zinc-50 px-2 text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
-              或
+              Or
             </span>
           </div>
         </div>
@@ -134,26 +135,22 @@ export default function SignUpPage() {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
               />
             </svg>
-            使用 Google 注册
+            Continue with Google
           </button>
           <button
             type="button"
             onClick={() => authClient.signIn.social({ provider: "figma", callbackURL: "/onboarding/handle" })}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#0d99ff] bg-[#0d99ff] px-4 py-2 text-sm font-medium text-white transition-colors hover:border-[#0b8ae5] hover:bg-[#0b8ae5] dark:border-[#0d99ff] dark:bg-[#0d99ff] dark:text-white dark:hover:border-[#0b8ae5] dark:hover:bg-[#0b8ae5]"
           >
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M8 24a4 4 0 0 1 4-4h0a4 4 0 0 1 4 4" />
-              <path d="M12 20V4a4 4 0 0 1 4-4h0a4 4 0 0 1 4 4v16a4 4 0 0 1-4 4h0a4 4 0 0 1-4-4" />
-              <path d="M8 4a4 4 0 0 0-4 4v12a4 4 0 0 0 4 4" />
-            </svg>
-            使用 Figma 注册
+            <FigmaAuthIcon className="h-5 w-5 text-white" />
+            Continue with Figma
           </button>
         </div>
 
         <p className="mt-4 text-center text-sm text-zinc-600 dark:text-zinc-400">
-          已有账号？{" "}
+          Already have an account?{" "}
           <Link href="/sign-in" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
-            登录
+            Sign in
           </Link>
         </p>
       </div>

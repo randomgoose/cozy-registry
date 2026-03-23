@@ -142,7 +142,7 @@ export default async function Home() {
           <nav className="flex items-center gap-4">
             <Link
               href="/docs"
-              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300"
             >
               Docs
             </Link>
@@ -151,9 +151,9 @@ export default async function Home() {
             ) : (
               <Link
                 href="/sign-in"
-                className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                className="rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
-                Dashboard
+                Login
               </Link>
             )}
           </nav>
