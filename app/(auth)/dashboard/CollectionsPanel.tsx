@@ -1,6 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 type ItemSummary = {
   id: string;
@@ -27,12 +36,23 @@ type CollectionItem = {
   addedAt: string;
 };
 
+function slugify(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export function CollectionsPanel(props: { items: ItemSummary[]; className?: string }) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [newSlug, setNewSlug] = useState("");
   const [newTitle, setNewTitle] = useState("");
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([]);
@@ -98,6 +118,8 @@ export function CollectionsPanel(props: { items: ItemSummary[]; className?: stri
       }
       setNewSlug("");
       setNewTitle("");
+      setSlugManuallyEdited(false);
+      setCreateOpen(false);
       await refreshCollections();
     } finally {
       setCreating(false);
@@ -139,40 +161,100 @@ export function CollectionsPanel(props: { items: ItemSummary[]; className?: stri
         Collections
       </h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        用 Collections 把 block/component/theme 组织成可管理的集合，并可用于限制 AI Token 的可见范围。
+        Organize blocks, components, and themes into reusable groups, and use collections to scope what AI tools can access.
       </p>
 
-      <form onSubmit={createCollection} className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-        <input
-          value={newSlug}
-          onChange={(e) => setNewSlug(e.target.value)}
-          placeholder="slug（kebab-case），如 marketing"
-          className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-        />
-        <input
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          placeholder="标题，如 Marketing Blocks"
-          className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-        />
-        <button
-          type="submit"
-          disabled={creating}
-          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+      <div className="mt-4">
+        <Dialog
+          open={createOpen}
+          onOpenChange={(open) => {
+            setCreateOpen(open);
+            if (!open) {
+              setCreating(false);
+              setNewTitle("");
+              setNewSlug("");
+              setSlugManuallyEdited(false);
+            }
+          }}
         >
-          {creating ? "创建中..." : "创建"}
-        </button>
-      </form>
+          <DialogTrigger
+            render={
+              <button
+                type="button"
+                className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              />
+            }
+          >
+            New collection
+          </DialogTrigger>
+          <DialogContent className="max-w-md gap-5 px-5 pt-5 pb-5">
+            <DialogHeader>
+              <DialogTitle>Create collection</DialogTitle>
+              <DialogDescription>
+                Give the collection a name first. We will generate the slug for you, and you can still fine-tune it before saving.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={createCollection} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                  Title
+                </label>
+                <input
+                  value={newTitle}
+                  onChange={(e) => {
+                    const nextTitle = e.target.value;
+                    setNewTitle(nextTitle);
+                    if (!slugManuallyEdited) {
+                      setNewSlug(slugify(nextTitle));
+                    }
+                  }}
+                  placeholder="Marketing Blocks"
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                  Slug
+                </label>
+                <input
+                  value={newSlug}
+                  onChange={(e) => {
+                    setSlugManuallyEdited(true);
+                    setNewSlug(slugify(e.target.value));
+                  }}
+                  placeholder="marketing-blocks"
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Used in URLs and MCP scopes. Kebab-case only.
+                </p>
+              </div>
+
+              <DialogFooter className="pt-2">
+                <button
+                  type="submit"
+                  disabled={creating || !newTitle.trim() || !newSlug.trim()}
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  {creating ? "Creating..." : "Create collection"}
+                </button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
 
       {loading ? (
-        <p className="mt-4 text-sm text-zinc-500">加载中...</p>
+        <p className="mt-4 text-sm text-zinc-500">Loading...</p>
       ) : collections.length === 0 ? (
-        <p className="mt-4 text-sm text-zinc-500">暂无 Collections</p>
+        <p className="mt-4 text-sm text-zinc-500">No collections yet.</p>
       ) : (
         <div className="mt-4 grid gap-4">
           <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
             <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              我的 Collections
+              Your collections
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {collections.map((c) => (
@@ -193,7 +275,7 @@ export function CollectionsPanel(props: { items: ItemSummary[]; className?: stri
                     </span>
                   </div>
                   <div className="mt-0.5 text-xs text-zinc-500">
-                    {c.slug} · {c.visibility === "private" ? "私有" : "公开"}
+                    {c.slug} · {c.visibility === "private" ? "Private" : "Public"}
                   </div>
                 </button>
               ))}
@@ -202,7 +284,7 @@ export function CollectionsPanel(props: { items: ItemSummary[]; className?: stri
 
           <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
             {!selectedId ? (
-              <p className="text-sm text-zinc-500">选择一个 Collection 查看与管理条目。</p>
+              <p className="text-sm text-zinc-500">Select a collection to view and manage its items.</p>
             ) : (
               <>
                 <div className="flex flex-wrap items-center gap-2">
@@ -211,7 +293,7 @@ export function CollectionsPanel(props: { items: ItemSummary[]; className?: stri
                     onChange={(e) => setAddItemId(e.target.value)}
                     className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
                   >
-                    <option value="">选择要添加的条目…</option>
+                    <option value="">Choose an item to add…</option>
                     {availableToAdd.map((i) => (
                       <option key={i.id} value={i.id}>
                         {i.title} ({i.type})
@@ -224,7 +306,7 @@ export function CollectionsPanel(props: { items: ItemSummary[]; className?: stri
                     disabled={!addItemId}
                     className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
                   >
-                    添加
+                    Add
                   </button>
                 </div>
 
@@ -233,9 +315,9 @@ export function CollectionsPanel(props: { items: ItemSummary[]; className?: stri
                     Collection Items
                   </div>
                   {itemsLoading ? (
-                    <p className="mt-2 text-sm text-zinc-500">加载中...</p>
+                    <p className="mt-2 text-sm text-zinc-500">Loading...</p>
                   ) : collectionItems.length === 0 ? (
-                    <p className="mt-2 text-sm text-zinc-500">暂无条目</p>
+                    <p className="mt-2 text-sm text-zinc-500">No items yet.</p>
                   ) : (
                     <ul className="mt-2 max-h-[45vh] space-y-2 overflow-auto pr-1">
                       {collectionItems.map((it) => (
@@ -256,7 +338,7 @@ export function CollectionsPanel(props: { items: ItemSummary[]; className?: stri
                             onClick={() => removeItem(it.itemId)}
                             className="text-sm text-red-600 hover:underline dark:text-red-400"
                           >
-                            移除
+                            Remove
                           </button>
                         </li>
                       ))}
@@ -271,4 +353,3 @@ export function CollectionsPanel(props: { items: ItemSummary[]; className?: stri
     </section>
   );
 }
-

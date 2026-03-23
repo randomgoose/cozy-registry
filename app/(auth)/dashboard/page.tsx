@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
 import { getRegistryItemsByUserId } from "@/lib/registry";
 import { ComponentCard } from "@/app/components/ComponentCard";
+import { FigmaPublishPromptCard } from "@/app/components/FigmaPublishPromptCard";
 import { getThumbnailFromMeta } from "@/lib/thumbnail";
 
 export const dynamic = "force-dynamic";
@@ -109,16 +110,19 @@ export default async function DashboardPage() {
       </section>
 
       {items.length === 0 ? (
-        <div className="mt-10 rounded-[28px] border border-dashed border-zinc-300 bg-white/60 py-16 text-center dark:border-zinc-700 dark:bg-zinc-900/30">
-          <p className="text-zinc-700 dark:text-zinc-300">
-            You haven’t published anything yet.
-          </p>
-          <Link
-            href="/publish"
-            className="mt-4 inline-block rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            Publish your first item
-          </Link>
+        <div className="mt-10 rounded-[28px] border border-dashed border-zinc-300 bg-white/60 p-6 pb-10 dark:border-zinc-700 dark:bg-zinc-900/30">
+          <div className="mx-auto max-w-2xl text-center">
+            <p className="text-zinc-700 dark:text-zinc-300">
+              You haven’t published anything yet.
+            </p>
+            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+              Start from the tool you already use. We’ll swap these placeholders with the final walkthrough images next.
+            </p>
+          </div>
+
+          <div className="mt-8">
+            <FigmaPublishPromptCard />
+          </div>
         </div>
       ) : (
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

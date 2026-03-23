@@ -12,11 +12,11 @@ export default async function CollectionsPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
         <p className="text-zinc-600 dark:text-zinc-400">
-          请先{" "}
+          Please{" "}
           <a href="/sign-in" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
-            登录
+            sign in
           </a>{" "}
-          管理你的 Collections
+          to manage your collections.
         </p>
       </div>
     );
@@ -37,4 +37,3 @@ export default async function CollectionsPage() {
     </>
   );
 }
-

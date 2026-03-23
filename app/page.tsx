@@ -161,13 +161,44 @@ export default async function Home() {
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-10">
-        <section className="mb-12 pt-4">
+        <section className="pt-4 text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
             Cozy Registry
           </p>
-          <h1 className="mt-3 max-w-3xl text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 md:text-5xl">
+          <h1 className="mx-auto mt-3 max-w-3xl text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 md:text-5xl">
             Source-native blocks, UI, and themes for design-led web teams.
           </h1>
+          <p className="mx-auto mt-4 max-w-2xl text-sm leading-7 text-zinc-600 dark:text-zinc-400 md:text-base">
+            A source-native registry that design tools and coding agents can actually use.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href={session ? "/dashboard" : "/sign-up"}
+              className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            >
+              {session ? "View my registry" : "Sign up"}
+            </Link>
+            <Link
+              href="/docs"
+              className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800/70"
+            >
+              Read docs
+            </Link>
+          </div>
+        </section>
+
+        <section className="mt-10 rounded-[32px] bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.78)_0%,rgba(255,255,255,0.42)_100%)] px-6 py-8 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.1),transparent_30%),linear-gradient(180deg,rgba(24,24,27,0.72)_0%,rgba(9,9,11,0.3)_100%)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div className="mx-auto max-w-3xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+              Connect from your tools
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50 md:text-3xl">
+              Use Cozy directly from Figma Make and Cursor.
+            </h2>
+            <p className="mt-3 text-sm leading-7 text-zinc-600 dark:text-zinc-400 md:text-base">
+              Connect the tools your team already uses to browse, publish, and reuse registry assets without leaving the workflow.
+            </p>
+          </div>
           <div className="mt-8">
             <ConnectToolsDialog
               mcpUrl={mcpUrl}
@@ -190,21 +221,50 @@ export default async function Home() {
           </div>
         </section>
 
-        <RegistryBrowser
-          items={items.map((item) => ({
-            id: item.id,
-            itemId: item.id,
-            owner: item.ownerHandle ?? item.userId ?? "legacy",
-            name: item.name,
-            title: item.title,
-            description: item.description,
-            type: item.type,
-            visibility: normalizeVisibility(item.visibility),
-            thumbnailUrl: getThumbnailFromMeta(item.meta)?.url ?? null,
-          }))}
-          isSignedIn={!!session}
-        />
+        <section className="hidden">
+          <RegistryBrowser
+            items={items.map((item) => ({
+              id: item.id,
+              itemId: item.id,
+              owner: item.ownerHandle ?? item.userId ?? "legacy",
+              name: item.name,
+              title: item.title,
+              description: item.description,
+              type: item.type,
+              visibility: normalizeVisibility(item.visibility),
+              thumbnailUrl: getThumbnailFromMeta(item.meta)?.url ?? null,
+            }))}
+            isSignedIn={!!session}
+          />
+        </section>
       </main>
+
+      <footer className="border-t border-zinc-200/70 bg-white/30 dark:border-zinc-800/80 dark:bg-zinc-950/20">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6 text-sm text-zinc-500 dark:text-zinc-400 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <CozyLogoIcon className="size-4" />
+            <span>Cozy Registry</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4">
+            <Link
+              href="/docs"
+              className="transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
+            >
+              Docs
+            </Link>
+            <Link
+              href={session ? "/dashboard" : "/sign-up"}
+              className="transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
+            >
+              {session ? "Dashboard" : "Sign up"}
+            </Link>
+            <span className="text-zinc-400 dark:text-zinc-500">
+              Source-native registry for AI workflows
+            </span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

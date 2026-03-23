@@ -18,9 +18,9 @@ type HomeUserMenuProps = {
 };
 
 const MENU_ITEMS = [
-  { href: "/dashboard", label: "我的组件" },
+  { href: "/dashboard", label: "My items" },
   { href: "/collections", label: "Collections" },
-  { href: "/settings", label: "设置" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function HomeUserMenu({ fullName, username }: HomeUserMenuProps) {
@@ -56,7 +56,7 @@ export function HomeUserMenu({ fullName, username }: HomeUserMenuProps) {
           {MENU_ITEMS.map((item) => (
             <DropdownMenuItem
               key={item.href}
-              className="rounded-xl px-3 py-2 text-sm text-zinc-700 focus:bg-zinc-100/90 focus:text-zinc-950 dark:text-zinc-300 dark:focus:bg-white/[0.06] dark:focus:text-zinc-50"
+              className="rounded-xl px-3 py-2 text-sm text-zinc-700 focus:bg-black/[0.06] focus:text-zinc-950 dark:text-zinc-300 dark:focus:bg-black/30 dark:focus:text-zinc-50"
               render={<Link href={item.href} />}
             >
               {item.label}
@@ -68,7 +68,7 @@ export function HomeUserMenu({ fullName, username }: HomeUserMenuProps) {
 
         <DropdownMenuItem
           className={cn(
-            "mt-2 rounded-xl px-3 py-2 text-sm text-zinc-600 focus:bg-zinc-100/90 focus:text-zinc-950 dark:text-zinc-400 dark:focus:bg-white/[0.06] dark:focus:text-zinc-50",
+            "mt-2 rounded-xl px-3 py-2 text-sm text-zinc-600 focus:bg-black/[0.06] focus:text-zinc-950 dark:text-zinc-400 dark:focus:bg-black/30 dark:focus:text-zinc-50",
           )}
           render={<button type="button" />}
           onClick={async () => {
@@ -77,7 +77,7 @@ export function HomeUserMenu({ fullName, username }: HomeUserMenuProps) {
           }}
         >
           <LogOut className="size-4" />
-          退出登录
+          Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

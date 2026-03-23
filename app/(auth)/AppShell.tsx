@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CozyLogoIcon } from "@/app/components/icons/CozyLogoIcon";
+import { HomeUserMenu } from "@/app/components/HomeUserMenu";
 import { cn } from "@/lib/utils";
 
 function shouldShowAppNav(pathname: string, email: string | null) {
@@ -27,6 +28,8 @@ const APP_NAV_ITEMS = [
 
 export function AppShell(props: {
   email: string | null;
+  fullName: string;
+  username: string;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -36,27 +39,24 @@ export function AppShell(props: {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.05),transparent_24%),linear-gradient(180deg,#fffdf9_0%,#ffffff_42%,#fbfbfc_100%)] dark:bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_20%),linear-gradient(180deg,#09090b_0%,#09090b_100%)]">
-      <header className="border-b border-zinc-200/80 bg-white/80 backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-950/70">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
-          <div className="flex items-center gap-4">
+      <header>
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+          <Link
+            href="/"
+            className="inline-flex items-center text-zinc-950 transition-colors hover:text-zinc-700 dark:text-zinc-50 dark:hover:text-zinc-200"
+            aria-label="Cozy Registry"
+          >
+            <CozyLogoIcon className="size-6" />
+          </Link>
+          <nav className="flex items-center gap-4">
             <Link
-              href="/"
-              className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+              href="/docs"
+              className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300"
             >
-              <CozyLogoIcon className="size-5" />
-              <span>Cozy Registry</span>
+              Docs
             </Link>
-            <Link
-              href="/"
-              className="hidden text-sm text-zinc-500 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300 sm:inline-flex"
-            >
-              ← Back to registry
-            </Link>
-          </div>
-
-          <span className="truncate text-sm text-zinc-600 dark:text-zinc-400">
-            {props.email}
-          </span>
+            <HomeUserMenu fullName={props.fullName} username={props.username} />
+          </nav>
         </div>
       </header>
 
