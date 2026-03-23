@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import {
@@ -45,6 +46,39 @@ import {
   REGISTRY_UI_TYPE,
   normalizeRegistryItemType,
 } from "./registry-types";
+
+/** MCP Tool.annotations (hints for clients; not a security boundary). */
+const MCP_ANN = {
+  /** Read registry/items; may reach this server’s DB or HTTP APIs (open-world). */
+  readOpen: {
+    readOnlyHint: true,
+    idempotentHint: true,
+    openWorldHint: true,
+  } satisfies ToolAnnotations,
+  /** Read-only: local project paths or internal DB without external registry fetch. */
+  readClosed: {
+    readOnlyHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  } satisfies ToolAnnotations,
+  /** Writes files / lockfile under a project root. */
+  writeProject: {
+    readOnlyHint: false,
+    destructiveHint: true,
+  } satisfies ToolAnnotations,
+  /** Create or update registry items (new versions). */
+  writeRegistry: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+  } satisfies ToolAnnotations,
+  /** Remove a registry item and all versions. */
+  deleteRegistry: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+  } satisfies ToolAnnotations,
+} as const;
 
 export function createRegistryMcpServer(request?: Request) {
   const server = new McpServer({
@@ -145,6 +179,7 @@ export function createRegistryMcpServer(request?: Request) {
       description:
         "List your Collections (slug + title). Use this to decide a scope like 'dashboard-blocks' before listing or fetching components within that collection.",
       inputSchema: z.object({}).describe("No input required"),
+      annotations: MCP_ANN.readClosed,
     },
     async () => {
       const ctx = request ? await getAuthContextFromToken(request) : null;
@@ -197,6 +232,7 @@ export function createRegistryMcpServer(request?: Request) {
           ),
       })
       .describe("Optional collection scope"),
+    annotations: MCP_ANN.readOpen,
   }, async ({ collection }) => {
     const ctx = request ? await getAuthContextFromToken(request) : null;
     const userId = ctx?.userId ?? null;
@@ -246,6 +282,7 @@ export function createRegistryMcpServer(request?: Request) {
             "Owner handle (preferred) or legacy userId (from list_components). Use when multiple components have the same name.",
           ),
       }),
+      annotations: MCP_ANN.readOpen,
     },
     async ({ name, owner }) => {
       try {
@@ -381,6 +418,7 @@ ${fileContent}
           .optional()
           .describe("Owner handle (preferred) or legacy userId (from list_components)."),
       }),
+      annotations: MCP_ANN.readOpen,
     },
     async ({ collection, name, owner }) => {
       const { userId } = await getScopedToolContext();
@@ -524,6 +562,7 @@ ${fileContent}
             "Owner userId (e.g. legacy, or from list_components). Required to disambiguate components with the same name.",
           ),
       }),
+      annotations: MCP_ANN.readOpen,
     },
     async ({ name, owner }) => {
       try {
@@ -650,6 +689,7 @@ ${fileContent}
           .string()
           .describe("Currently installed version in the project, e.g. 0.3.0"),
       }),
+      annotations: MCP_ANN.readOpen,
     },
     async ({ name, owner, installedVersion }) => {
       try {
@@ -745,6 +785,7 @@ ${fileContent}
             "Optional install-state snapshot, usually from get_project_registry_status, used only to determine whether this would be a first install or a lockfile update.",
           ),
       }),
+      annotations: MCP_ANN.readOpen,
     },
     async ({ name, owner, version, projectStatus }) => {
       try {
@@ -878,6 +919,7 @@ ${fileContent}
             "Install-state snapshot, usually from get_project_registry_status. This is required so the planner knows which version is currently registered.",
           ),
       }),
+      annotations: MCP_ANN.readOpen,
     },
     async ({ coordinate, toVersion, projectStatus }) => {
       try {
@@ -1007,6 +1049,7 @@ ${fileContent}
           .optional()
           .describe("Optional target version. Defaults to the current latest version."),
       }),
+      annotations: MCP_ANN.writeProject,
     },
     async ({ projectRoot, name, owner, version }) => {
       try {
@@ -1083,6 +1126,7 @@ ${fileContent}
           .optional()
           .describe("Optional specific coordinate to inspect, e.g. @acme/hero-section."),
       }),
+      annotations: MCP_ANN.readClosed,
     },
     async ({ projectRoot, coordinate }) => {
       try {
@@ -1149,6 +1193,7 @@ ${fileContent}
           .optional()
           .describe("Optional specific coordinate to focus on, e.g. @acme/hero-section."),
       }),
+      annotations: MCP_ANN.readOpen,
     },
     async ({ projectRoot, projectStatus, coordinate }) => {
       try {
@@ -1312,6 +1357,7 @@ ${fileContent}
           .optional()
           .describe("Optional specific coordinate to check, e.g. @acme/hero-section."),
       }),
+      annotations: MCP_ANN.readOpen,
     },
     async ({ projectRoot, coordinate }) => {
       try {
@@ -1381,6 +1427,7 @@ ${fileContent}
           .optional()
           .describe("Whether to overwrite locally modified files when conflicts are detected."),
       }),
+      annotations: MCP_ANN.writeProject,
     },
     async ({ projectRoot, coordinate, toVersion, force }) => {
       try {
@@ -1428,6 +1475,7 @@ ${fileContent}
           .optional()
           .describe("Optional target version. Defaults to the current latest version."),
       }),
+      annotations: MCP_ANN.readOpen,
     },
     async ({ name, owner, version }) => {
       try {
@@ -1558,6 +1606,7 @@ ${fileContent}
           "Owner handle (preferred) or legacy userId (from list_components). If omitted, assumes the current authenticated user.",
         ),
     }),
+    annotations: MCP_ANN.deleteRegistry,
   }, async ({ name, owner }) => {
     try {
       const ctx = request ? await getAuthContextFromToken(request) : null;
@@ -1633,6 +1682,7 @@ ${fileContent}
     title: "Publish or update component",
     description:
       "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.",
+    annotations: MCP_ANN.writeRegistry,
     inputSchema: z.object({
       name: z
         .string()

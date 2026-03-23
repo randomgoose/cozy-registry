@@ -32,8 +32,8 @@ export function ThemeToggle() {
         bottom: "max(1.25rem, env(safe-area-inset-bottom, 0px))",
         right: "max(1.25rem, env(safe-area-inset-right, 0px))",
       }}
-      aria-label={isDark ? "切换为浅色模式" : "切换为深色模式"}
-      title={isDark ? "浅色模式" : "深色模式"}
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      title={isDark ? "Light mode" : "Dark mode"}
     >
       <motion.div
         className="flex flex-col"

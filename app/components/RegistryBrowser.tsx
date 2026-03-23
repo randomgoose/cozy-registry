@@ -72,7 +72,7 @@ export function RegistryBrowser({
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索资源标题、名称、描述或 owner"
+            placeholder="Search title, name, description, or owner"
             className="w-full rounded-[22px] border border-zinc-200/80 bg-white/90 px-5 py-4 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-amber-400 focus:ring-4 focus:ring-amber-100 dark:border-zinc-800 dark:bg-zinc-950/90 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-amber-500 dark:focus:ring-amber-500/10"
           />
         </label>
@@ -82,12 +82,12 @@ export function RegistryBrowser({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-              {filteredItems.length} 个结果
+              {filteredItems.length} {filteredItems.length === 1 ? "result" : "results"}
             </p>
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               {hasFilters
-                ? "当前结果已按关键词或筛选条件收敛。"
-                : `浏览全部 Cozy registry 资产 · ${items.length} total / ${publicCount} public / ${privateCount} private`}
+                ? "Results filtered by your search."
+                : `Browse all Cozy registry items · ${items.length} total / ${publicCount} public / ${privateCount} private`}
             </p>
           </div>
           {hasFilters ? (
@@ -98,14 +98,14 @@ export function RegistryBrowser({
                 }}
                 className="inline-flex items-center justify-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
               >
-              清空筛选
+              Clear search
             </button>
           ) : (
             <Link
               href="/publish"
               className="inline-flex items-center justify-center rounded-full border border-zinc-900 bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
-              发布新条目
+              Publish new item
             </Link>
           )}
         </div>
@@ -113,10 +113,10 @@ export function RegistryBrowser({
         {filteredItems.length === 0 ? (
           <div className="rounded-[24px] border border-dashed border-zinc-300 bg-zinc-50/60 px-6 py-14 text-center dark:border-zinc-700 dark:bg-zinc-900/20">
             <p className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-              没找到匹配的条目
+              No matching items
             </p>
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-              试试调整关键词、切换类型，或者放宽 owner 条件。
+              Try different keywords, a type filter, or a broader owner filter.
             </p>
             <div className="mt-5 flex items-center justify-center gap-3">
               <button
@@ -126,13 +126,13 @@ export function RegistryBrowser({
                 }}
                 className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-white dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
-                重置筛选
+                Reset search
               </button>
               <Link
                 href={isSignedIn ? "/publish" : "/sign-in"}
                 className="rounded-full bg-amber-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-600"
               >
-                {isSignedIn ? "发布一个新条目" : "登录后发布"}
+                {isSignedIn ? "Publish a new item" : "Sign in to publish"}
               </Link>
             </div>
           </div>

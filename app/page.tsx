@@ -42,12 +42,12 @@ export default async function Home() {
         <main className="mx-auto max-w-2xl px-6 py-16">
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-800 dark:bg-amber-900/20">
             <h2 className="font-semibold text-amber-800 dark:text-amber-200">
-              {hasEnv ? "数据库连接失败" : "数据库未配置"}
+              {hasEnv ? "Database connection failed" : "Database not configured"}
             </h2>
             <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
               {hasEnv ? (
                 <>
-                  环境变量已设置，但连接失败。请访问{" "}
+                  Environment variables are set, but the connection failed. Open{" "}
                   <a
                     href="/api/health"
                     className="font-medium underline"
@@ -56,31 +56,31 @@ export default async function Home() {
                   >
                     /api/health
                   </a>{" "}
-                  查看具体错误，并确认已执行{" "}
+                  for details, and confirm you have run{" "}
                   <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
                     pnpm db:push
                   </code>{" "}
-                  和{" "}
+                  and{" "}
                   <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
                     pnpm db:seed
                   </code>
-                  。
+                  .
                 </>
               ) : (
                 <>
-                  请在 Vercel 环境变量中设置{" "}
+                  Set{" "}
                   <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
                     DATABASE_URL
-                  </code>
-                  ，保存后重新部署，并执行{" "}
+                  </code>{" "}
+                  in your Vercel project env, redeploy, then run{" "}
                   <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
                     pnpm db:push
                   </code>{" "}
-                  和{" "}
+                  and{" "}
                   <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
                     pnpm db:seed
                   </code>
-                  。
+                  .
                 </>
               )}
             </p>
@@ -94,6 +94,16 @@ export default async function Home() {
     process.env.NEXT_PUBLIC_APP_URL ??
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
   const mcpUrl = appUrl ? `${appUrl}/api/mcp` : "/api/mcp";
+  const figmaClientId = process.env.OAUTH_FIGMA_CLIENT_ID ?? "cozy-figma-make";
+  const figmaClientSecret = process.env.OAUTH_FIGMA_CLIENT_SECRET || null;
+  const cursorClientId = process.env.OAUTH_CURSOR_CLIENT_ID ?? "cozy-cursor";
+  const cursorClientSecret = process.env.OAUTH_CURSOR_CLIENT_SECRET || null;
+  const cursorRedirectUri =
+    process.env.OAUTH_CURSOR_REDIRECT_URIS?.split(",")[0]?.trim() ||
+    "cursor://anysphere.cursor-mcp/oauth/callback";
+  const cursorTokenEndpointAuthMethod =
+    process.env.OAUTH_CURSOR_TOKEN_ENDPOINT_AUTH_METHOD?.trim() ||
+    (cursorClientSecret ? "client_secret_post" : "none");
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_30%),linear-gradient(180deg,#fffdf9_0%,#ffffff_42%,#fbfbfc_100%)] dark:bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_22%),linear-gradient(180deg,#09090b_0%,#09090b_100%)]">
@@ -104,19 +114,19 @@ export default async function Home() {
               href="/"
               className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
             >
-              浏览
+              Browse
             </Link>
             <Link
               href="/docs"
               className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
             >
-              文档
+              Docs
             </Link>
             <Link
               href="/publish"
               className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
-              发布组件
+              Publish
             </Link>
             {session ? (
               <>
@@ -124,13 +134,13 @@ export default async function Home() {
                   href="/dashboard"
                   className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
                 >
-                  我的组件
+                  Dashboard
                 </Link>
                 <Link
                   href="/settings"
                   className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
                 >
-                  设置
+                  Settings
                 </Link>
               </>
             ) : (
@@ -138,7 +148,7 @@ export default async function Home() {
                 href="/sign-in"
                 className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
               >
-                登录
+                Sign in
               </Link>
             )}
           </nav>
@@ -154,7 +164,24 @@ export default async function Home() {
             Source-native blocks, UI, and themes for design-led web teams.
           </h1>
           <div className="mt-8">
-            <ConnectToolsDialog mcpUrl={mcpUrl} isSignedIn={!!session} />
+            <ConnectToolsDialog
+              mcpUrl={mcpUrl}
+              isSignedIn={!!session}
+              oauthConfigs={{
+                figma: {
+                  clientId: figmaClientId,
+                  clientSecret: figmaClientSecret,
+                  redirectUri: "https://www.figma.com/oauth/mcp/callback",
+                  tokenEndpointAuthMethod: "client_secret_post",
+                },
+                cursor: {
+                  clientId: cursorClientId,
+                  clientSecret: cursorClientSecret,
+                  redirectUri: cursorRedirectUri,
+                  tokenEndpointAuthMethod: cursorTokenEndpointAuthMethod,
+                },
+              }}
+            />
           </div>
         </section>
 

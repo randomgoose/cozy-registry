@@ -13,7 +13,14 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+
+const READ_REGISTRY: ToolAnnotations = {
+  readOnlyHint: true,
+  idempotentHint: true,
+  openWorldHint: true,
+};
 
 const COZY_REGISTRY_URL =
   process.env.COZY_REGISTRY_URL || process.env.REGISTRY_URL || "http://localhost:3000";
@@ -35,6 +42,7 @@ server.tool(
   "list_components",
   "List all components and modules available in the registry. Use this to discover what's available before fetching a specific component.",
   {},
+  READ_REGISTRY,
   async () => {
     const registry = await fetchRegistry<{
       items: Array<{ name: string; type: string; title: string; description?: string }>;
@@ -72,6 +80,7 @@ server.tool(
         "Optional owner id. When present, fetches from /api/r/{owner}/{name}. When omitted, falls back to legacy /api/r/{name}.",
       ),
   },
+  READ_REGISTRY,
   async ({ name, owner }) => {
     try {
       const path = owner
