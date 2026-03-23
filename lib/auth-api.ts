@@ -51,8 +51,11 @@ export async function getAuthContextFromToken(
 
     if (!row?.id || !row.referenceId) return null;
     return { userId: row.referenceId, apiKeyId: row.id };
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn(
+      "[auth-api] getAuthContextFromToken DB error (treating as unauthenticated)",
+      err instanceof Error ? err.message : err,
+    );
   }
   return null;
 }

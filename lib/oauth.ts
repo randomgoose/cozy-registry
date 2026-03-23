@@ -110,9 +110,26 @@ export function getExpectedMcpResourceUrlFromRequest(request: Request): string {
   return `${getCanonicalBaseUrlFromRequest(request)}/api/mcp`;
 }
 
+function normalizeMcpResourceUrl(url: string): string {
+  return url.trim().replace(/\/$/, "");
+}
+
 /**
- * Figma sends `resource` on authorize and sometimes on token. If present, it must match our MCP URL
- * for this host (otherwise check_auth can stay needsAuthorization after a successful-looking flow).
+ * Plausible MCP resource URLs for this deployment. OAuth clients (Figma, Cursor) often send
+ * `resource` from connector config (`NEXT_PUBLIC_APP_URL` / custom domain) while individual
+ * requests may resolve a different canonical host when `x-forwarded-host` is missing or varies
+ * between edge and origin — strict single-URL checks then fail intermittently.
+ */
+export function getExpectedMcpResourceUrlsFromRequest(request: Request): string[] {
+  const set = new Set<string>();
+  set.add(normalizeMcpResourceUrl(getExpectedMcpResourceUrlFromRequest(request)));
+  set.add(normalizeMcpResourceUrl(getMcpResourceUrl()));
+  return [...set];
+}
+
+/**
+ * Figma sends `resource` on authorize and sometimes on token. If present, it must match one of
+ * this deployment’s MCP URLs (see {@link getExpectedMcpResourceUrlsFromRequest}).
  */
 export function validateOAuthResourceParam(
   request: Request,
@@ -121,10 +138,10 @@ export function validateOAuthResourceParam(
   if (resource == null || resource.trim() === "") {
     return { ok: true };
   }
-  const expected = getExpectedMcpResourceUrlFromRequest(request).replace(/\/$/, "");
-  const got = resource.trim().replace(/\/$/, "");
-  if (got !== expected) {
-    console.warn("[OAuth] resource param mismatch", { expected, got });
+  const got = normalizeMcpResourceUrl(resource);
+  const candidates = getExpectedMcpResourceUrlsFromRequest(request);
+  if (!candidates.includes(got)) {
+    console.warn("[OAuth] resource param mismatch", { candidates, got });
     return { ok: false };
   }
   return { ok: true };
