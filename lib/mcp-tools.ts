@@ -1681,7 +1681,7 @@ ${fileContent}
   server.registerTool("publish_component", {
     title: "Publish or update component",
     description:
-      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.",
+      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token. New components default to private visibility unless `visibility` is explicitly set to public.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.",
     annotations: MCP_ANN.writeRegistry,
     inputSchema: z.object({
       name: z
@@ -1734,7 +1734,7 @@ ${fileContent}
         .enum(["public", "private"])
         .optional()
         .describe(
-          "Visibility: public (default) or private. Private components only visible to owner with Bearer token.",
+          "Visibility for new components: defaults to private when omitted; set to public to make the component visible to everyone. Private components are only visible to the owner (Bearer token).",
         ),
       bump: z
         .enum(["patch", "minor", "major"])
@@ -2035,7 +2035,7 @@ ${fileContent}
         content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
         files: normalizedTheme.files ?? files,
         userId,
-        visibility: visibility === "private" ? "private" : "public",
+        visibility: visibility === "public" ? "public" : "private",
         dependencies,
         previewProps: args.previewProps,
       });
