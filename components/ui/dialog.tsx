@@ -66,12 +66,16 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-2 right-2"
-                size="icon-sm"
+                className="absolute top-3 right-3 size-9 rounded-full border border-white/65 bg-white/75 text-zinc-700 shadow-[0_12px_28px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl transition duration-200 hover:-translate-y-px hover:bg-white/90 hover:text-zinc-900 hover:shadow-[0_15px_30px_rgba(15,23,42,0.17),inset_0_1px_0_rgba(255,255,255,0.78)] dark:border-white/12 dark:bg-zinc-900/70 dark:text-zinc-200 dark:shadow-[0_12px_28px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.08)] dark:hover:bg-zinc-900/85 dark:hover:text-white dark:hover:shadow-[0_15px_30px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]"
+                size="icon"
               />
             }
           >
-            <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+            <HugeiconsIcon
+              icon={Cancel01Icon}
+              strokeWidth={2.1}
+              className="size-[18px]"
+            />
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
         )}

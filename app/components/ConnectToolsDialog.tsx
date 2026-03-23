@@ -1,7 +1,15 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
+import { motion } from "motion/react";
 import { Check, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -103,7 +111,7 @@ function ToolTriggerCard({
     <button
       type="button"
       onClick={onOpen}
-      className="rounded-2xl bg-white/70 px-5 py-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition hover:bg-white/85 dark:bg-white/[0.045] dark:hover:bg-white/[0.07]"
+      className="rounded-2xl border border-white/50 bg-white/45 px-5 py-4 text-left shadow-[0_12px_32px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.55)] backdrop-blur-xl transition duration-200 hover:-translate-y-0.5 hover:border-white/70 hover:bg-white/60 hover:shadow-[0_18px_40px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.62)] dark:border-white/10 dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:border-white/15 dark:hover:bg-white/[0.07]"
     >
       <div className="flex items-center gap-2">
         {tool.icon ? (
@@ -325,6 +333,11 @@ export function ConnectToolsDialog({
   const [copied, setCopied] = useState<CopyKind | null>(null);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [isGeneratingToken, setIsGeneratingToken] = useState(false);
+  const toolButtonRefs = useRef<Partial<Record<ToolKey, HTMLButtonElement | null>>>({});
+  const [activeIndicator, setActiveIndicator] = useState<{
+    y: number;
+    height: number;
+  } | null>(null);
 
   const activeTool = useMemo(
     () => TOOLS.find((tool) => tool.key === activeKey) ?? TOOLS[0],
@@ -341,6 +354,16 @@ export function ConnectToolsDialog({
   );
   const oauthSecretApplicable =
     activeOAuthConfig.tokenEndpointAuthMethod !== "none";
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const activeButton = toolButtonRefs.current[activeKey];
+    if (!activeButton) return;
+    setActiveIndicator({
+      y: activeButton.offsetTop,
+      height: activeButton.offsetHeight,
+    });
+  }, [activeKey, open]);
 
   async function handleCopy(value: string, kind: CopyKind) {
     try {
@@ -391,42 +414,65 @@ export function ConnectToolsDialog({
       </div>
 
       <DialogContent
-        className="flex max-h-[min(90vh,calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-1.5rem))] max-w-4xl flex-col gap-0 overflow-hidden rounded-3xl p-0 sm:max-w-4xl"
+        className="flex h-[min(88vh,720px)] max-h-[min(90vh,calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-1.5rem))] max-w-4xl flex-col gap-0 overflow-hidden rounded-3xl p-0 sm:max-w-4xl"
       >
-        <div className="grid min-h-0 w-full flex-1 grid-rows-[auto_1fr] md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-1 md:min-h-[560px]">
-          <aside className="shrink-0 overflow-hidden border-b border-zinc-200 bg-zinc-50/80 p-4 md:border-b-0 md:border-r dark:border-zinc-800 dark:bg-zinc-950/80">
+        <div className="grid min-h-0 h-full w-full flex-1 grid-rows-[auto_1fr] md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-1">
+          <aside className="shrink-0 overflow-hidden border-b border-white/50 bg-white/45 p-4 shadow-[0_16px_40px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.45)] backdrop-blur-xl md:border-b-0 md:border-r dark:border-white/10 dark:bg-white/[0.04] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
             <p className="px-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
               Connect
             </p>
-            <div className="mt-3 space-y-1">
+            <div className="relative mt-3 space-y-1">
+              {activeIndicator ? (
+                <motion.div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-0 right-0 rounded-2xl border border-zinc-200/80 bg-zinc-100/88 shadow-[0_10px_24px_rgba(15,23,42,0.06),inset_0_1px_0_rgba(255,255,255,0.55)] backdrop-blur-xl dark:border-white/12 dark:bg-white/[0.08] dark:shadow-[0_12px_28px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.08)]"
+                  initial={false}
+                  animate={{
+                    y: activeIndicator.y,
+                    height: activeIndicator.height,
+                  }}
+                  transition={{
+                    type: "tween",
+                    duration: 0.22,
+                    ease: [0.22, 1, 0.36, 1],
+                  }}
+                />
+              ) : null}
               {TOOLS.map((tool) => {
                 const active = tool.key === activeKey;
                 return (
-                  <button
+                  <motion.button
                     key={tool.key}
                     type="button"
+                    ref={(node) => {
+                      toolButtonRefs.current[tool.key] = node;
+                    }}
                     onClick={() => setActiveKey(tool.key)}
-                    className={`w-full rounded-2xl px-3 py-3 text-left transition ${
+                    whileTap={{ scale: 0.985 }}
+                    className={cn(
+                      "relative w-full overflow-hidden rounded-2xl px-3 py-3 text-left transition duration-200",
                       active
-                        ? "bg-white text-zinc-950 shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-50 dark:ring-zinc-800"
-                        : "text-zinc-600 hover:bg-white/80 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900/80 dark:hover:text-zinc-100"
-                    }`}
+                        ? "text-zinc-950 dark:text-zinc-50"
+                        : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                    )}
                   >
                     <div className="flex items-center gap-2">
                       {tool.icon ? (
-                        <span className="text-zinc-700 dark:text-zinc-200">
+                        <span className="relative z-10 text-zinc-700 dark:text-zinc-200">
                           {tool.icon}
                         </span>
                       ) : null}
-                      <p className="text-sm font-semibold">{tool.title}</p>
+                      <p className="relative z-10 text-sm font-semibold">
+                        {tool.title}
+                      </p>
                     </div>
-                  </button>
+                  </motion.button>
                 );
               })}
             </div>
           </aside>
 
-          <div className="min-h-0 overflow-y-auto overflow-x-hidden p-6 sm:p-7">
+          <div className="min-h-0 overflow-y-auto overflow-x-hidden bg-zinc-50/50 p-6 sm:p-7 dark:bg-zinc-950/20">
             <DialogHeader className="gap-2">
               <DialogTitle className="text-xl font-semibold">
                 {activeTool.title}
@@ -437,7 +483,7 @@ export function ConnectToolsDialog({
             </DialogHeader>
 
             <div className="mt-6 grid gap-4">
-              <div className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="rounded-2xl bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)] ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:shadow-[0_12px_30px_rgba(0,0,0,0.18)] dark:ring-zinc-800/80">
                 <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                   Connection steps
                 </p>
@@ -460,7 +506,7 @@ export function ConnectToolsDialog({
               </div>
 
               {activeTool.key === "cursor" ? (
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+                <div className="rounded-2xl bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)] ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:shadow-[0_12px_30px_rgba(0,0,0,0.18)] dark:ring-zinc-800/80">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
@@ -501,7 +547,7 @@ export function ConnectToolsDialog({
                 </div>
               ) : (
                 <>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
+              <div className="rounded-2xl bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)] ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:shadow-[0_12px_30px_rgba(0,0,0,0.18)] dark:ring-zinc-800/80">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
@@ -520,7 +566,7 @@ export function ConnectToolsDialog({
                     OAuth
                   </span>
                 </div>
-                <ol className="mt-4 space-y-2 border-t border-zinc-200/80 pt-4 text-sm leading-6 text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">
+                <ol className="mt-4 space-y-2 pt-1 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
                   {activeTool.oauthConfigSteps.map((line, index) => (
                     <li key={`oauth-step-${index}`} className="flex gap-3">
                       <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600/15 text-[11px] font-semibold text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200">
@@ -579,7 +625,7 @@ export function ConnectToolsDialog({
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
+              <div className="rounded-2xl bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)] ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:shadow-[0_12px_30px_rgba(0,0,0,0.18)] dark:ring-zinc-800/80">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
@@ -596,7 +642,7 @@ export function ConnectToolsDialog({
                     Bearer
                   </span>
                 </div>
-                <ol className="mt-4 space-y-2 border-t border-zinc-200/80 pt-4 text-sm leading-6 text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">
+                <ol className="mt-4 space-y-2 pt-1 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
                   {activeTool.headersConfigSteps.map((line, index) => (
                     <li key={`headers-step-${index}`} className="flex gap-3">
                       <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-600/15 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">

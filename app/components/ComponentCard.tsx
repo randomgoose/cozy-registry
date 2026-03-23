@@ -634,6 +634,9 @@ export function ComponentCard({
   }
 
   function renderFloatingActionButtons() {
+    const floatingButtonClass =
+      "h-11 w-11 rounded-2xl border border-white/35 bg-white/14 text-white shadow-[0_10px_30px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.18)] backdrop-blur-xl transition duration-200 hover:-translate-y-0.5 hover:border-white/45 hover:bg-white/20 hover:text-white hover:shadow-[0_14px_36px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.22)] dark:border-white/14 dark:bg-white/[0.08] dark:text-white dark:shadow-[0_12px_36px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.08)] dark:hover:border-white/20 dark:hover:bg-white/[0.12]";
+
     return (
       <motion.div
         className="pointer-events-auto absolute left-full top-0 z-[60] ml-3 hidden flex-col gap-2 lg:flex"
@@ -644,7 +647,10 @@ export function ComponentCard({
       >
         <Link
           href={`/registry/${owner}/${name}`}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/12 bg-zinc-950/88 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur transition-colors hover:bg-zinc-950 dark:border-white/12 dark:bg-zinc-950/88 dark:hover:bg-zinc-950"
+          className={cn(
+            "inline-flex items-center justify-center",
+            floatingButtonClass,
+          )}
           onClick={(event) => stopCardClick(event)}
           aria-label="展开详情页"
           title="展开详情"
@@ -655,7 +661,7 @@ export function ComponentCard({
         <Button
           variant="ghost"
           size="icon"
-          className="h-11 w-11 rounded-2xl border border-white/12 bg-zinc-950/88 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur hover:bg-zinc-950 hover:text-white dark:border-white/12 dark:bg-zinc-950/88 dark:text-white dark:hover:bg-zinc-950"
+          className={floatingButtonClass}
           onClick={(event) => {
             stopCardClick(event);
             void handleCopy();
@@ -679,7 +685,7 @@ export function ComponentCard({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-11 w-11 rounded-2xl border border-white/12 bg-zinc-950/88 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] backdrop-blur hover:bg-zinc-950 hover:text-white dark:border-white/12 dark:bg-zinc-950/88 dark:text-white dark:hover:bg-zinc-950"
+                className={floatingButtonClass}
                 aria-label="加入 Collection"
                 title="加入 Collection"
               />

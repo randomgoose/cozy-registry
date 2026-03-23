@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { headers } from "next/headers";
+import { eq } from "drizzle-orm";
 import { getRegistryItems } from "@/lib/registry";
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { user } from "@/lib/db/schema";
 import { getThumbnailFromMeta } from "@/lib/thumbnail";
 import { ConnectToolsDialog } from "./components/ConnectToolsDialog";
+import { HomeUserMenu } from "./components/HomeUserMenu";
 import { RegistryBrowser } from "./components/RegistryBrowser";
+import { CozyLogoIcon } from "./components/icons/CozyLogoIcon";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +19,23 @@ function normalizeVisibility(value: string): "public" | "private" {
 
 export default async function Home() {
   let session: Awaited<ReturnType<typeof auth.api.getSession>> | null = null;
+  let userHandle: string | null = null;
   try {
     session = await auth.api.getSession({ headers: await headers() });
   } catch (err) {
     console.error("Failed to get session:", err);
+  }
+  if (session?.user?.id) {
+    try {
+      const [row] = await db
+        .select({ handle: user.handle })
+        .from(user)
+        .where(eq(user.id, session.user.id))
+        .limit(1);
+      userHandle = row?.handle ?? null;
+    } catch (err) {
+      console.error("Failed to load user handle:", err);
+    }
   }
   let items: Awaited<ReturnType<typeof getRegistryItems>> = [];
   let dbError = false;
@@ -104,51 +122,38 @@ export default async function Home() {
   const cursorTokenEndpointAuthMethod =
     process.env.OAUTH_CURSOR_TOKEN_ENDPOINT_AUTH_METHOD?.trim() ||
     (cursorClientSecret ? "client_secret_post" : "none");
+  const userFullName =
+    session?.user?.name?.trim() ||
+    session?.user?.email?.split("@")[0] ||
+    "Dashboard";
+  const userName = userHandle || session?.user?.email?.split("@")[0] || userFullName;
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_30%),linear-gradient(180deg,#fffdf9_0%,#ffffff_42%,#fbfbfc_100%)] dark:bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_22%),linear-gradient(180deg,#09090b_0%,#09090b_100%)]">
       <header>
-        <div className="mx-auto flex max-w-6xl items-center justify-end px-6 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+          <Link
+            href="/"
+            className="inline-flex items-center text-zinc-950 transition-colors hover:text-zinc-700 dark:text-zinc-50 dark:hover:text-zinc-200"
+            aria-label="Cozy Registry"
+          >
+            <CozyLogoIcon className="size-6" />
+          </Link>
           <nav className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-            >
-              Browse
-            </Link>
             <Link
               href="/docs"
               className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
             >
               Docs
             </Link>
-            <Link
-              href="/publish"
-              className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              Publish
-            </Link>
             {session ? (
-              <>
-                <Link
-                  href="/dashboard"
-                  className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-                >
-                  Dashboard
-                </Link>
-                <Link
-                  href="/settings"
-                  className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-                >
-                  Settings
-                </Link>
-              </>
+              <HomeUserMenu fullName={userFullName} username={userName} />
             ) : (
               <Link
                 href="/sign-in"
-                className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+                className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
-                Sign in
+                Dashboard
               </Link>
             )}
           </nav>
