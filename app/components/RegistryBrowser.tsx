@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { getRegistryItemTypeLabel } from "@/lib/registry-types";
 import { ComponentCard } from "./ComponentCard";
@@ -22,11 +22,16 @@ interface RegistryBrowserProps {
   isSignedIn: boolean;
 }
 
+const INITIAL_VISIBLE_COUNT = 12;
+const LOAD_MORE_COUNT = 8;
+
 export function RegistryBrowser({
   items,
   isSignedIn,
 }: RegistryBrowserProps) {
   const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const deferredQuery = useDeferredValue(query);
   const normalizedQuery = deferredQuery.trim().toLowerCase();
 
@@ -63,6 +68,28 @@ export function RegistryBrowser({
   }, [indexedItems, items, normalizedQuery]);
 
   const hasFilters = normalizedQuery.length > 0;
+  const visibleItems = filteredItems.slice(0, visibleCount);
+  const hasMore = visibleItems.length < filteredItems.length;
+
+  useEffect(() => {
+    if (!hasMore) return;
+    const node = loadMoreRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const firstEntry = entries[0];
+        if (!firstEntry?.isIntersecting) return;
+        setVisibleCount((current) =>
+          Math.min(current + LOAD_MORE_COUNT, filteredItems.length),
+        );
+      },
+      { rootMargin: "320px 0px" },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [filteredItems.length, hasMore]);
 
   return (
     <div className="space-y-6">
@@ -71,7 +98,10 @@ export function RegistryBrowser({
           <input
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setVisibleCount(INITIAL_VISIBLE_COUNT);
+            }}
             placeholder="Search title, name, description, or owner"
             className="w-full rounded-[22px] border border-zinc-200/80 bg-white/90 px-5 py-4 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-amber-400 focus:ring-4 focus:ring-amber-100 dark:border-zinc-800 dark:bg-zinc-950/90 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-amber-500 dark:focus:ring-amber-500/10"
           />
@@ -81,12 +111,9 @@ export function RegistryBrowser({
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-              {filteredItems.length} {filteredItems.length === 1 ? "result" : "results"}
-            </p>
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               {hasFilters
-                ? "Results filtered by your search."
+                ? `Showing ${visibleItems.length} of ${filteredItems.length} filtered results.`
                 : `Browse all Cozy registry items · ${items.length} total / ${publicCount} public / ${privateCount} private`}
             </p>
           </div>
@@ -100,14 +127,7 @@ export function RegistryBrowser({
               >
               Clear search
             </button>
-          ) : (
-            <Link
-              href="/publish"
-              className="inline-flex items-center justify-center rounded-full border border-zinc-900 bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
-            >
-              Publish new item
-            </Link>
-          )}
+          ) : null}
         </div>
 
         {filteredItems.length === 0 ? (
@@ -137,20 +157,34 @@ export function RegistryBrowser({
             </div>
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {filteredItems.map((item) => (
-              <ComponentCard
-                key={item.id}
-                itemId={item.itemId}
-                owner={item.owner}
-                name={item.name}
-                title={item.title}
-                description={item.description}
-                visibility={item.visibility}
-                thumbnailUrl={item.thumbnailUrl}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid gap-4 md:grid-cols-2">
+              {visibleItems.map((item) => (
+                <ComponentCard
+                  key={item.id}
+                  itemId={item.itemId}
+                  owner={item.owner}
+                  name={item.name}
+                  title={item.title}
+                  description={item.description}
+                  visibility={item.visibility}
+                  thumbnailUrl={item.thumbnailUrl}
+                />
+              ))}
+            </div>
+            {hasMore ? (
+              <div
+                ref={loadMoreRef}
+                className="flex items-center justify-center py-6 text-sm text-zinc-500 dark:text-zinc-400"
+              >
+                Loading more items...
+              </div>
+            ) : filteredItems.length > INITIAL_VISIBLE_COUNT ? (
+              <div className="flex items-center justify-center py-4 text-sm text-zinc-400 dark:text-zinc-500">
+                You’ve reached the end.
+              </div>
+            ) : null}
+          </>
         )}
       </section>
     </div>

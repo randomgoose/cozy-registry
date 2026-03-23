@@ -1,5 +1,9 @@
 import { headers } from "next/headers";
+import Link from "next/link";
+import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { user } from "@/lib/db/schema";
 import { getRegistryItemsByUserId } from "@/lib/registry";
 import { ComponentCard } from "@/app/components/ComponentCard";
 import { getThumbnailFromMeta } from "@/lib/thumbnail";
@@ -17,38 +21,104 @@ export default async function DashboardPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
         <p className="text-zinc-600 dark:text-zinc-400">
-          请先{" "}
+          Please{" "}
           <a href="/sign-in" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
-            登录
+            sign in
           </a>{" "}
-          查看你的组件
+          to view your items.
         </p>
       </div>
     );
   }
 
   const items = await getRegistryItemsByUserId(session.user.id);
+  const [ownerRow] = await db
+    .select({ handle: user.handle })
+    .from(user)
+    .where(eq(user.id, session.user.id))
+    .limit(1);
+  const ownerHandle = ownerRow?.handle ?? session.user.email?.split("@")[0] ?? "owner";
+  const publicCount = items.filter((item) => item.visibility === "public").length;
+  const privateCount = items.length - publicCount;
+  const latestItem = items[0] ?? null;
 
   return (
     <>
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-        我的组件
-      </h1>
-      <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-        你已发布 {items.length} 个组件
-      </p>
+      <section className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
+              Personal space
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+              Your registry workspace
+            </h1>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              Manage everything published under <span className="font-medium text-zinc-900 dark:text-zinc-100">@{ownerHandle}</span>.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href="/publish"
+              className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
+            >
+              Publish new item
+            </Link>
+            <Link
+              href="/collections"
+              className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800/70"
+            >
+              Open collections
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+              Total items
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
+              {items.length}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+              Public
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
+              {publicCount}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+              Private
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
+              {privateCount}
+            </p>
+          </div>
+        </div>
+
+        {latestItem ? (
+          <div className="mt-5 rounded-2xl bg-zinc-50/90 px-4 py-3 text-sm text-zinc-600 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:text-zinc-400 dark:ring-zinc-800">
+            Latest update: <span className="font-medium text-zinc-900 dark:text-zinc-100">{latestItem.title}</span>
+          </div>
+        ) : null}
+      </section>
 
       {items.length === 0 ? (
-        <div className="mt-10 rounded-xl border border-dashed border-zinc-300 py-16 text-center dark:border-zinc-700">
-          <p className="text-zinc-500 dark:text-zinc-400">
-            还没有发布过组件
+        <div className="mt-10 rounded-[28px] border border-dashed border-zinc-300 bg-white/60 py-16 text-center dark:border-zinc-700 dark:bg-zinc-900/30">
+          <p className="text-zinc-700 dark:text-zinc-300">
+            You haven’t published anything yet.
           </p>
-          <a
+          <Link
             href="/publish"
             className="mt-4 inline-block rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            发布第一个组件
-          </a>
+            Publish your first item
+          </Link>
         </div>
       ) : (
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -70,7 +140,7 @@ export default async function DashboardPage() {
                     : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
                 }`}
               >
-                {item.visibility === "private" ? "私有" : "公开"}
+                {item.visibility === "private" ? "Private" : "Public"}
               </span>
             </div>
           ))}

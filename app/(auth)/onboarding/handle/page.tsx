@@ -19,7 +19,7 @@ export default function ChooseHandlePage() {
         }
         const data = (await res.json()) as { user: { handle?: string | null } | null };
         if (data.user?.handle) {
-          window.location.href = "/";
+          window.location.href = "/dashboard";
           return;
         }
       } finally {
@@ -41,10 +41,10 @@ export default function ChooseHandlePage() {
       });
       const data = (await res.json()) as { success?: boolean; error?: string };
       if (!res.ok) {
-        setError(data.error ?? "设置失败");
+        setError(data.error ?? "Failed to save username");
         return;
       }
-      window.location.href = "/";
+      window.location.href = "/dashboard";
     } finally {
       setSaving(false);
     }
@@ -53,7 +53,7 @@ export default function ChooseHandlePage() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">加载中…</p>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">Loading...</p>
       </div>
     );
   }
@@ -62,14 +62,14 @@ export default function ChooseHandlePage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
       <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
-          选择你的用户名
+          Choose your username
         </h1>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          这个用户名会出现在链接和组件引用里，例如{" "}
+          This username will appear in links and component references, for example{" "}
           <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-800">
             @yourname/button
           </code>
-          。设置后暂不支持修改。
+          . It can&apos;t be changed yet after you set it.
         </p>
 
         <form onSubmit={submit} className="mt-5 space-y-3">
@@ -78,7 +78,7 @@ export default function ChooseHandlePage() {
               htmlFor="handle"
               className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
             >
-              用户名
+              Username
             </label>
             <input
               id="handle"
@@ -91,7 +91,7 @@ export default function ChooseHandlePage() {
               className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
             />
             <p className="mt-1 text-xs text-zinc-500">
-              仅小写字母/数字/.-_，长度 2-30，首尾必须是字母或数字
+              Lowercase letters, numbers, `.`, `-`, and `_` only. Length 2-30, and it must start and end with a letter or number.
             </p>
           </div>
           {error && (
@@ -102,18 +102,17 @@ export default function ChooseHandlePage() {
             disabled={saving}
             className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            {saving ? "保存中…" : "保存并继续"}
+            {saving ? "Saving..." : "Save and continue"}
           </button>
         </form>
 
         <div className="mt-4 text-center text-xs text-zinc-500 dark:text-zinc-400">
-          想先逛逛？{" "}
+          Prefer to look around first?{" "}
           <Link href="/" className="underline">
-            返回首页
+            Back to home
           </Link>
         </div>
       </div>
     </div>
   );
 }
-

@@ -111,7 +111,12 @@ export default function SettingsPage() {
 
   async function clearPolicy() {
     if (!policyKeyId) return;
-    if (!confirm("清除该 Token 的范围限制？清除后将恢复为默认：可访问你有权限访问的所有资源。")) return;
+    if (
+      !confirm(
+        "Clear the scope restrictions for this token? It will revert to the default access policy.",
+      )
+    )
+      return;
     setPolicySaving(true);
     try {
       const res = await fetch(`/api/apikeys/${policyKeyId}/policy`, { method: "DELETE" });
@@ -153,7 +158,7 @@ export default function SettingsPage() {
   }
 
   async function handleDeleteKey(id: string) {
-    if (!confirm("确定要删除此 Token？删除后无法恢复。")) return;
+    if (!confirm("Delete this token? This action cannot be undone.")) return;
     const { error } = await authClient.apiKey.delete({ keyId: id });
     if (error) {
       alert(error.message ?? "Failed to delete");
@@ -166,9 +171,9 @@ export default function SettingsPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
         <p className="text-zinc-600 dark:text-zinc-400">
-          请先{" "}
+          Please{" "}
           <Link href="/sign-in" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
-            登录
+            sign in
           </Link>
         </p>
       </div>
@@ -178,24 +183,18 @@ export default function SettingsPage() {
   return (
     <>
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-        设置
+        Settings
       </h1>
 
       <section className="mt-8">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-          API Token（用于 Figma Make）
+          API Tokens
         </h2>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          创建 Token 后，在 Figma Make Connector 的 Additional headers 中添加：<br />
-          <code className="mt-1 block rounded bg-zinc-100 px-2 py-1 font-mono text-xs dark:bg-zinc-800">
-            Authorization: Bearer &lt;你的Token&gt;
-          </code>
-        </p>
 
         {newKey && (
           <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
             <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-              新 Token 已创建，请立即复制保存（只显示一次）：
+              Your new token is ready. Copy it now and store it somewhere safe. It will only be shown once.
             </p>
             <code className="mt-2 block break-all rounded bg-amber-100 px-2 py-2 font-mono text-sm dark:bg-amber-900/50">
               {newKey}
@@ -205,7 +204,7 @@ export default function SettingsPage() {
               onClick={() => setNewKey(null)}
               className="mt-2 text-sm text-amber-700 hover:underline dark:text-amber-300"
             >
-              已保存，关闭
+              Dismiss
             </button>
           </div>
         )}
@@ -215,7 +214,7 @@ export default function SettingsPage() {
             type="text"
             value={newKeyName}
             onChange={(e) => setNewKeyName(e.target.value)}
-            placeholder="Token 名称，如 Figma Make"
+            placeholder="Token name, for example Cursor or Figma Make"
             className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
           />
           <button
@@ -223,12 +222,12 @@ export default function SettingsPage() {
             disabled={creating}
             className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            {creating ? "创建中..." : "创建"}
+            {creating ? "Creating..." : "Create token"}
           </button>
         </form>
 
         {loading ? (
-          <p className="mt-4 text-sm text-zinc-500">加载中...</p>
+          <p className="mt-4 text-sm text-zinc-500">Loading...</p>
         ) : apiKeys.length > 0 ? (
           <ul className="mt-4 space-y-2">
             {apiKeys.map((key) => (
@@ -237,14 +236,14 @@ export default function SettingsPage() {
                 className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800"
               >
                 <div>
-                  <span className="font-medium">{key.name || "未命名"}</span>
+                  <span className="font-medium">{key.name || "Untitled token"}</span>
                   {key.start && (
                     <span className="ml-2 font-mono text-xs text-zinc-500">
                       {key.start}...
                     </span>
                   )}
                   <div className="mt-1 text-xs text-zinc-500">
-                    可用范围：可配置 Collections / 类型，用于限制 AI 能看到与使用的资源
+                    Scope controls let you limit which collections and item types this token can access.
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -253,21 +252,21 @@ export default function SettingsPage() {
                     onClick={() => openPolicy(key.id)}
                     className="text-sm text-zinc-700 hover:underline dark:text-zinc-300"
                   >
-                    配置范围
+                    Edit scope
                   </button>
                   <button
                     type="button"
                     onClick={() => handleDeleteKey(key.id)}
                     className="text-sm text-red-600 hover:underline dark:text-red-400"
                   >
-                    删除
+                    Delete
                   </button>
                 </div>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="mt-4 text-sm text-zinc-500">暂无 Token</p>
+          <p className="mt-4 text-sm text-zinc-500">No tokens yet.</p>
         )}
       </section>
 
@@ -275,7 +274,7 @@ export default function SettingsPage() {
           <div className="mt-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                Token 可用范围配置
+                Token scope
               </h2>
               <button
                 type="button"
@@ -285,17 +284,17 @@ export default function SettingsPage() {
                 }}
                 className="text-sm text-zinc-600 hover:underline dark:text-zinc-400"
               >
-                关闭
+                Close
               </button>
             </div>
 
             {policyLoading || !policy ? (
-              <p className="mt-3 text-sm text-zinc-500">加载中...</p>
+              <p className="mt-3 text-sm text-zinc-500">Loading...</p>
             ) : (
               <div className="mt-4 space-y-6">
                 <div>
                   <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                    允许的资源类型
+                    Allowed item types
                   </div>
                   <div className="mt-2 flex flex-wrap gap-4 text-sm">
                     {[REGISTRY_BLOCK_TYPE, REGISTRY_UI_TYPE, REGISTRY_THEME_TYPE].map((t) => (
@@ -321,13 +320,13 @@ export default function SettingsPage() {
 
                 <div>
                   <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                    允许访问的 Collections
+                    Allowed collections
                   </div>
                   <p className="mt-1 text-xs text-zinc-500">
-                    只会列出/获取这些集合内的条目（除非开启“允许 public 不在集合内”）。
+                    This token will only list and retrieve items from these collections unless public access below is enabled.
                   </p>
                   {collections.length === 0 ? (
-                    <p className="mt-2 text-sm text-zinc-500">暂无 Collections（可先去 Dashboard 创建）</p>
+                    <p className="mt-2 text-sm text-zinc-500">No collections yet. You can create one from the dashboard first.</p>
                   ) : (
                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       {collections.map((c) => (
@@ -360,7 +359,7 @@ export default function SettingsPage() {
                       checked={policy.allowPublicOutsideCollections}
                       onChange={(e) => setPolicy((p) => (p ? { ...p, allowPublicOutsideCollections: e.target.checked } : p))}
                     />
-                    允许访问 public 条目（即使不在 allowlist collections 中）
+                    Allow access to public items outside the selected collections
                   </label>
                 </div>
 
@@ -371,7 +370,7 @@ export default function SettingsPage() {
                     onClick={savePolicy}
                     className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
                   >
-                    {policySaving ? "保存中..." : "保存"}
+                    {policySaving ? "Saving..." : "Save"}
                   </button>
                   <button
                     type="button"
@@ -379,10 +378,10 @@ export default function SettingsPage() {
                     onClick={clearPolicy}
                     className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800/60"
                   >
-                    清除限制
+                    Clear restrictions
                   </button>
                   <span className="text-xs text-zinc-500">
-                    提示：MCP / AI 使用该 Token 时会被强制限制在这里配置的范围内。
+                    MCP clients and AI tools using this token will be restricted to the scope configured here.
                   </span>
                 </div>
               </div>
@@ -399,7 +398,7 @@ export default function SettingsPage() {
           }}
           className="text-sm text-zinc-600 hover:underline dark:text-zinc-400"
         >
-          退出登录
+          Sign out
         </button>
       </div>
     </>

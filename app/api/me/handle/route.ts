@@ -28,7 +28,10 @@ export async function POST(request: Request) {
 
   if (!HANDLE_RE.test(handle)) {
     return NextResponse.json(
-      { error: "用户名格式不正确（仅小写字母/数字/.-_，长度 2-30）" },
+      {
+        error:
+          "Invalid username format. Use lowercase letters, numbers, '.', '-', or '_', with length 2-30.",
+      },
       { status: 400 },
     );
   }
@@ -53,14 +56,13 @@ export async function POST(request: Request) {
 
   if (self?.handle) {
     return NextResponse.json(
-      { error: "用户名已设置，暂不支持修改" },
+      { error: "Username is already set and can’t be changed yet." },
       { status: 409 },
     );
   }
 
   return NextResponse.json(
-    { error: "用户名已被占用" },
+    { error: "That username is already taken." },
     { status: 409 },
   );
 }
-

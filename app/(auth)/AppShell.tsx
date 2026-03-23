@@ -2,114 +2,96 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { CozyLogoIcon } from "@/app/components/icons/CozyLogoIcon";
+import { cn } from "@/lib/utils";
 
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-  useSidebar,
-} from "@/components/ui/sidebar";
-
-function shouldShowSidebar(pathname: string, email: string | null) {
+function shouldShowAppNav(pathname: string, email: string | null) {
   if (!email) return false;
   if (pathname.startsWith("/sign-in")) return false;
   if (pathname.startsWith("/sign-up")) return false;
   if (pathname.startsWith("/onboarding")) return false;
-  // Only show on these app pages for now.
-  return pathname === "/dashboard" || pathname === "/collections" || pathname === "/settings" || pathname === "/docs";
+  return (
+    pathname === "/dashboard" ||
+    pathname === "/collections" ||
+    pathname === "/settings" ||
+    pathname === "/docs"
+  );
 }
 
-export function AppShell(props: { email: string | null; children: React.ReactNode }) {
+const APP_NAV_ITEMS = [
+  { href: "/dashboard", label: "My items" },
+  { href: "/collections", label: "Collections" },
+  { href: "/settings", label: "Settings" },
+  { href: "/docs", label: "Docs" },
+];
+
+export function AppShell(props: {
+  email: string | null;
+  children: React.ReactNode;
+}) {
   const pathname = usePathname();
-  const show = shouldShowSidebar(pathname, props.email);
+  const show = shouldShowAppNav(pathname, props.email);
 
   if (!show) return <>{props.children}</>;
 
   return (
-    <SidebarProvider defaultOpen>
-      <AppShellInner pathname={pathname} email={props.email}>
-        {props.children}
-      </AppShellInner>
-    </SidebarProvider>
-  );
-}
-
-function AppShellInner(props: { pathname: string; email: string | null; children: React.ReactNode }) {
-  const { open } = useSidebar();
-
-  return (
-    <div className="flex min-h-screen bg-zinc-50 dark:bg-zinc-950">
-      <Sidebar>
-        <SidebarHeader>
-          {open && (
-            <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Cozy Registry
-            </div>
-          )}
-          <SidebarTrigger />
-        </SidebarHeader>
-
-          <SidebarContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <Link href="/dashboard" className="block">
-                  <SidebarMenuButton isActive={props.pathname === "/dashboard"}>
-                    我的组件
-                  </SidebarMenuButton>
-                </Link>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <Link href="/collections" className="block">
-                  <SidebarMenuButton isActive={props.pathname === "/collections"}>
-                    Collections
-                  </SidebarMenuButton>
-                </Link>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <Link href="/settings" className="block">
-                  <SidebarMenuButton isActive={props.pathname === "/settings"}>
-                    设置
-                  </SidebarMenuButton>
-                </Link>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <Link href="/docs" className="block">
-                  <SidebarMenuButton isActive={props.pathname === "/docs"}>
-                    文档
-                  </SidebarMenuButton>
-                </Link>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarContent>
-      </Sidebar>
-
-      <SidebarInset>
-        <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-6 py-4">
-            <div className="flex items-center gap-3">
-              <SidebarTrigger />
-              <Link
-                href="/"
-                className="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
-              >
-                ← 返回
-              </Link>
-            </div>
-
-            <span className="text-sm text-zinc-600 dark:text-zinc-400">
-              {props.email}
-            </span>
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.05),transparent_24%),linear-gradient(180deg,#fffdf9_0%,#ffffff_42%,#fbfbfc_100%)] dark:bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_20%),linear-gradient(180deg,#09090b_0%,#09090b_100%)]">
+      <header className="border-b border-zinc-200/80 bg-white/80 backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-950/70">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
+          <div className="flex items-center gap-4">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+            >
+              <CozyLogoIcon className="size-5" />
+              <span>Cozy Registry</span>
+            </Link>
+            <Link
+              href="/"
+              className="hidden text-sm text-zinc-500 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300 sm:inline-flex"
+            >
+              ← Back to registry
+            </Link>
           </div>
-        </header>
 
-        <main className="mx-auto max-w-5xl px-6 py-10">{props.children}</main>
-      </SidebarInset>
+          <span className="truncate text-sm text-zinc-600 dark:text-zinc-400">
+            {props.email}
+          </span>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        <div className="grid gap-4 lg:grid-cols-[200px_minmax(0,1fr)] lg:items-start">
+          <aside className="lg:sticky lg:top-8">
+            <div className="p-1">
+              <div className="px-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                Workspace
+              </div>
+              <nav className="mt-3 space-y-1">
+                {APP_NAV_ITEMS.map((item) => {
+                  const isActive = pathname === item.href;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        "flex items-center rounded-2xl px-3 py-2.5 text-sm font-semibold transition-colors",
+                        isActive
+                          ? "border border-zinc-200/80 bg-zinc-100/88 text-zinc-950 shadow-[0_10px_24px_rgba(15,23,42,0.06),inset_0_1px_0_rgba(255,255,255,0.55)] dark:border-white/12 dark:bg-white/[0.08] dark:text-zinc-50 dark:shadow-[0_12px_28px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.08)]"
+                          : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                      )}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
+          </aside>
+
+          <div className="min-w-0">{props.children}</div>
+        </div>
+      </main>
     </div>
   );
 }
