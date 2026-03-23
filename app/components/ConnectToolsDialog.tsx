@@ -123,7 +123,9 @@ function ToolTriggerCard({
 const CURSOR_MCP_SERVER_NAME = "cozy-registry";
 
 /**
- * Cursor install `config` must mirror `mcp.json`: one entry per server name, with `url` + `auth` inside.
+ * Install link `name` is the MCP server id; `config` must be that server’s entry only (same shape as
+ * under `mcpServers.<name>` in mcp.json)—not wrapped again by server name. Docs’ postgres example
+ * base64-decodes to `{ "command", "args" }` only, not `{ "postgres": { ... } }`.
  * @see https://cursor.com/docs/context/mcp/install-links
  */
 function buildCursorInstallLink(mcpUrl: string, oauth: OAuthConfig) {
@@ -139,14 +141,9 @@ function buildCursorInstallLink(mcpUrl: string, oauth: OAuthConfig) {
     auth.CLIENT_SECRET = oauth.clientSecret;
   }
 
-  const config: Record<
-    string,
-    { url: string; auth: typeof auth }
-  > = {
-    [CURSOR_MCP_SERVER_NAME]: {
-      url: mcpUrl,
-      auth,
-    },
+  const config = {
+    url: mcpUrl,
+    auth,
   };
   const encodedConfig = btoa(JSON.stringify(config));
   return `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodeURIComponent(
