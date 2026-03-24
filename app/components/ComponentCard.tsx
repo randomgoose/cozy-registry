@@ -118,7 +118,7 @@ export function ComponentCard({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  /** 已成功拉取详情的 owner/name，避免重复请求；与 props 变化时在 effect 中清空 */
+  /** Last fetched detail key (owner/name); cleared when props change to avoid duplicate fetches */
   const detailLoadedKeyRef = useRef<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [collections, setCollections] = useState<
@@ -357,7 +357,7 @@ export function ComponentCard({
       setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
-      alert("复制失败，请稍后再试");
+      alert("Copy failed. Please try again.");
     }
   }
 
@@ -456,7 +456,7 @@ export function ComponentCard({
         });
         if (!res.ok) {
           if (!cancelled) {
-            setDetailError(`加载失败（${res.status}）`);
+            setDetailError(`Failed to load (${res.status})`);
           }
           return;
         }
@@ -464,7 +464,7 @@ export function ComponentCard({
         const data = normalizeExpandedDetailData(rawData);
         if (!data) {
           if (!cancelled) {
-            setDetailError("详情数据格式无效");
+            setDetailError("Invalid detail response");
           }
           return;
         }
@@ -489,7 +489,7 @@ export function ComponentCard({
           error instanceof DOMException && error.name === "AbortError";
         if (isAbort) return;
         if (!cancelled) {
-          setDetailError("加载失败或超时");
+          setDetailError("Failed to load or timed out");
         }
       } finally {
         window.clearTimeout(timeoutId);
@@ -555,8 +555,8 @@ export function ComponentCard({
             stopCardClick(event);
             void handleCopy();
           }}
-          aria-label={copied ? "已复制代码" : "复制代码"}
-          title={copied ? "已复制" : "复制代码"}
+          aria-label={copied ? "Code copied" : "Copy code"}
+          title={copied ? "Copied" : "Copy code"}
         >
           <HugeiconsIcon
             icon={copied ? CopyCheckIcon : Copy01Icon}
@@ -575,8 +575,8 @@ export function ComponentCard({
                 variant="ghost"
                 size="icon-sm"
                 className="rounded-full bg-black/45 text-white hover:bg-black/60 hover:text-white dark:bg-black/45 dark:text-white dark:hover:bg-black/60"
-                aria-label="加入 Collection"
-                title="加入 Collection"
+                aria-label="Add to collection"
+                title="Add to collection"
               />
             }
           >
@@ -584,26 +584,26 @@ export function ComponentCard({
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>加入 Collection</DialogTitle>
+              <DialogTitle>Add to collection</DialogTitle>
             </DialogHeader>
 
             {collectionsLoading ? (
-              <p className="text-sm text-zinc-500">加载中...</p>
+              <p className="text-sm text-zinc-500">Loading…</p>
             ) : collections.length === 0 ? (
               <p className="text-sm text-zinc-500">
-                你还没有 Collections（先去 Collections 页面创建）
+                You don’t have any collections yet. Create one on the Collections page.
               </p>
             ) : (
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  选择一个 Collection
+                  Choose a collection
                 </label>
                 <select
                   value={selectedCollectionId}
                   onChange={(e) => setSelectedCollectionId(e.target.value)}
                   className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
                 >
-                  <option value="">请选择…</option>
+                  <option value="">Select…</option>
                   {collections.map((collection) => (
                     <option key={collection.id} value={collection.id}>
                       {collection.title} ({collection.slug})
@@ -624,7 +624,7 @@ export function ComponentCard({
                 }
                 onClick={addToCollection}
               >
-                {adding ? "加入中..." : "加入"}
+                {adding ? "Adding…" : "Add"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -652,8 +652,8 @@ export function ComponentCard({
             floatingButtonClass,
           )}
           onClick={(event) => stopCardClick(event)}
-          aria-label="展开详情页"
-          title="展开详情"
+          aria-label="Open registry detail page"
+          title="Open detail page"
         >
           <HugeiconsIcon icon={ExpandIcon} strokeWidth={1.8} />
         </Link>
@@ -666,8 +666,8 @@ export function ComponentCard({
             stopCardClick(event);
             void handleCopy();
           }}
-          aria-label={copied ? "已复制代码" : "复制代码"}
-          title={copied ? "已复制" : "复制代码"}
+          aria-label={copied ? "Code copied" : "Copy code"}
+          title={copied ? "Copied" : "Copy code"}
         >
           <HugeiconsIcon
             icon={copied ? CopyCheckIcon : Copy01Icon}
@@ -686,8 +686,8 @@ export function ComponentCard({
                 variant="ghost"
                 size="icon"
                 className={floatingButtonClass}
-                aria-label="加入 Collection"
-                title="加入 Collection"
+                aria-label="Add to collection"
+                title="Add to collection"
               />
             }
           >
@@ -695,26 +695,26 @@ export function ComponentCard({
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>加入 Collection</DialogTitle>
+              <DialogTitle>Add to collection</DialogTitle>
             </DialogHeader>
 
             {collectionsLoading ? (
-              <p className="text-sm text-zinc-500">加载中...</p>
+              <p className="text-sm text-zinc-500">Loading…</p>
             ) : collections.length === 0 ? (
               <p className="text-sm text-zinc-500">
-                你还没有 Collections（先去 Collections 页面创建）
+                You don’t have any collections yet. Create one on the Collections page.
               </p>
             ) : (
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  选择一个 Collection
+                  Choose a collection
                 </label>
                 <select
                   value={selectedCollectionId}
                   onChange={(e) => setSelectedCollectionId(e.target.value)}
                   className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
                 >
-                  <option value="">请选择…</option>
+                  <option value="">Select…</option>
                   {collections.map((collection) => (
                     <option key={collection.id} value={collection.id}>
                       {collection.title} ({collection.slug})
@@ -735,7 +735,7 @@ export function ComponentCard({
                 }
                 onClick={addToCollection}
               >
-                {adding ? "加入中..." : "加入"}
+                {adding ? "Adding…" : "Add"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -778,7 +778,7 @@ export function ComponentCard({
           ) : (
             <PreviewFrame
               src={`/preview/${owner}/${name}`}
-              title={`${title} 预览`}
+              title={`${title} preview`}
               className="h-full w-full"
               alignY="center"
               fitMode="actual"
@@ -813,7 +813,7 @@ export function ComponentCard({
           <>
             <motion.button
               type="button"
-              aria-label="关闭预览"
+              aria-label="Close preview"
               className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -870,8 +870,8 @@ export function ComponentCard({
                           href={`/registry/${owner}/${name}`}
                           className="inline-flex size-9 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-800 shadow-sm transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                           onClick={(event) => event.stopPropagation()}
-                          aria-label="展开详情页"
-                          title="展开详情"
+                          aria-label="Open registry detail page"
+                          title="Open detail page"
                         >
                           <HugeiconsIcon icon={ExpandIcon} strokeWidth={1.8} />
                         </Link>
@@ -882,7 +882,7 @@ export function ComponentCard({
                       detailData?.registryDependencies?.length) ? (
                       <div className="mt-4 flex flex-wrap items-center gap-2">
                         <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                          依赖：
+                          Dependencies:
                         </span>
                         {detailData.dependencies.map((dep) => (
                           <span
@@ -906,11 +906,11 @@ export function ComponentCard({
                     <div className="mt-6 space-y-6 pb-2">
                       <section className="space-y-3">
                         <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                          用于项目
+                          Use in your project
                         </h3>
                         <div className="rounded-2xl border border-zinc-200 bg-zinc-100 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
                           <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
-                            shadcn CLI 安装
+                            shadcn CLI install
                           </p>
                           <code className="block break-all font-mono text-sm text-zinc-800 dark:text-zinc-200">
                             {installCommand}
@@ -928,13 +928,13 @@ export function ComponentCard({
                               <TableHeader>
                                 <TableRow className="border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80">
                                   <TableHead className="text-zinc-500 dark:text-zinc-400">
-                                    属性
+                                    Name
                                   </TableHead>
                                   <TableHead className="text-zinc-500 dark:text-zinc-400">
-                                    类型
+                                    Type
                                   </TableHead>
                                   <TableHead className="text-zinc-500 dark:text-zinc-400">
-                                    可选
+                                    Optional
                                   </TableHead>
                                 </TableRow>
                               </TableHeader>
@@ -951,7 +951,7 @@ export function ComponentCard({
                                       {prop.type}
                                     </TableCell>
                                     <TableCell className="text-zinc-500 dark:text-zinc-400">
-                                      {prop.optional ? "是" : "—"}
+                                      {prop.optional ? "Yes" : "—"}
                                     </TableCell>
                                   </TableRow>
                                 ))}
@@ -967,7 +967,7 @@ export function ComponentCard({
                     <div
                       className="flex shrink-0 items-center gap-1 border-b border-zinc-200/90 bg-white/95 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/95"
                       role="tablist"
-                      aria-label="预览与代码"
+                      aria-label="Preview and code"
                     >
                       <button
                         type="button"
@@ -981,7 +981,7 @@ export function ComponentCard({
                         )}
                         onClick={() => setExpandedMainTab("preview")}
                       >
-                        预览
+                        Preview
                       </button>
                       <button
                         type="button"
@@ -995,7 +995,7 @@ export function ComponentCard({
                         )}
                         onClick={() => setExpandedMainTab("code")}
                       >
-                        代码
+                        Code
                       </button>
                     </div>
 
@@ -1011,7 +1011,7 @@ export function ComponentCard({
                         ref={expandedPreviewRef}
                         key={`expanded-preview-${owner}-${name}`}
                         src={`/preview/${owner}/${name}`}
-                        title={`${title} 预览`}
+                        title={`${title} preview`}
                         className="h-full w-full min-h-[12rem] lg:min-h-0"
                         interactive
                         alignY="center"
@@ -1040,7 +1040,7 @@ export function ComponentCard({
                           <div className="min-h-0 overflow-auto bg-zinc-50/70 p-1 dark:bg-zinc-900/35">
                             {isDetailPending ? (
                               <p className="px-1.5 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                                加载中…
+                                Loading…
                               </p>
                             ) : detailData?.files?.length ? (
                               <RegistryFileTree
@@ -1050,14 +1050,14 @@ export function ComponentCard({
                               />
                             ) : (
                               <p className="px-1.5 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                                没有可显示的文件
+                                No files to show
                               </p>
                             )}
                           </div>
                           <div className="min-h-[12rem] overflow-auto lg:min-h-0">
                             {isDetailPending ? (
                               <div className="flex min-h-[200px] items-center justify-center bg-[#0d1117] px-4 text-sm text-zinc-400">
-                                正在加载代码…
+                                Loading code…
                               </div>
                             ) : detailError ? (
                               <div className="flex min-h-[200px] items-center justify-center bg-[#0d1117] px-4 text-sm text-amber-400">

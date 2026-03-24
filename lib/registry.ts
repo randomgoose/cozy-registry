@@ -59,8 +59,11 @@ export function bumpVersion(
  * If userId is null, returns only public items.
  * Items include ownerId (userId) for per-user namespacing.
  */
-export async function getRegistryItems(userId?: string | null) {
-  const items = await db
+export async function getRegistryItems(
+  userId?: string | null,
+  pagination?: { limit?: number; offset?: number } | null,
+) {
+  const base = db
     .select({
       id: registryItems.id,
       userId: registryItems.userId,
@@ -90,20 +93,37 @@ export async function getRegistryItems(userId?: string | null) {
     )
     .orderBy(registryItems.name);
 
-  return items;
+  if (pagination?.limit != null) {
+    if (pagination.offset != null && pagination.offset > 0) {
+      return base.limit(pagination.limit).offset(pagination.offset);
+    }
+    return base.limit(pagination.limit);
+  }
+  if (pagination?.offset != null && pagination.offset > 0) {
+    return base.offset(pagination.offset);
+  }
+  return base;
 }
 
 export type RegistryScope = {
   requestUserId: string | null;
   policy: RegistryPolicy | null;
+  /** When set, applies SQL LIMIT (e.g. MCP pagination). */
+  listLimit?: number;
+  /** When set, applies SQL OFFSET (e.g. MCP pagination). */
+  listOffset?: number;
 };
 
 export async function getRegistryItemsScoped(scope: RegistryScope) {
-  const { requestUserId, policy } = scope;
+  const { requestUserId, policy, listLimit, listOffset } = scope;
+  const pagination =
+    listLimit != null || (listOffset != null && listOffset > 0)
+      ? { limit: listLimit, offset: listOffset }
+      : null;
 
   // No policy row: keep existing behavior.
   if (!policy) {
-    return getRegistryItems(requestUserId);
+    return getRegistryItems(requestUserId, pagination);
   }
 
   const allowedCollectionIds = policy.allowedCollectionIds ?? [];
@@ -183,8 +203,17 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
     }
   }
 
-  const items = await base.where(and(...clauses)).orderBy(registryItems.name);
-  return items;
+  const listed = base.where(and(...clauses)).orderBy(registryItems.name);
+  if (listLimit != null) {
+    if (listOffset != null && listOffset > 0) {
+      return listed.limit(listLimit).offset(listOffset);
+    }
+    return listed.limit(listLimit);
+  }
+  if (listOffset != null && listOffset > 0) {
+    return listed.offset(listOffset);
+  }
+  return listed;
 }
 
 /**

@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     null,
     requestUserId
   ).catch(() => null);
-  if (!item) return { title: "组件未找到" };
+  if (!item) return { title: "Component not found" };
   const canonicalOwner =
     (await resolveOwner(item.userId ?? owner))?.handle ?? owner;
   return {
@@ -77,7 +77,7 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
   try {
     versions = await getRegistryItemVersions(item.userId ?? owner, name, requestUserId);
   } catch {
-    // 无版本历史时仅显示当前
+    // If version history fails, UI still shows current version only
   }
 
   const baseUrl =

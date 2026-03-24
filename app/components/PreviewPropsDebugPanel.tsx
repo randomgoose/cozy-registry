@@ -193,8 +193,8 @@ export function PreviewPropsDebugPanel(props: {
   if (!values) {
     return (
       <div className="pointer-events-auto absolute right-3 top-3 z-20 w-[min(100%-1.5rem,220px)] rounded-xl border border-white/20 bg-zinc-950/90 p-3 text-xs text-on-inverse-muted-fg shadow-lg backdrop-blur-md dark:bg-zinc-950/92">
-        <p className="font-medium text-on-inverse-fg">Props 调试</p>
-        <p className="mt-2 leading-relaxed">等待预览加载完成后可调整…</p>
+        <p className="font-medium text-on-inverse-fg">Props debug</p>
+        <p className="mt-2 leading-relaxed">Adjust props after the preview loads.</p>
       </div>
     );
   }
@@ -205,7 +205,7 @@ export function PreviewPropsDebugPanel(props: {
       onClick={(e) => e.stopPropagation()}
     >
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-on-inverse-muted-fg">
-        Props 调试
+        Props debug
       </p>
       <div className="divide-y divide-on-inverse-border/60">
         {rows.map(({ field, meta }) =>

@@ -32,14 +32,14 @@ export type CodeBlockProps = {
   code: string;
   language?: string;
   /**
-   * default: rounded + border; long code can collapse with 展开.
+   * default: rounded + border; long code can collapse with expand.
    * flush: no border-radius / border — fills rectangular panel.
    */
   variant?: "default" | "flush";
   /**
    * default: collapse when many lines (all breakpoints).
    * full: always show full height, no expand control.
-   * narrow: full height from lg up; below lg, collapse + 展开/收起 when many lines.
+   * narrow: full height from lg up; below lg, collapse + expand/collapse when many lines.
    */
   overflowMode?: "default" | "full" | "narrow";
 };
@@ -142,11 +142,11 @@ export function CodeBlock({
         >
           {collapsed ? (
             <>
-              <span>展开</span>
-              <span className="text-zinc-400">({lines.length} 行)</span>
+              <span>Expand</span>
+              <span className="text-zinc-400">({lines.length} lines)</span>
             </>
           ) : (
-            "收起"
+            "Collapse"
           )}
         </Button>
       )}

@@ -198,12 +198,12 @@ export function RegistryFileTree(props: {
 
   if (tree.length === 0) {
     return (
-      <p className="px-1.5 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">没有可显示的文件</p>
+      <p className="px-1.5 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">No files to show</p>
     );
   }
 
   return (
-    <nav className="text-[11px]" aria-label="组件文件">
+    <nav className="text-[11px]" aria-label="Component files">
       <ul className="space-y-0.5" role="tree">
         <FileTreeNodes
           nodes={tree}

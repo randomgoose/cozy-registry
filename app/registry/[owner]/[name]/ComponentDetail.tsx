@@ -33,23 +33,23 @@ interface ComponentDetailProps {
   type: string;
   visibility: "public" | "private";
   code: string;
-  /** 完整安装 URL（如 https://xxx.vercel.app/api/r/owner/name），用于 shadcn add；未设置时仅展示路径 */
+  /** Full install URL (e.g. https://xxx.vercel.app/api/r/owner/name) for shadcn add; if unset, UI shows a path placeholder */
   installUrl: string | null;
-  /** 当前最新版本号 */
+  /** Latest published version */
   currentVersion: string;
-  /** 当前选中的版本（用于展示与安装命令） */
+  /** Selected version (for display and install command) */
   selectedVersion: string;
-  /** 版本列表（含当前），用于版本选择器 */
+  /** All versions (incl. current) for the version selector */
   versions: VersionInfo[];
-  /** 是否为当前登录用户自己的组件（owner） */
+  /** Whether the signed-in user owns this item */
   isOwner: boolean;
-  /** npm 依赖（如 react、clsx） */
+  /** npm deps (e.g. react, clsx) */
   dependencies: string[];
-  /** 本 registry 内依赖（如 @owner/other-component） */
+  /** In-registry deps (e.g. @owner/other-component) */
   registryDependencies: string[];
-  /** 从 TSX 解析出的 Props 接口字段 */
+  /** Props parsed from TSX */
   propsFromCode: PropField[];
-  /** 当前版本 bundle 中的所有文件（path + content） */
+  /** All files in the current version bundle */
   files: { path: string; content: string; type: string }[];
 }
 
@@ -82,7 +82,7 @@ export function ComponentDetail({
     useState(selectedVersion);
   const router = useRouter();
 
-  // 当路由参数变化时，同步下拉框与本地状态
+  // Keep selector in sync when route search params change
   useEffect(() => {
     setLocalSelectedVersion(selectedVersion);
   }, [selectedVersion]);
@@ -98,7 +98,7 @@ export function ComponentDetail({
   }
 
   const baseInstallUrl =
-    installUrl ?? `https://你的registry域名/api/r/${owner}/${name}`;
+    installUrl ?? `https://your-registry-domain/api/r/${owner}/${name}`;
   const installUrlWithVersion =
     localSelectedVersion && localSelectedVersion !== currentVersion
       ? `${baseInstallUrl}?v=${encodeURIComponent(localSelectedVersion)}`
@@ -113,10 +113,10 @@ export function ComponentDetail({
 
   const typeLabel =
     type === "registry:theme"
-      ? "主题"
+      ? "Theme"
       : type.replace("registry:", "") === "block"
-        ? "模块"
-        : "组件";
+        ? "Block"
+        : "Component";
   const previewHref =
     localSelectedVersion && localSelectedVersion !== currentVersion
       ? `/preview/${owner}/${name}?v=${encodeURIComponent(
@@ -140,7 +140,7 @@ export function ComponentDetail({
   async function handleDelete() {
     if (deleting) return;
     const confirmed = window.confirm(
-      "确定要删除这个组件吗？此操作会删除所有版本，且不可恢复。",
+      "Delete this component? This removes all versions and cannot be undone.",
     );
     if (!confirmed) return;
     try {
@@ -150,7 +150,7 @@ export function ComponentDetail({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        const msg = data?.error || `删除失败（${res.status}）`;
+        const msg = data?.error || `Delete failed (${res.status})`;
         window.alert(msg);
         return;
       }
@@ -165,8 +165,8 @@ export function ComponentDetail({
     const next = localVisibility === "public" ? "private" : "public";
     const confirmed = window.confirm(
       next === "private"
-        ? "设为私有后，只有你自己可以访问/预览/安装这个组件。确定继续吗？"
-        : "设为公开后，所有人都可以访问/预览/安装这个组件。确定继续吗？",
+        ? "Only you will be able to view, preview, and install this component. Continue?"
+        : "Anyone will be able to view, preview, and install this component. Continue?",
     );
     if (!confirmed) return;
     try {
@@ -178,7 +178,7 @@ export function ComponentDetail({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        const msg = data?.error || `更新失败（${res.status}）`;
+        const msg = data?.error || `Update failed (${res.status})`;
         window.alert(msg);
         return;
       }
@@ -198,7 +198,7 @@ export function ComponentDetail({
               href="/"
               className="hover:text-zinc-700 dark:hover:text-zinc-300"
             >
-              列表
+              Browse
             </Link>
             <span aria-hidden>/</span>
             <span className="font-medium text-zinc-700 dark:text-zinc-300">
@@ -222,7 +222,7 @@ export function ComponentDetail({
                       : "rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
                   }
                 >
-                  {localVisibility === "public" ? "公开" : "私有"}
+                  {localVisibility === "public" ? "Public" : "Private"}
                 </span>
                 {versions.length > 0 && (
                   <>
@@ -232,7 +232,7 @@ export function ComponentDetail({
                     </span>
                     {versions.length > 1 && (
                       <select
-                        aria-label="选择版本"
+                        aria-label="Select version"
                         value={localSelectedVersion}
                         onChange={handleVersionChange}
                         className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
@@ -240,7 +240,7 @@ export function ComponentDetail({
                         {versions.map((v) => (
                           <option key={v.version} value={v.version}>
                             v{v.version}
-                            {v.version === currentVersion ? " (最新)" : ""}
+                            {v.version === currentVersion ? " (latest)" : ""}
                           </option>
                         ))}
                       </select>
@@ -257,7 +257,7 @@ export function ComponentDetail({
               {(dependencies.length > 0 || registryDependencies.length > 0) && (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    依赖：
+                    Dependencies:
                   </span>
                   {dependencies.map((dep) => (
                     <span
@@ -285,7 +285,7 @@ export function ComponentDetail({
                 rel="noopener noreferrer"
                 className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
               >
-                预览
+                Preview
               </Link>
               {isOwner && (
                 <Button
@@ -296,10 +296,10 @@ export function ComponentDetail({
                   disabled={togglingVisibility}
                 >
                   {togglingVisibility
-                    ? "正在更新…"
+                    ? "Updating…"
                     : localVisibility === "public"
-                      ? "设为私有"
-                      : "设为公开"}
+                      ? "Make private"
+                      : "Make public"}
                 </Button>
               )}
               {isOwner && (
@@ -310,11 +310,11 @@ export function ComponentDetail({
                   onClick={handleDelete}
                   disabled={deleting}
                 >
-                  {deleting ? "正在删除…" : "删除组件"}
+                  {deleting ? "Deleting…" : "Delete component"}
                 </Button>
               )}
               <Button variant="default" size="lg" onClick={handleCopy}>
-                {copied ? "已复制" : "复制代码"}
+                {copied ? "Copied" : "Copy code"}
               </Button>
             </div>
           </div>
@@ -327,20 +327,20 @@ export function ComponentDetail({
         {files.length > 0 && (
           <section className="mb-8">
             <h2 className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
-              文件列表
+              Files
             </h2>
             <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white text-sm dark:border-zinc-800 dark:bg-zinc-900">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[60%] text-zinc-500 dark:text-zinc-400">
-                      路径
+                      Path
                     </TableHead>
                     <TableHead className="w-[20%] text-zinc-500 dark:text-zinc-400">
-                      类型
+                      Type
                     </TableHead>
                     <TableHead className="w-[20%] text-right text-zinc-500 dark:text-zinc-400">
-                      行数
+                      Lines
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -380,13 +380,13 @@ export function ComponentDetail({
                 <TableHeader>
                   <TableRow className="border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/80 hover:bg-zinc-50 dark:hover:bg-zinc-900/80">
                     <TableHead className="text-zinc-500 dark:text-zinc-400">
-                      属性
+                      Name
                     </TableHead>
                     <TableHead className="text-zinc-500 dark:text-zinc-400">
-                      类型
+                      Type
                     </TableHead>
                     <TableHead className="text-zinc-500 dark:text-zinc-400">
-                      可选
+                      Optional
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -403,7 +403,7 @@ export function ComponentDetail({
                         {p.type}
                       </TableCell>
                       <TableCell className="text-zinc-500 dark:text-zinc-400">
-                        {p.optional ? "是" : "—"}
+                        {p.optional ? "Yes" : "—"}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -416,7 +416,7 @@ export function ComponentDetail({
         <section className="mb-8">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-              {isTheme ? "主题预览" : "组件预览"}
+              {isTheme ? "Theme preview" : "Component preview"}
             </h2>
             <Link
               href={previewHref}
@@ -424,12 +424,12 @@ export function ComponentDetail({
               rel="noopener noreferrer"
               className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
             >
-              在新窗口打开
+              Open in new tab
             </Link>
           </div>
           <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
             <PreviewFrame
-              title={`${title} 预览`}
+              title={`${title} preview`}
               src={previewHref}
               className="h-[420px] w-full"
               fitMode="actual"
@@ -442,11 +442,11 @@ export function ComponentDetail({
           <section className="mb-8 space-y-2">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                版本历史
+                Version history
               </h2>
               {selectedVersion !== currentVersion && (
                 <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900/60">
-                  当前查看 v{selectedVersion}，最新为 v{currentVersion}
+                  Viewing v{selectedVersion}; latest is v{currentVersion}
                 </span>
               )}
             </div>
@@ -468,7 +468,7 @@ export function ComponentDetail({
                       </span>
                       {isLatest && (
                         <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-200">
-                          最新
+                          Latest
                         </span>
                       )}
                     </div>
@@ -491,28 +491,32 @@ export function ComponentDetail({
 
         <section className="mb-8 space-y-4">
           <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-            {isTheme ? "用于项目或设计工具" : "用于项目"}
+            {isTheme ? "Use in projects or design tools" : "Use in your project"}
           </h2>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
             {isTheme ? (
               <>
-                主题可以直接导出为 CSS，或导出为 W3C 兼容的 Design Tokens JSON，供设计工具、构建脚本或项目的样式系统接入。
+                Export this theme as CSS or as W3C-compatible Design Tokens JSON for design tools, build scripts, or your style system.
                 <span className="mt-1 block text-zinc-500 dark:text-zinc-500">
-                  引用路径：<code className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200">
+                  Coordinate:{" "}
+                  <code className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200">
                     @{owner}/{name}
                   </code>
-                  。如果要锁定版本，仍然可以通过下方命令附带 <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-700">?v=x.y.z</code>。
+                  . To pin a version, append{" "}
+                  <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-700">?v=x.y.z</code> to the install command below.
                 </span>
               </>
             ) : (
               <>
-                引用路径：<code className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200">
+                Coordinate:{" "}
+                <code className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200">
                   @{owner}/{name}
                 </code>
-                ，或从本页复制下方代码到你的项目中。
+                , or copy the code below into your project.
                 {versions.length > 1 && (
                   <span className="mt-1 block text-zinc-500 dark:text-zinc-500">
-                    选择具体版本后，安装命令会带上 <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-700">?v=x.y.z</code>，便于锁定版本或后续按需升级。
+                    After choosing a version, the install command includes{" "}
+                    <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-700">?v=x.y.z</code> so you can pin or upgrade later.
                   </span>
                 )}
               </>
@@ -521,8 +525,8 @@ export function ComponentDetail({
           <div>
             <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
               {isTheme
-                ? "Theme 也可以通过 registry URL 分发；如果你在项目里用 shadcn registry 流程，可以复制这条命令。"
-                : "shadcn CLI（需已安装 shadcn）：复制命令后在项目根目录执行"}
+                ? "Themes can be distributed via the registry URL. If you use the shadcn registry flow, copy and run this command."
+                : "shadcn CLI (install shadcn first): copy the command and run it at your project root"}
             </p>
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-100 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
               <code className="min-w-0 flex-1 break-all font-mono text-sm text-zinc-800 dark:text-zinc-200">
@@ -535,12 +539,12 @@ export function ComponentDetail({
                 className="shrink-0"
                 onClick={handleCopyCommand}
               >
-                {copiedCmd ? "已复制" : "复制命令"}
+                {copiedCmd ? "Copied" : "Copy command"}
               </Button>
             </div>
             {!installUrl && (
               <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
-                部署时设置 <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">NEXT_PUBLIC_APP_URL</code> 可显示完整可执行命令。
+                Set <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">NEXT_PUBLIC_APP_URL</code> when deploying to show a full, runnable command.
               </p>
             )}
           </div>
@@ -560,10 +564,10 @@ export function ComponentDetail({
         <section>
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-              {isTheme ? "CSS 源码" : "TSX"}
+              {isTheme ? "CSS source" : "TSX"}
             </span>
             <Button variant="ghost" size="sm" onClick={handleCopy}>
-              {copied ? "已复制" : "复制"}
+              {copied ? "Copied" : "Copy"}
             </Button>
           </div>
           <CodeBlock code={code} language={isTheme ? "css" : "tsx"} />

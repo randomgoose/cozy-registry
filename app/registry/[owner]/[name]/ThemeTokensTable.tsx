@@ -49,7 +49,7 @@ export function ThemeTokensTable(props: { files: FileEntry[] }) {
   return (
     <section className="mt-8">
       <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-        Tokens（来自 {tokensJsonFile.path}）
+        Tokens (from {tokensJsonFile.path})
       </h2>
       <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="max-h-[360px] overflow-auto">

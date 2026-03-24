@@ -294,14 +294,14 @@ export function ThemeTokenEditor({
 
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(data?.error || "保存失败");
+        throw new Error(data?.error || "Save failed");
       }
 
       setStatus("saved");
       window.location.href = `/registry/${owner}/${name}`;
     } catch (err) {
       setStatus("error");
-      setError(err instanceof Error ? err.message : "保存失败");
+      setError(err instanceof Error ? err.message : "Save failed");
     }
   }
 
@@ -314,8 +314,8 @@ export function ThemeTokenEditor({
           </h2>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
             {isOwner
-              ? "你可以直接在表格里改 token，并保存为新的 patch 版本。"
-              : "当前主题的 tokens 已整理成表格，便于浏览和导出。"}
+              ? "Edit tokens in the table and save a new patch version."
+              : "This theme’s tokens are shown in a table for browsing and export."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -325,7 +325,7 @@ export function ThemeTokenEditor({
             size="sm"
             onClick={() => copyExport("css")}
           >
-            {copiedExport === "css" ? "已复制 CSS" : "复制 CSS"}
+            {copiedExport === "css" ? "CSS copied" : "Copy CSS"}
           </Button>
           <Button
             type="button"
@@ -333,7 +333,7 @@ export function ThemeTokenEditor({
             size="sm"
             onClick={() => copyExport("tokens")}
           >
-            {copiedExport === "tokens" ? "已复制 Tokens" : "复制 Design Tokens"}
+            {copiedExport === "tokens" ? "Tokens copied" : "Copy Design Tokens"}
           </Button>
           <Button
             type="button"
@@ -343,7 +343,7 @@ export function ThemeTokenEditor({
               downloadTextFile(`${name}.css`, serializedCss, "text/css")
             }
           >
-            导出 CSS
+            Download CSS
           </Button>
           <Button
             type="button"
@@ -357,7 +357,7 @@ export function ThemeTokenEditor({
               )
             }
           >
-            导出 W3C Tokens
+            Download W3C tokens
           </Button>
           {isOwner && (
             <Button
@@ -366,7 +366,7 @@ export function ThemeTokenEditor({
               onClick={saveTheme}
               disabled={!canSave || status === "saving"}
             >
-              {status === "saving" ? "保存中..." : "保存为新版本"}
+              {status === "saving" ? "Saving…" : "Save as new version"}
             </Button>
           )}
         </div>
@@ -374,9 +374,9 @@ export function ThemeTokenEditor({
 
       {!hasRows ? (
         <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-5 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-400">
-          没解析到 <code>:root</code> 里的 CSS variables。这个 theme
-          仍然会保留源码展示，但要使用表格编辑，建议把 token 写成{" "}
-          <code>:root {"{ --color-primary: ... }"}</code> 这种格式。
+          No CSS variables were found under <code>:root</code>. The raw theme still
+          appears below; for table editing, use{" "}
+          <code>:root {"{ --color-primary: ... }"}</code> style declarations.
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -387,7 +387,7 @@ export function ThemeTokenEditor({
                 <TableHead className="w-[34%]">Value</TableHead>
                 <TableHead className="w-[18%]">Type</TableHead>
                 <TableHead className="w-[20%] text-right">
-                  {isOwner ? "操作" : "说明"}
+                  {isOwner ? "Actions" : "Notes"}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -454,11 +454,11 @@ export function ThemeTokenEditor({
                         size="sm"
                         onClick={() => removeRow(row.id)}
                       >
-                        删除
+                        Remove
                       </Button>
                     ) : (
                       <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                        导出为 CSS 或 tokens
+                        Export as CSS or tokens
                       </span>
                     )}
                   </TableCell>
@@ -472,11 +472,11 @@ export function ThemeTokenEditor({
       {isOwner && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Button type="button" variant="outline" size="sm" onClick={addRow}>
-            新增 Token
+            Add token
           </Button>
           {!canSave && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
-              当前正在查看历史版本。切回最新版本后才能直接保存编辑结果。
+              You’re viewing an older version. Switch to the latest version to save edits.
             </p>
           )}
         </div>
@@ -486,10 +486,10 @@ export function ThemeTokenEditor({
         <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/50">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
-              附加 CSS
+              Extra CSS
             </h3>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
-              :root 外的规则
+              Outside :root
             </span>
           </div>
           {isOwner ? (
@@ -498,11 +498,11 @@ export function ThemeTokenEditor({
               onChange={(event) => setExtraCss(event.target.value)}
               rows={8}
               className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus:border-amber-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-              placeholder="可选：保留 body、.dark 或其他额外规则"
+              placeholder="Optional: body, .dark, or other rules"
             />
           ) : (
             <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-zinc-700 dark:text-zinc-300">
-              {extraCss || "无附加规则"}
+              {extraCss || "No extra rules"}
             </pre>
           )}
         </div>
@@ -510,7 +510,7 @@ export function ThemeTokenEditor({
         <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/50">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
-              导出预览
+              Export preview
             </h3>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
               DTCG / CSS
@@ -530,7 +530,7 @@ export function ThemeTokenEditor({
 
       {status === "saved" && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300">
-          已保存新的 theme 版本，正在刷新页面。
+          New theme version saved. Refreshing…
         </div>
       )}
     </section>

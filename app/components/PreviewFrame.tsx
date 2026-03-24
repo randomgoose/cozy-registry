@@ -221,7 +221,7 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
                 aria-hidden
               />
               <p className="text-xs font-medium tracking-wide text-zinc-500 dark:text-zinc-400">
-                加载预览…
+                Loading preview…
               </p>
             </div>
           </div>

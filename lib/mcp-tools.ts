@@ -221,7 +221,8 @@ export function createRegistryMcpServer(request?: Request) {
 
   server.registerTool("list_components", {
     title: "List components",
-    description: "List all components and modules available in the registry. Use this to discover what's available before fetching a specific component. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>.",
+    description:
+      "List components and modules available in the registry. Use this to discover what's available before fetching a specific component. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>. For large registries, pass `limit` (and increase `offset` for the next page) to avoid huge responses—similar to paginated UI lists.",
     inputSchema: z
       .object({
         collection: z
@@ -230,10 +231,27 @@ export function createRegistryMcpServer(request?: Request) {
           .describe(
             "Optional collection slug to scope results (e.g. dashboard-blocks). This is an ad-hoc scope for this call (not token policy).",
           ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe(
+            "Max number of items to return. If omitted, returns the full list (may be very large). Use with `offset` for pagination.",
+          ),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe(
+            "Skip this many items (0-based). Only applies when `limit` is set; use the suggested next offset when the response indicates more results.",
+          ),
       })
-      .describe("Optional collection scope"),
+      .describe("Optional collection scope and pagination"),
     annotations: MCP_ANN.readOpen,
-  }, async ({ collection }) => {
+  }, async ({ collection, limit, offset: offsetArg }) => {
     const ctx = request ? await getAuthContextFromToken(request) : null;
     const userId = ctx?.userId ?? null;
     const policyFromToken = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
@@ -241,11 +259,17 @@ export function createRegistryMcpServer(request?: Request) {
       collection && userId
         ? await getAdhocPolicyForCollectionSlug(collection, userId)
         : policyFromToken;
+    const offset = offsetArg ?? 0;
+    const fetchLimit = limit != null ? limit + 1 : undefined;
     const items = await getRegistryItemsScoped({
       requestUserId: userId,
       policy,
+      listLimit: fetchLimit,
+      listOffset: limit != null ? offset : undefined,
     });
-    const summary = items
+    const hasMore = limit != null && items.length > limit;
+    const page = limit != null ? items.slice(0, limit) : items;
+    const summary = page
       .map(
         (i) => {
           const owner = (i as { ownerHandle?: string | null; userId?: string | null }).ownerHandle ?? i.userId ?? "legacy";
@@ -254,11 +278,16 @@ export function createRegistryMcpServer(request?: Request) {
       )
       .join("\n");
 
+    const paginationNote =
+      limit != null
+        ? `\n\n_Pagination: showing ${page.length} item(s) (offset ${offset}, limit ${limit}).${hasMore ? ` More available — call again with offset=${offset + limit} (same limit).` : " End of list."}_`
+        : "";
+
     return {
       content: [
         {
           type: "text" as const,
-          text: `Available components (${items.length}):\n\n${summary}`,
+          text: `Available components (${limit != null ? `${page.length} shown${hasMore ? "+" : ""}` : items.length}):\n\n${summary || "(none)"}${paginationNote}`,
         },
       ],
     };
