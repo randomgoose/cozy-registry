@@ -89,8 +89,39 @@ function isCodeFile(path: string): boolean {
   return /\.(tsx?|jsx?|css|json)$/i.test(path);
 }
 
-function registryItemJsonUrl(owner: string, name: string) {
-  return `/api/r/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+function registryItemJsonUrl(
+  owner: string,
+  name: string,
+  version: string | null,
+) {
+  const base = `/api/r/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  if (!version) return base;
+  return `${base}?v=${encodeURIComponent(version)}`;
+}
+
+function previewPageUrl(
+  owner: string,
+  name: string,
+  version: string | null,
+) {
+  const base = `/preview/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  if (!version) return base;
+  return `${base}?v=${encodeURIComponent(version)}`;
+}
+
+/** Semver-ish descending order for version labels */
+function sortVersionsDesc(versions: string[]): string[] {
+  return [...versions].sort((a, b) => {
+    const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
+    const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
+    const n = Math.max(pa.length, pb.length);
+    for (let i = 0; i < n; i++) {
+      const da = pa[i] ?? 0;
+      const db = pb[i] ?? 0;
+      if (db !== da) return db - da;
+    }
+    return b.localeCompare(a);
+  });
 }
 
 export function ComponentCard({
@@ -136,6 +167,33 @@ export function ComponentCard({
   const [expandedMainTab, setExpandedMainTab] = useState<"preview" | "code">(
     "preview",
   );
+  /** `null` = latest (no `?v=`). Otherwise pinned historical version. */
+  const [selectedDetailVersion, setSelectedDetailVersion] = useState<
+    string | null
+  >(null);
+  const [versionMeta, setVersionMeta] = useState<{
+    currentVersion: string;
+    versions: { version: string }[];
+  } | null>(null);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+
+  const vParam = useMemo(() => {
+    if (selectedDetailVersion == null) return null;
+    if (versionMeta && selectedDetailVersion === versionMeta.currentVersion) {
+      return null;
+    }
+    return selectedDetailVersion;
+  }, [selectedDetailVersion, versionMeta]);
+
+  const versionOptions = useMemo(() => {
+    if (!versionMeta) return [];
+    const s = new Set<string>();
+    s.add(versionMeta.currentVersion);
+    for (const v of versionMeta.versions) {
+      s.add(v.version);
+    }
+    return sortVersionsDesc([...s]);
+  }, [versionMeta]);
 
   function applyFallbackThumbnailScale(width: number, height: number) {
     const ratio = width / height;
@@ -319,10 +377,13 @@ export function ComponentCard({
     () => filterControllableProps(propsFromCode),
     [propsFromCode],
   );
-  const installCommand =
-    typeof window !== "undefined"
-      ? `npx shadcn@latest add ${window.location.origin}/api/r/${owner}/${name}`
-      : `npx shadcn@latest add /api/r/${owner}/${name}`;
+  const installCommand = useMemo(() => {
+    const path = registryItemJsonUrl(owner, name, vParam);
+    if (typeof window !== "undefined") {
+      return `npx shadcn@latest add ${window.location.origin}${path}`;
+    }
+    return `npx shadcn@latest add ${path}`;
+  }, [owner, name, vParam]);
 
   async function handleCopy() {
     try {
@@ -337,7 +398,7 @@ export function ComponentCard({
 
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(registryItemJsonUrl(owner, name), {
+      const res = await fetch(registryItemJsonUrl(owner, name, vParam), {
         signal: controller.signal,
       });
       window.clearTimeout(timeout);
@@ -432,12 +493,53 @@ export function ComponentCard({
     setSelectedPath(null);
     setLivePreviewProps(null);
     setExpandedMainTab("preview");
+    setSelectedDetailVersion(null);
+    setVersionMeta(null);
   }, [name, owner]);
 
   useEffect(() => {
     if (!expanded) return;
+    const controller = new AbortController();
+    let cancelled = false;
+    setVersionsLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/registry/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/versions`,
+          { signal: controller.signal, cache: "no-store" },
+        );
+        if (!res.ok) {
+          if (!cancelled) setVersionMeta(null);
+          return;
+        }
+        const data = (await res.json()) as {
+          currentVersion?: string;
+          versions?: { version: string }[];
+        };
+        if (cancelled) return;
+        setVersionMeta({
+          currentVersion:
+            typeof data.currentVersion === "string"
+              ? data.currentVersion
+              : "0.1.0",
+          versions: Array.isArray(data.versions) ? data.versions : [],
+        });
+      } catch {
+        if (!cancelled) setVersionMeta(null);
+      } finally {
+        if (!cancelled) setVersionsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [expanded, owner, name]);
 
-    const itemKey = `${owner}\0${name}`;
+  useEffect(() => {
+    if (!expanded) return;
+
+    const itemKey = `${owner}\0${name}\0${vParam ?? "latest"}`;
     if (detailLoadedKeyRef.current === itemKey) {
       return;
     }
@@ -449,8 +551,9 @@ export function ComponentCard({
     async function loadDetailData() {
       setDetailLoading(true);
       setDetailError(null);
+      setDetailData(null);
       try {
-        const res = await fetch(registryItemJsonUrl(owner, name), {
+        const res = await fetch(registryItemJsonUrl(owner, name, vParam), {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -506,13 +609,14 @@ export function ComponentCard({
       window.clearTimeout(timeoutId);
       setDetailLoading(false);
     };
-  }, [expanded, name, owner]);
+  }, [expanded, name, owner, vParam]);
 
   useEffect(() => {
     if (expanded) return;
     setDetailError(null);
     setLivePreviewProps(null);
     setExpandedMainTab("preview");
+    setSelectedDetailVersion(null);
   }, [expanded]);
 
   useEffect(() => {
@@ -536,9 +640,13 @@ export function ComponentCard({
   }, [expanded]);
 
   useEffect(() => {
+    setLivePreviewProps(null);
+  }, [vParam]);
+
+  useEffect(() => {
     if (!expanded || livePreviewProps == null) return;
     expandedPreviewRef.current?.sendPreviewProps(livePreviewProps);
-  }, [expanded, livePreviewProps]);
+  }, [expanded, livePreviewProps, vParam]);
 
   const handlePreviewPropChange = useCallback((propName: string, value: unknown) => {
     setLivePreviewProps((prev) => (prev ? { ...prev, [propName]: value } : null));
@@ -965,38 +1073,75 @@ export function ComponentCard({
 
                   <div className="order-1 flex w-full flex-1 flex-col overflow-hidden border-b border-zinc-200/80 bg-zinc-50/40 min-h-[min(42dvh,20rem)] sm:min-h-[min(44dvh,22rem)] lg:order-2 lg:min-h-0 lg:border-b-0 dark:border-zinc-800 dark:bg-zinc-950/40">
                     <div
-                      className="flex shrink-0 items-center gap-1 border-b border-zinc-200/90 bg-white/95 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/95"
+                      className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-200/90 bg-white/95 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/95"
                       role="tablist"
                       aria-label="Preview and code"
                     >
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={expandedMainTab === "preview"}
-                        className={cn(
-                          "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                          expandedMainTab === "preview"
-                            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                            : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800",
-                        )}
-                        onClick={() => setExpandedMainTab("preview")}
-                      >
-                        Preview
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={expandedMainTab === "code"}
-                        className={cn(
-                          "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                          expandedMainTab === "code"
-                            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                            : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800",
-                        )}
-                        onClick={() => setExpandedMainTab("code")}
-                      >
-                        Code
-                      </button>
+                      <div className="flex flex-1 flex-wrap items-center gap-1">
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={expandedMainTab === "preview"}
+                          className={cn(
+                            "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                            expandedMainTab === "preview"
+                              ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                              : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800",
+                          )}
+                          onClick={() => setExpandedMainTab("preview")}
+                        >
+                          Preview
+                        </button>
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={expandedMainTab === "code"}
+                          className={cn(
+                            "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                            expandedMainTab === "code"
+                              ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                              : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800",
+                          )}
+                          onClick={() => setExpandedMainTab("code")}
+                        >
+                          Code
+                        </button>
+                      </div>
+                      {versionOptions.length > 1 && versionMeta ? (
+                        <div className="flex min-w-0 shrink-0 items-center gap-2 sm:ml-auto">
+                          <label
+                            htmlFor={`card-expanded-version-${itemId}`}
+                            className="text-xs font-medium text-zinc-500 dark:text-zinc-400"
+                          >
+                            Version
+                          </label>
+                          <select
+                            id={`card-expanded-version-${itemId}`}
+                            className="max-w-[min(220px,42vw)] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                            value={
+                              selectedDetailVersion ?? versionMeta.currentVersion
+                            }
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (v === versionMeta.currentVersion) {
+                                setSelectedDetailVersion(null);
+                              } else {
+                                setSelectedDetailVersion(v);
+                              }
+                            }}
+                            disabled={versionsLoading}
+                          >
+                            {versionOptions.map((ver) => (
+                              <option key={ver} value={ver}>
+                                v{ver}
+                                {ver === versionMeta.currentVersion
+                                  ? " (latest)"
+                                  : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div
@@ -1009,8 +1154,8 @@ export function ComponentCard({
                     >
                       <PreviewFrame
                         ref={expandedPreviewRef}
-                        key={`expanded-preview-${owner}-${name}`}
-                        src={`/preview/${owner}/${name}`}
+                        key={`expanded-preview-${owner}-${name}-${vParam ?? "latest"}`}
+                        src={previewPageUrl(owner, name, vParam)}
                         title={`${title} preview`}
                         className="h-full w-full min-h-[12rem] lg:min-h-0"
                         interactive
