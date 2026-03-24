@@ -30,6 +30,8 @@ export function AppShell(props: {
   email: string | null;
   fullName: string;
   username: string;
+  activeOrganizationName?: string | null;
+  activeTeamName?: string | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -67,6 +69,18 @@ export function AppShell(props: {
               <div className="px-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
                 Workspace
               </div>
+              {props.activeTeamName ? (
+                <div className="mt-2 px-2">
+                  <div className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">
+                    {props.activeTeamName}
+                  </div>
+                  {props.activeOrganizationName ? (
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {props.activeOrganizationName}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <nav className="mt-3 space-y-1">
                 {APP_NAV_ITEMS.map((item) => {
                   const isActive = pathname === item.href;

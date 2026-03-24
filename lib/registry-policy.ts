@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 
 export type RegistryPolicy = {
   apiKeyId: string;
-  ownerUserId: string;
+  ownerUserId: string | null;
   allowedCollectionIds: string[];
   allowedTypes: string[];
   allowedOwnerHandlesOrIds: string[];
@@ -23,11 +23,10 @@ export async function getRegistryPolicyForApiKey(
   if (!row) return null;
   return {
     apiKeyId: row.apiKeyId,
-    ownerUserId: row.ownerUserId,
+    ownerUserId: row.ownerUserId ?? null,
     allowedCollectionIds: (row.allowedCollectionIds ?? []) as string[],
     allowedTypes: (row.allowedTypes ?? []) as string[],
     allowedOwnerHandlesOrIds: (row.allowedOwnerHandlesOrIds ?? []) as string[],
     allowPublicOutsideCollections: !!row.allowPublicOutsideCollections,
   };
 }
-

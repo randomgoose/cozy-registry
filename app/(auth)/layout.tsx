@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
+import { getWorkspaceContextForSession } from "@/lib/workspace-context";
 import { AppShell } from "./AppShell";
 
 export const dynamic = "force-dynamic";
@@ -27,8 +28,16 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
     username = row?.handle ?? username;
   }
 
+  const workspace = await getWorkspaceContextForSession(session);
+
   return (
-    <AppShell email={email} fullName={fullName} username={username}>
+    <AppShell
+      email={email}
+      fullName={fullName}
+      username={username}
+      activeOrganizationName={workspace.activeOrganization?.name ?? null}
+      activeTeamName={workspace.activeTeam?.name ?? null}
+    >
       {children}
     </AppShell>
   );

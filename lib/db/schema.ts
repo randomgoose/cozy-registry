@@ -39,6 +39,8 @@ export const session = pgTable(
       .notNull(),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
+    activeOrganizationId: text("active_organization_id"),
+    activeTeamId: text("active_team_id"),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -84,6 +86,101 @@ export const verification = pgTable(
       .notNull(),
   },
   (table) => [index("verification_identifier_idx").on(table.identifier)],
+);
+
+// Better Auth organization plugin tables
+export const organization = pgTable(
+  "organization",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull().unique(),
+    logo: text("logo"),
+    metadata: text("metadata"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("organization_slug_idx").on(table.slug)],
+);
+
+export const member = pgTable(
+  "member",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("viewer"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("member_organizationId_idx").on(table.organizationId),
+    index("member_userId_idx").on(table.userId),
+    unique("member_organization_user_key").on(table.organizationId, table.userId),
+  ],
+);
+
+export const team = pgTable(
+  "team",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("team_organizationId_idx").on(table.organizationId),
+    unique("team_organization_name_key").on(table.organizationId, table.name),
+  ],
+);
+
+export const teamMember = pgTable(
+  "team_member",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => team.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("team_member_teamId_idx").on(table.teamId),
+    index("team_member_userId_idx").on(table.userId),
+    unique("team_member_team_user_key").on(table.teamId, table.userId),
+  ],
+);
+
+export const invitation = pgTable(
+  "invitation",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role").notNull(),
+    status: text("status").notNull().default("pending"),
+    teamId: text("team_id").references(() => team.id, { onDelete: "cascade" }),
+    inviterId: text("inviter_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("invitation_organizationId_idx").on(table.organizationId),
+    index("invitation_email_idx").on(table.email),
+    index("invitation_teamId_idx").on(table.teamId),
+  ],
 );
 
 // OAuth 2.0 authorization codes (for Figma Make / MCP OAuth flow)
@@ -145,6 +242,7 @@ export const registryItems = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    teamId: text("team_id").references(() => team.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     type: text("type").notNull(), // registry:block, registry:component, etc.
     title: text("title").notNull(),
@@ -160,8 +258,10 @@ export const registryItems = pgTable(
   },
   (table) => [
     index("registry_items_userId_idx").on(table.userId),
+    index("registry_items_teamId_idx").on(table.teamId),
     // Per-user unique: each user can have one component per name
     unique("registry_items_user_name_key").on(table.userId, table.name),
+    unique("registry_items_team_name_key").on(table.teamId, table.name),
   ]
 );
 
@@ -215,9 +315,8 @@ export const registryCollections = pgTable(
   "registry_collections",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    ownerUserId: text("owner_user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: "cascade" }),
+    ownerTeamId: text("owner_team_id").references(() => team.id, { onDelete: "cascade" }),
     slug: text("slug").notNull(),
     title: text("title").notNull(),
     description: text("description"),
@@ -230,7 +329,9 @@ export const registryCollections = pgTable(
   },
   (table) => [
     index("registry_collections_ownerUserId_idx").on(table.ownerUserId),
+    index("registry_collections_ownerTeamId_idx").on(table.ownerTeamId),
     unique("registry_collections_owner_slug_key").on(table.ownerUserId, table.slug),
+    unique("registry_collections_owner_team_slug_key").on(table.ownerTeamId, table.slug),
   ],
 );
 
@@ -296,9 +397,8 @@ export const registryApiKeyPolicies = pgTable(
     apiKeyId: text("api_key_id")
       .primaryKey()
       .references(() => apiKey.id, { onDelete: "cascade" }),
-    ownerUserId: text("owner_user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: "cascade" }),
+    ownerTeamId: text("owner_team_id").references(() => team.id, { onDelete: "cascade" }),
     allowedCollectionIds: jsonb("allowed_collection_ids")
       .$type<string[]>()
       .default([]),
@@ -317,5 +417,6 @@ export const registryApiKeyPolicies = pgTable(
   },
   (table) => [
     index("registry_api_key_policies_ownerUserId_idx").on(table.ownerUserId),
+    index("registry_api_key_policies_ownerTeamId_idx").on(table.ownerTeamId),
   ],
 );

@@ -2,8 +2,10 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { apiKey } from "@better-auth/api-key";
 import { nextCookies } from "better-auth/next-js";
+import { organization as organizationPlugin } from "better-auth/plugins";
 import { db } from "./db";
 import * as schema from "./db/schema";
+import { organizationAccessControl, organizationRoles } from "./auth-organization";
 
 function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null;
@@ -28,6 +30,11 @@ export const auth = betterAuth({
       verification: schema.verification,
       apiKey: schema.apiKey,
       apikey: schema.apiKey, // api-key plugin uses "apikey" as model name
+      organization: schema.organization,
+      member: schema.member,
+      invitation: schema.invitation,
+      team: schema.team,
+      teamMember: schema.teamMember,
     },
   }),
   emailAndPassword: { enabled: true },
@@ -42,6 +49,28 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    organizationPlugin({
+      ac: organizationAccessControl,
+      roles: organizationRoles,
+      creatorRole: "owner",
+      teams: {
+        enabled: true,
+        defaultTeam: { enabled: true },
+      },
+      schema: {
+        session: {
+          fields: {
+            activeOrganizationId: "activeOrganizationId",
+            activeTeamId: "activeTeamId",
+          },
+        },
+        organization: { modelName: "organization" },
+        member: { modelName: "member" },
+        invitation: { modelName: "invitation" },
+        team: { modelName: "team" },
+        teamMember: { modelName: "teamMember" },
+      },
+    }),
     apiKey({
       defaultPrefix: "vbr_",
       apiKeyHeaders: ["x-api-key"],

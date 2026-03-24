@@ -18,6 +18,22 @@ cp .env.example .env
 # Edit .env and set DATABASE_URL
 ```
 
+For local environment separation, we recommend keeping:
+
+- `.env.dev` for the dev Supabase project
+- `.env.prod` for the production Supabase project
+
+Then use the explicit environment-aware scripts:
+
+```bash
+pnpm db:push:dev
+pnpm db:push:prod
+pnpm db:seed:dev
+pnpm db:seed:prod
+```
+
+Each command prints the selected environment file, database host, and app URL before it runs.
+
 ### 2. Database
 
 ```bash

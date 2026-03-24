@@ -34,6 +34,8 @@ Source of truth: yes
 - [`10-product/roadmap.md`](./10-product/roadmap.md)
 - [`10-product/phase-1-plan.md`](./10-product/phase-1-plan.md)
 - [`10-product/ai-selection-and-scope.md`](./10-product/ai-selection-and-scope.md)
+- [`10-product/team-workspaces-plan.md`](./10-product/team-workspaces-plan.md)
+- [`10-product/team-mvp-screens.md`](./10-product/team-mvp-screens.md)
 
 ### `20-engineering`
 
@@ -44,6 +46,8 @@ Source of truth: yes
 
 - [`20-engineering/component-preview-runtime.md`](./20-engineering/component-preview-runtime.md)
 - [`20-engineering/figma-make-mcp.md`](./20-engineering/figma-make-mcp.md)
+- [`20-engineering/team-data-model.md`](./20-engineering/team-data-model.md)
+- [`20-engineering/team-permission-matrix.md`](./20-engineering/team-permission-matrix.md)
 - [`20-engineering/oauth-client-strategy.md`](./20-engineering/oauth-client-strategy.md)
 - [`20-engineering/install-protocol.md`](./20-engineering/install-protocol.md)
 - [`20-engineering/resource-types.md`](./20-engineering/resource-types.md)
