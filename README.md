@@ -1,123 +1,123 @@
 # Cozy Registry
 
-设计师参与的组件分发中心，支持 Vibe Coding 与 AI 使用。
+A source-native component registry for design-led teams, built for Vibe Coding and AI workflows.
 
-## 功能
+## Features
 
-- **组件浏览**：查看、预览、复制已发布组件
-- **组件发布**：粘贴 TSX、填写元数据、通过语法检查后发布
-- **AI 集成**：MCP 工具供 Cursor、Figma Make 等调用
-- **shadcn 兼容**：输出标准 registry 格式，支持 shadcn CLI 等工具
+- **Component browsing**: View, preview, and copy published components
+- **Component publishing**: Paste TSX, add metadata, validate, and publish
+- **AI integrations**: MCP tools for Cursor, Figma Make, and similar clients
+- **shadcn-compatible output**: Emits standard registry format for shadcn CLI and related tooling
 
-## 快速开始
+## Quick Start
 
-### 1. 环境变量
+### 1. Environment variables
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填写 DATABASE_URL
+# Edit .env and set DATABASE_URL
 ```
 
-### 2. 数据库
+### 2. Database
 
 ```bash
 pnpm db:push
-pnpm db:seed   # 添加预设组件
+pnpm db:seed   # Seed example components
 ```
 
-### 3. 启动
+### 3. Start the app
 
 ```bash
 pnpm dev
 ```
 
-访问 http://localhost:3000
+Open [http://localhost:3000](http://localhost:3000)
 
-## 部署到 Vercel
+## Deploy to Vercel
 
-1. 将项目推送到 GitHub，或在本地运行 `vercel` 部署
-2. 在 Vercel 项目设置中配置环境变量：
-   - `DATABASE_URL`：使用 [Vercel Postgres](https://vercel.com/storage/postgres) 或 [Neon](https://neon.tech)、[Supabase](https://supabase.com) 等
-   - `NEXT_PUBLIC_APP_URL`：部署后的 URL（如 `https://xxx.vercel.app`），用于 MCP 和 registry 链接
-3. 部署后，本地连接生产数据库执行 schema 和 seed：
+1. Push the project to GitHub, or deploy locally with `vercel`
+2. Configure environment variables in your Vercel project:
+   - `DATABASE_URL`: use [Vercel Postgres](https://vercel.com/storage/postgres), [Neon](https://neon.tech), [Supabase](https://supabase.com), or another Postgres provider
+   - `NEXT_PUBLIC_APP_URL`: your deployed URL (for example `https://xxx.vercel.app`), used for MCP and registry links
+3. After deployment, connect to the production database locally and apply schema + seed data
 
-### 首次部署后
+### After the first deployment
 
-连接远程数据库执行 schema 和 seed：
+Run schema updates and seed data against the remote database:
 
 ```bash
-# 确保 .env 中的 DATABASE_URL 指向生产数据库
-pnpm db:migrate-legacy   # 如有旧数据，先迁移 userId
+# Make sure DATABASE_URL in .env points to the production database
+pnpm db:migrate-legacy   # If you have legacy data, migrate userId first
 pnpm db:push
 pnpm db:seed
 ```
 
 ## Thumbnail Worker
 
-列表页缩略图不是在请求页面时实时生成的，而是通过独立 worker 异步生成。
+List-page thumbnails are not generated on demand during page requests. They are produced asynchronously by a separate worker.
 
-### 需要的环境变量
+### Required environment variables
 
-- `DATABASE_URL`：worker 读写 job 表与 registry 元数据
-- `APP_URL`：公开站点地址，用于截图 `/preview/:owner/:name`
+- `DATABASE_URL`: used by the worker to read/write job records and registry metadata
+- `APP_URL`: the public site URL, used when capturing `/preview/:owner/:name`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_STORAGE_BUCKET`，建议使用 `registry-thumbnails`
+- `SUPABASE_STORAGE_BUCKET`, recommended value: `registry-thumbnails`
 
-本地调试时，如果 Playwright 无法自动找到浏览器，可额外设置：
+For local debugging, if Playwright cannot find a browser automatically, you can also set:
 
 - `THUMBNAIL_BROWSER_EXECUTABLE_PATH`
 
-### 运行方式
+### Run modes
 
-单次处理一条任务：
+Process a single job once:
 
 ```bash
 pnpm cozy-thumbnail-worker --once
 ```
 
-持续轮询：
+Run continuously in loop mode:
 
 ```bash
 pnpm cozy-thumbnail-worker
 ```
 
-### 推荐的线上部署方式
+### Recommended production deployment
 
-推荐将 worker 作为独立进程部署在 Linux 环境中（例如 Railway、Render、DigitalOcean App Platform 等），与 Vercel 上的 Web 应用分开运行：
+Deploy the worker as a separate process in a Linux environment (for example Railway, Render, or DigitalOcean App Platform), separate from the web app running on Vercel:
 
-- Web 应用：继续部署在 Vercel
-- Thumbnail worker：单独服务，建议使用 `Dockerfile.worker`
+- Web app: keep running on Vercel
+- Thumbnail worker: separate service, preferably using `Dockerfile.worker`
 
-在 Railway 上，优先使用 Docker 部署 worker，而不是默认 Node runtime。原因是截图依赖 Chromium 及其系统库，默认运行镜像可能缺少浏览器依赖，导致 launch 失败。
+On Railway, prefer Docker deployment for the worker instead of the default Node runtime. Thumbnail capture depends on Chromium and its system libraries, and the default runtime image may be missing those dependencies.
 
-Worker 容器内已经：
+The worker container already:
 
-- 安装 `chromium`
-- 设置 `THUMBNAIL_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium`
-- 默认执行 `pnpm run cozy-thumbnail-worker -- --loop`
+- installs `chromium`
+- sets `THUMBNAIL_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium`
+- runs `pnpm run cozy-thumbnail-worker -- --loop` by default
 
-worker 当前行为：
+Current worker behavior:
 
-- `registry:theme`：生成固定模板 thumbnail
-- `registry:block` / `registry:ui`：打开 `/preview/...` 页面截图并上传到 Supabase Storage
+- `registry:theme`: generates a fixed template thumbnail
+- `registry:block` / `registry:ui`: opens `/preview/...`, captures a screenshot, and uploads it to Supabase Storage
 
-### 首次上线检查
+### First production checklist
 
-1. 执行 `pnpm db:push`
-2. 在 Supabase Storage 创建 bucket：`registry-thumbnails`
-3. 发布一个资源，确认 `registry_asset_jobs` 中出现 `pending` job
-4. 启动 worker，确认 job 转为 `completed`
-5. 确认 `registry_items.meta.thumbnail` 已写入，列表页优先显示 thumbnail
+1. Run `pnpm db:push`
+2. Create the bucket `registry-thumbnails` in Supabase Storage
+3. Publish a resource and confirm a `pending` job appears in `registry_asset_jobs`
+4. Start the worker and confirm the job moves to `completed`
+5. Confirm `registry_items.meta.thumbnail` is written and the list page prefers the thumbnail
 
-## 文档
+## Documentation
 
-- [文档总览](docs/README.md)
+- [Documentation index](docs/README.md)
 - [Figma Make Quickstart](docs/user-guide/figma-make-quickstart.md)
-- [产品总览](docs/00-overview/product-summary.md)
-- [产品愿景](docs/10-product/vision.md)
-- [路线图](docs/10-product/roadmap.md)
-- [当前待办](docs/40-delivery/todo.md)
-- [Vibe Coding 提交规范](docs/30-rules/submission-guidelines.md)
-- [Figma Make MCP 连接](docs/20-engineering/figma-make-mcp.md)
-- [设置指南](SETUP.md)
+- [Product summary](docs/00-overview/product-summary.md)
+- [Product vision](docs/10-product/vision.md)
+- [Roadmap](docs/10-product/roadmap.md)
+- [Current TODOs](docs/40-delivery/todo.md)
+- [Vibe Coding submission guidelines](docs/30-rules/submission-guidelines.md)
+- [Figma Make MCP integration](docs/20-engineering/figma-make-mcp.md)
+- [Setup guide](SETUP.md)
