@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import {
   getRegistryItemByOwnerNameAndVersion,
+  getRegistryItemVersions,
+  getCurrentVersion,
   toShadcnRegistryItem,
   getThemeEntryCss,
 } from "@/lib/registry";
@@ -19,6 +21,64 @@ function escapeHtml(s: string): string {
 }
 function escapeHtmlCss(css: string): string {
   return css.replace(/<\/style/gi, "<\\/style");
+}
+
+/** Semver-ish descending sort for version labels */
+function sortVersionsDesc(versions: string[]): string[] {
+  return [...versions].sort((a, b) => {
+    const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
+    const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
+    const n = Math.max(pa.length, pb.length);
+    for (let i = 0; i < n; i++) {
+      const da = pa[i] ?? 0;
+      const db = pb[i] ?? 0;
+      if (db !== da) return db - da;
+    }
+    return b.localeCompare(a);
+  });
+}
+
+/**
+ * Fixed bar with version &lt;select&gt; (default preview only). Navigates by updating `?v=`.
+ */
+function buildVersionToolbarHtml(
+  effectiveVersion: string,
+  versionOptions: string[],
+  currentVersion: string,
+  previewMode: string,
+): string {
+  if (previewMode === "thumbnail" || versionOptions.length <= 1) {
+    return "";
+  }
+  const optionsHtml = versionOptions
+    .map((v) => {
+      const sel = v === effectiveVersion ? " selected" : "";
+      const latestSuffix = v === currentVersion ? " (latest)" : "";
+      return `<option value="${escapeHtml(v)}"${sel}>v${escapeHtml(v)}${escapeHtml(latestSuffix)}</option>`;
+    })
+    .join("");
+
+  const latestJson = JSON.stringify(currentVersion);
+
+  return `<div id="cozy-preview-version-bar" style="position:fixed;top:0;left:0;right:0;z-index:99999;box-sizing:border-box;display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #e4e4e7;background:#fafafa;font:13px/1.4 system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;color:#18181b;">
+  <label for="cozy-preview-version" style="font-weight:600;white-space:nowrap;">Version</label>
+  <select id="cozy-preview-version" style="flex:1;max-width:280px;padding:6px 10px;border-radius:8px;border:1px solid #d4d4d8;background:#fff;font:inherit;color:inherit;">
+    ${optionsHtml}
+  </select>
+</div>
+<script>
+(function(){
+  var sel = document.getElementById("cozy-preview-version");
+  if (!sel) return;
+  sel.addEventListener("change", function() {
+    var u = new URL(window.location.href);
+    var next = this.value;
+    var latest = ${latestJson};
+    if (next === latest) { u.searchParams.delete("v"); } else { u.searchParams.set("v", next); }
+    window.location.href = u.toString();
+  });
+})();
+</script>`;
 }
 
 function parseCssVariables(css: string) {
@@ -120,6 +180,33 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  let versionOptions: string[] = [];
+  if (item.userId) {
+    try {
+      const rows = await getRegistryItemVersions(item.userId, name, userId);
+      versionOptions = rows.map((r) => r.version);
+    } catch {
+      versionOptions = [];
+    }
+  }
+  const currentVer = getCurrentVersion(item);
+  if (versionOptions.length === 0) {
+    versionOptions = [currentVer];
+  } else if (!versionOptions.includes(currentVer)) {
+    versionOptions.push(currentVer);
+  }
+  versionOptions = sortVersionsDesc([...new Set(versionOptions)]);
+
+  const effectiveVersion = version ?? currentVer;
+  const versionToolbarHtml = buildVersionToolbarHtml(
+    effectiveVersion,
+    versionOptions,
+    currentVer,
+    previewMode,
+  );
+  const toolbarBodyPadding =
+    versionToolbarHtml.length > 0 ? "padding-top:48px;" : "";
+
   // Theme 条目：仅注入主题 CSS，展示简易预览页（STYLE_AND_THEME_SPEC §5.1 可选）
   if (item.type === "registry:theme") {
     const themeCss = getThemeEntryCss(item);
@@ -160,8 +247,9 @@ export async function GET(
     <script src="https://cdn.tailwindcss.com"></script>
     <style>${escapeHtmlCss(themeCss)}</style>
   </head>
-  <body style="min-height:100vh;margin:0;background:${escapeHtml(pageBg)};">
-    <main style="display:grid;min-height:100vh;width:100%;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;overflow:hidden;">
+  <body style="min-height:100vh;margin:0;background:${escapeHtml(pageBg)};${toolbarBodyPadding}">
+${versionToolbarHtml}
+    <main style="display:grid;min-height:${versionToolbarHtml ? "calc(100vh - 48px)" : "100vh"};width:100%;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;overflow:hidden;">
       ${themeSwatchSection(primary.value, primary.varName)}
       ${themeSwatchSection(secondary.value, secondary.varName)}
       ${themeSwatchSection(accent.value, accent.varName)}
@@ -317,7 +405,8 @@ export async function GET(
 ${importMapJson}
     </script>
   </head>
-  <body class="${previewMode === "thumbnail" ? "min-h-screen overflow-hidden bg-transparent" : "min-h-screen bg-white"}" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}">
+  <body class="${previewMode === "thumbnail" ? "min-h-screen overflow-hidden bg-transparent" : "min-h-screen bg-white"}" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}${toolbarBodyPadding}">
+${versionToolbarHtml}
     <div id="root"></div>
     <script type="module">
 ${buildResult.code}
