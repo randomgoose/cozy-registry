@@ -75,7 +75,7 @@ export function AppShell(props: {
                       key={item.href}
                       href={item.href}
                       className={cn(
-                        "flex items-center rounded-2xl px-3 py-2.5 text-sm font-semibold transition-colors",
+                        "flex items-center rounded-2xl px-3 py-2.5 text-[13px] font-semibold transition-colors",
                         isActive
                           ? "border border-zinc-200/80 bg-zinc-100/88 text-zinc-950 shadow-[0_10px_24px_rgba(15,23,42,0.06),inset_0_1px_0_rgba(255,255,255,0.55)] dark:border-white/12 dark:bg-white/[0.08] dark:text-zinc-50 dark:shadow-[0_12px_28px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.08)]"
                           : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
