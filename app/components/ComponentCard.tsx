@@ -1160,7 +1160,8 @@ export function ComponentCard({
                         className="h-full w-full min-h-[12rem] lg:min-h-0"
                         interactive
                         alignY="center"
-                        fitMode="actual"
+                        fitMode="contain"
+                        allowUpscale={false}
                         stageSize={{ width: 1200, height: 900 }}
                       />
                       {controllablePreviewFields.length > 0 ? (
