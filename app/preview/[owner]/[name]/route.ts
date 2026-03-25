@@ -10,7 +10,10 @@ import {
 import { getUserIdFromToken } from "@/lib/auth-api";
 import { buildPreviewBundle } from "@/lib/preview-build";
 import { extractDependencies } from "@/lib/validate-tsx";
-import { resolveTransitiveThemeCss } from "@/lib/registry-resolver";
+import {
+  resolveTransitiveComponentSourceFiles,
+  resolveTransitiveThemeCss,
+} from "@/lib/registry-resolver";
 
 function escapeHtml(s: string): string {
   return s
@@ -310,6 +313,22 @@ ${versionToolbarHtml}
   ).sort();
   // 仅对裸模块依赖构建 import map / external；相对路径交给 esbuild 走本地文件
   const runtimeDependencies = allDependencies.filter(isBareModuleSpecifier);
+
+  // Materialize transitive component dependencies under `_deps/...` so stub files can re-export.
+  try {
+    const resolved = await resolveTransitiveComponentSourceFiles({
+      owner,
+      name,
+      version,
+      requestUserId: userId,
+    });
+    for (const [p, c] of Object.entries(resolved.files)) {
+      // do not overwrite root files
+      if (!(p in files)) files[p] = c;
+    }
+  } catch {
+    // Dependency materialization failure should not block build (for now).
+  }
 
   const buildResult = await buildPreviewBundle(
     {
