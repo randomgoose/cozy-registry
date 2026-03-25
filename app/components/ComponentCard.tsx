@@ -1161,7 +1161,6 @@ export function ComponentCard({
                         interactive
                         alignY="center"
                         fitMode="contain"
-                        allowUpscale={false}
                         stageSize={{ width: 1200, height: 900 }}
                       />
                       {controllablePreviewFields.length > 0 ? (
