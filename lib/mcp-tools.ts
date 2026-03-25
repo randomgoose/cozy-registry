@@ -1914,7 +1914,28 @@ ${fileContent}
 
       if (files) {
         if (!isTheme) {
-          const bundleValidation = validateComponentBundle(files);
+          // If provenance is present, normalize bundle first so missing local imports
+          // (e.g. ./Button) can be satisfied by synthesized stubs before validation.
+          const normalizedForValidation = (() => {
+            const contract = normalizePublishContract({
+              // At this stage we haven't determined create vs update yet; stubs are
+              // only needed to satisfy local import validation, so "create" is fine.
+              mode: "create",
+              input: args as {
+                registryDependencies?: unknown;
+                previewProps?: unknown;
+                previewExport?: unknown;
+                provenance?: unknown;
+                provenancePolicy?: unknown;
+              },
+              files,
+            });
+            return contract.ok && contract.value.filesToWrite
+              ? contract.value.filesToWrite
+              : files;
+          })();
+
+          const bundleValidation = validateComponentBundle(normalizedForValidation);
           if (bundleValidation.invalidFiles?.length) {
             const list = bundleValidation.invalidFiles
               .slice(0, 20)
@@ -1938,7 +1959,9 @@ ${fileContent}
             };
           }
 
-          const missing = bundleValidation.missingImports ?? findMissingRelativeImports(files);
+          const missing =
+            bundleValidation.missingImports ??
+            findMissingRelativeImports(normalizedForValidation);
           if (missing.length > 0) {
             const list = missing.slice(0, 20).map((x) => `- ${x}`).join("\n");
             const more = missing.length > 20 ? `\n- ... and ${missing.length - 20} more` : "";

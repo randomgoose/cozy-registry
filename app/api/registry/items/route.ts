@@ -96,11 +96,27 @@ export async function POST(request: Request) {
     } else {
       // 多文件模式：theme 允许仅包含样式/tokens；component/block 必须保证代码文件可解析且本地 import 完整
       if (!isTheme) {
-        const record = Object.fromEntries(
+        const recordRaw = Object.fromEntries(
           Object.entries(files as Record<string, unknown>).filter(
             ([, value]) => typeof value === "string",
           ),
         ) as Record<string, string>;
+        const record = (() => {
+          const contractForValidation = normalizePublishContract({
+            mode: "create",
+            input: body as {
+              registryDependencies?: unknown;
+              previewProps?: unknown;
+              previewExport?: unknown;
+              provenance?: unknown;
+              provenancePolicy?: unknown;
+            },
+            files: recordRaw,
+          });
+          return contractForValidation.ok && contractForValidation.value.filesToWrite
+            ? contractForValidation.value.filesToWrite
+            : recordRaw;
+        })();
         const validation = validateComponentBundle(record);
         if (!validation.valid) {
           const details =

@@ -177,7 +177,7 @@ export async function POST(request: Request, { params }: Params) {
       }
     } else {
     const validation = validateComponentBundle(
-      finalFiles as Record<string, string>,
+      (contract.value.filesToWrite ?? finalFiles) as Record<string, string>,
     );
     if (!validation.valid) {
       const details =
