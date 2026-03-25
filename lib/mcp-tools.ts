@@ -46,6 +46,7 @@ import {
   REGISTRY_UI_TYPE,
   normalizeRegistryItemType,
 } from "./registry-types";
+import { normalizeRegistryDependenciesInput } from "./registry-dependency-input";
 
 /** MCP Tool.annotations (hints for clients; not a security boundary). */
 const MCP_ANN = {
@@ -1777,6 +1778,12 @@ ${fileContent}
         .describe(
           "When updating an existing component, how to bump the version. Defaults to patch.",
         ),
+      registryDependencies: z
+        .unknown()
+        .optional()
+        .describe(
+          "Optional registry dependency refs, e.g. [\"@owner/theme\", \"@owner/base-theme@0.2.0\"].",
+        ),
     }),
   }, async (args) => {
     const files =
@@ -1809,6 +1816,19 @@ ${fileContent}
       const { name, title, description, visibility, bump } = args;
       const type = normalizeRegistryItemType(args.type);
       const isTheme = type === REGISTRY_THEME_TYPE;
+      const hasRegistryDependencies = Object.prototype.hasOwnProperty.call(
+        args,
+        "registryDependencies",
+      );
+      const normalizedRegistryDeps = hasRegistryDependencies
+        ? normalizeRegistryDependenciesInput(args.registryDependencies)
+        : { value: [] as string[] };
+      if (normalizedRegistryDeps.error) {
+        return {
+          content: [{ type: "text" as const, text: normalizedRegistryDeps.error }],
+          isError: true,
+        };
+      }
 
       const nameRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
       if (!nameRegex.test(name)) {
@@ -2020,6 +2040,9 @@ ${fileContent}
           message: description || undefined,
           previewProps: args.previewProps,
           previewExport: args.previewExport,
+          registryDependencies: hasRegistryDependencies
+            ? normalizedRegistryDeps.value
+            : undefined,
         });
 
         const canonicalOwner =
@@ -2073,6 +2096,7 @@ ${fileContent}
         userId,
         visibility: visibility === "public" ? "public" : "private",
         dependencies,
+        registryDependencies: normalizedRegistryDeps.value,
         previewProps: args.previewProps,
         previewExport: args.previewExport,
       });
