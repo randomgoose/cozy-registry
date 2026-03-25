@@ -100,14 +100,10 @@ export async function getWorkspaceContextForSession(
   }));
 
   const activeOrganization =
-    organizations.find((item) => item.id === activeOrganizationIdFromSession) ??
-    organizations[0] ??
-    null;
+    organizations.find((item) => item.id === activeOrganizationIdFromSession) ?? null;
 
   const activeTeam =
-    activeOrganization?.teams.find((item) => item.id === activeTeamIdFromSession) ??
-    activeOrganization?.teams[0] ??
-    null;
+    activeOrganization?.teams.find((item) => item.id === activeTeamIdFromSession) ?? null;
 
   const hydratedOrganizations = organizations.map((item) => ({
     ...item,

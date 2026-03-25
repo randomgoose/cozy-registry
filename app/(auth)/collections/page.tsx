@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { getRegistryItemsByUserId } from "@/lib/registry";
+import { getRegistryItemsByTeamId, getRegistryItemsByUserId } from "@/lib/registry";
+import { getWorkspaceContextForSession } from "@/lib/workspace-context";
 import { CollectionsPanel } from "../dashboard/CollectionsPanel";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,12 @@ export default async function CollectionsPage() {
     );
   }
 
-  const items = await getRegistryItemsByUserId(session.user.id);
+  const workspace = await getWorkspaceContextForSession(session);
+  const activeTeam = workspace.activeTeam;
+  const activeOrganization = workspace.activeOrganization;
+  const items = activeTeam
+    ? await getRegistryItemsByTeamId(activeTeam.id)
+    : await getRegistryItemsByUserId(session.user.id);
 
   return (
     <>
@@ -33,6 +39,12 @@ export default async function CollectionsPage() {
           title: i.title,
           type: i.type,
         }))}
+        scopeLabel={
+          activeTeam
+            ? `${activeOrganization?.name ?? "Organization"} / ${activeTeam.name}`
+            : "Personal"
+        }
+        isTeamScope={!!activeTeam}
       />
     </>
   );

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiKey, registryApiKeyPolicies } from "@/lib/db/schema";
+import { getCollectionScopeContext } from "@/lib/collection-scope";
 
 type PolicyBody = {
   allowedCollectionIds?: string[];
@@ -12,16 +11,11 @@ type PolicyBody = {
   allowPublicOutsideCollections?: boolean;
 };
 
-async function requireUserId(): Promise<string | null> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  return session?.user?.id ?? null;
-}
-
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const userId = await requireUserId();
+  const { userId, activeTeamId } = await getCollectionScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
@@ -39,14 +33,22 @@ export async function GET(
   const [policy] = await db
     .select()
     .from(registryApiKeyPolicies)
-    .where(eq(registryApiKeyPolicies.apiKeyId, id))
+    .where(
+      and(
+        eq(registryApiKeyPolicies.apiKeyId, id),
+        activeTeamId
+          ? eq(registryApiKeyPolicies.ownerTeamId, activeTeamId)
+          : eq(registryApiKeyPolicies.ownerUserId, userId),
+      ),
+    )
     .limit(1);
 
   return NextResponse.json({
     policy: policy
-      ? {
+        ? {
           apiKeyId: policy.apiKeyId,
           ownerUserId: policy.ownerUserId,
+          ownerTeamId: policy.ownerTeamId,
           allowedCollectionIds: (policy.allowedCollectionIds ?? []) as string[],
           allowedTypes: (policy.allowedTypes ?? []) as string[],
           allowedOwnerHandlesOrIds: (policy.allowedOwnerHandlesOrIds ?? []) as string[],
@@ -60,7 +62,7 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const userId = await requireUserId();
+  const { userId, activeTeamId } = await getCollectionScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
@@ -94,7 +96,14 @@ export async function PUT(
   const [existing] = await db
     .select({ apiKeyId: registryApiKeyPolicies.apiKeyId })
     .from(registryApiKeyPolicies)
-    .where(eq(registryApiKeyPolicies.apiKeyId, id))
+    .where(
+      and(
+        eq(registryApiKeyPolicies.apiKeyId, id),
+        activeTeamId
+          ? eq(registryApiKeyPolicies.ownerTeamId, activeTeamId)
+          : eq(registryApiKeyPolicies.ownerUserId, userId),
+      ),
+    )
     .limit(1);
 
   if (existing) {
@@ -107,7 +116,14 @@ export async function PUT(
         allowPublicOutsideCollections,
         updatedAt: new Date(),
       })
-      .where(and(eq(registryApiKeyPolicies.apiKeyId, id), eq(registryApiKeyPolicies.ownerUserId, userId)))
+      .where(
+        and(
+          eq(registryApiKeyPolicies.apiKeyId, id),
+          activeTeamId
+            ? eq(registryApiKeyPolicies.ownerTeamId, activeTeamId)
+            : eq(registryApiKeyPolicies.ownerUserId, userId),
+        ),
+      )
       .returning();
 
     return NextResponse.json({ policy: updated ?? null });
@@ -117,7 +133,8 @@ export async function PUT(
     .insert(registryApiKeyPolicies)
     .values({
       apiKeyId: id,
-      ownerUserId: userId,
+      ownerUserId: activeTeamId ? null : userId,
+      ownerTeamId: activeTeamId,
       allowedCollectionIds,
       allowedTypes,
       allowedOwnerHandlesOrIds,
@@ -129,10 +146,10 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const userId = await requireUserId();
+  const { userId, activeTeamId } = await getCollectionScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
@@ -149,8 +166,14 @@ export async function DELETE(
 
   await db
     .delete(registryApiKeyPolicies)
-    .where(and(eq(registryApiKeyPolicies.apiKeyId, id), eq(registryApiKeyPolicies.ownerUserId, userId)));
+    .where(
+      and(
+        eq(registryApiKeyPolicies.apiKeyId, id),
+        activeTeamId
+          ? eq(registryApiKeyPolicies.ownerTeamId, activeTeamId)
+          : eq(registryApiKeyPolicies.ownerUserId, userId),
+      ),
+    );
 
   return NextResponse.json({ policy: null });
 }
-

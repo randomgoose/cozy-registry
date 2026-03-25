@@ -183,6 +183,30 @@ export const invitation = pgTable(
   ],
 );
 
+/** In-app notifications (e.g. team invites for users who already have an account). */
+export const userNotification = pgTable(
+  "user_notification",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    actionUrl: text("action_url"),
+    /** Idempotency: e.g. invitation id for `organization_invitation` */
+    referenceId: text("reference_id"),
+    readAt: timestamp("read_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("user_notification_userId_idx").on(table.userId),
+    index("user_notification_userId_createdAt_idx").on(table.userId, table.createdAt),
+    unique("user_notification_userId_referenceId_key").on(table.userId, table.referenceId),
+  ],
+);
+
 // OAuth 2.0 authorization codes (for Figma Make / MCP OAuth flow)
 export const oauthAuthorizationCode = pgTable("oauth_authorization_code", {
   id: uuid("id").defaultRandom().primaryKey(),

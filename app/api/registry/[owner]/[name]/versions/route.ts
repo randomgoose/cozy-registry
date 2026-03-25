@@ -13,6 +13,8 @@ import {
 } from "@/lib/registry-types";
 import { validateComponentBundle, validateTsx } from "@/lib/validate-tsx";
 import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
+import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
+import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -21,6 +23,7 @@ type VersionRequestBody = {
   files?: Record<string, unknown>;
   bump?: "patch" | "minor" | "major";
   message?: string;
+  registryDependencies?: unknown;
 };
 
 /** 获取组件的版本列表 + 当前版本 */
@@ -77,6 +80,16 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const { content, files, bump, message } = body;
+  const hasRegistryDependencies = Object.prototype.hasOwnProperty.call(
+    body,
+    "registryDependencies",
+  );
+  const normalizedRegistryDeps = hasRegistryDependencies
+    ? normalizeRegistryDependenciesInput(body.registryDependencies)
+    : { value: [] as string[] };
+  if (normalizedRegistryDeps.error) {
+    return NextResponse.json({ error: normalizedRegistryDeps.error }, { status: 400 });
+  }
   const resolved = await resolveOwner(owner);
   if (!resolved) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -201,6 +214,11 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
+    const hints = analyzeUploadStyleHints({
+      itemType: normalizedType,
+      files: finalFiles ?? undefined,
+      content: finalFiles ? null : finalContent,
+    });
     const result = await createRegistryItemVersion({
       ownerId: resolved.userId,
       name,
@@ -209,8 +227,11 @@ export async function POST(request: Request, { params }: Params) {
       bump: bumpType,
       userId,
       message: typeof message === "string" ? message : undefined,
+      registryDependencies: hasRegistryDependencies
+        ? normalizedRegistryDeps.value
+        : undefined,
     });
-    return NextResponse.json({ version: result.version });
+    return NextResponse.json({ version: result.version, hints });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     if (msg.includes("not found") || msg.includes("no access")) {

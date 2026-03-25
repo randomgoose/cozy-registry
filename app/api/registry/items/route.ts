@@ -16,6 +16,8 @@ import {
 import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
 import { auth } from "@/lib/auth";
 import { getUserIdFromToken } from "@/lib/auth-api";
+import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
+import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
 
 export async function POST(request: Request) {
   try {
@@ -28,6 +30,7 @@ export async function POST(request: Request) {
       content?: string | null;
       files?: Record<string, unknown> | null;
       visibility?: string | null;
+      registryDependencies?: unknown;
     };
 
     const hasFiles =
@@ -44,6 +47,12 @@ export async function POST(request: Request) {
         { error: "Missing required fields: name, type, title, and (files or content)" },
         { status: 400 }
       );
+    }
+    const normalizedRegistryDeps = normalizeRegistryDependenciesInput(
+      (body as { registryDependencies?: unknown }).registryDependencies,
+    );
+    if (normalizedRegistryDeps.error) {
+      return NextResponse.json({ error: normalizedRegistryDeps.error }, { status: 400 });
     }
 
     let userId: string | null = null;
@@ -189,6 +198,11 @@ export async function POST(request: Request) {
           .map(([k, v]) => [k, v as string])
       ) as Record<string, string>;
     }
+    const hints = analyzeUploadStyleHints({
+      itemType: normalizedType,
+      files: normalizedFiles ?? undefined,
+      content: normalizedFiles ? null : normalizedContent,
+    });
 
     const item = await createRegistryItem({
       name,
@@ -200,9 +214,10 @@ export async function POST(request: Request) {
       userId,
       visibility: validVisibility,
       dependencies,
+      registryDependencies: normalizedRegistryDeps.value,
     });
 
-    return NextResponse.json({ success: true, item });
+    return NextResponse.json({ success: true, item, hints });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create";
     if (message.includes("unique") || message.includes("duplicate")) {

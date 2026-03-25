@@ -35,8 +35,7 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
       email={email}
       fullName={fullName}
       username={username}
-      activeOrganizationName={workspace.activeOrganization?.name ?? null}
-      activeTeamName={workspace.activeTeam?.name ?? null}
+      workspace={workspace}
     >
       {children}
     </AppShell>

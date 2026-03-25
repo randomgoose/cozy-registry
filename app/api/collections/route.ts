@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { auth } from "@/lib/auth";
-import { getAuthContextFromToken } from "@/lib/auth-api";
+import { getCollectionScopeContext } from "@/lib/collection-scope";
 import { resolveOwner } from "@/lib/owner";
 import { registryCollections, registryCollectionItems } from "@/lib/db/schema";
 
@@ -12,9 +10,7 @@ function isKebab(s: string): boolean {
 }
 
 export async function POST(request: Request) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  const tokenCtx = await getAuthContextFromToken(request);
-  const userId = tokenCtx?.userId ?? session?.user?.id ?? null;
+  const { userId, activeTeamId } = await getCollectionScopeContext(request);
   if (!userId) {
     return NextResponse.json(
       { error: "Authentication required. Sign in or provide Authorization: Bearer <token>" },
@@ -49,7 +45,8 @@ export async function POST(request: Request) {
     const [created] = await db
       .insert(registryCollections)
       .values({
-        ownerUserId: userId,
+        ownerUserId: activeTeamId ? null : userId,
+        ownerTeamId: activeTeamId,
         slug: body.slug,
         title: body.title,
         description: body.description ?? null,
@@ -87,9 +84,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const ownerParam = url.searchParams.get("owner");
 
-  const session = await auth.api.getSession({ headers: await headers() });
-  const tokenCtx = await getAuthContextFromToken(request);
-  const requestUserId = tokenCtx?.userId ?? session?.user?.id ?? null;
+  const { userId: requestUserId, activeTeamId } = await getCollectionScopeContext(request);
 
   if (!ownerParam) {
     if (!requestUserId) {
@@ -104,6 +99,7 @@ export async function GET(request: Request) {
       .select({
         id: registryCollections.id,
         ownerUserId: registryCollections.ownerUserId,
+        ownerTeamId: registryCollections.ownerTeamId,
         slug: registryCollections.slug,
         title: registryCollections.title,
         description: registryCollections.description,
@@ -112,7 +108,11 @@ export async function GET(request: Request) {
         updatedAt: registryCollections.updatedAt,
       })
       .from(registryCollections)
-      .where(eq(registryCollections.ownerUserId, requestUserId))
+      .where(
+        activeTeamId
+          ? eq(registryCollections.ownerTeamId, activeTeamId)
+          : eq(registryCollections.ownerUserId, requestUserId),
+      )
       .orderBy(registryCollections.slug);
 
     const counts =
@@ -205,4 +205,3 @@ export async function GET(request: Request) {
     })),
   });
 }
-

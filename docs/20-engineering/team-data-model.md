@@ -238,6 +238,74 @@ MVP 语义：
 - 并且可以继续作为 AI 范围控制器
 - 对团队功能来说，collection 更自然地归属于 team，而不是 organization
 
+## 2.4 MCP publish scope 解析原则
+
+团队功能接入 MCP 发布时，需要区分两类上下文：
+
+- **active scope**
+- **publish target**
+
+这两者不能混为一谈。
+
+### active scope
+
+active scope 指的是：
+
+- 当前网页 / 当前 Better Auth session 中的 `activeOrganizationId`
+- 当前网页 / 当前 Better Auth session 中的 `activeTeamId`
+
+它适合用于：
+
+- dashboard / collections / settings 的默认浏览上下文
+- UI 中“当前你正在看哪个 workspace”
+
+### publish target
+
+publish target 指的是：
+
+- 这次 MCP 工具调用要把资源写入哪个 scope
+
+它适合用于：
+
+- `publish`
+- `update`
+- 未来任何会创建或修改 registry 资产的 MCP tool
+
+### 设计结论
+
+MCP 发布不能只依赖 Better Auth session 的 `activeTeamId`。
+
+原因：
+
+- MCP 客户端不一定和网页 UI 共用同一个会话上下文
+- AI 工具调用是显式写入动作，不能把写入目标完全交给隐式 session 状态
+- 否则很容易出现“用户以为发到 A team，实际发到 B team”的问题
+
+### 推荐规则
+
+MVP 建议采用：
+
+1. **publish/update 工具优先接受显式 scope 参数**
+   - 例如 `scope = "personal"` / `teamId = "..."` / `teamSlug = "..."`
+2. **如果没有显式 scope**
+   - 才 fallback 到当前 Better Auth session 的 `activeTeamId`
+3. **如果仍然没有 active team**
+   - 再 fallback 到 personal scope
+
+### 数据落点
+
+服务端在真正写入 `registry_items` / `registry_collections` 时，不应只保存“active organization”这类 UI 状态，而应解析成明确的业务归属：
+
+- personal publish -> `user_id`
+- team publish -> `team_id`
+
+也就是说，MCP 发布最终要落成：
+
+- 明确的 `user_id`
+- 或明确的 `team_id`
+
+而不是只依赖 session 中的“当前激活组织/团队”。
+
 ## 2.4 扩展：`registry_api_key_policies`
 
 当前关键字段：

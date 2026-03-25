@@ -6,6 +6,7 @@ import {
   registryItemVersions,
   registryFileVersions,
   registryCollectionItems,
+  team,
   user,
 } from "./db/schema";
 import { resolveOwner } from "@/lib/owner";
@@ -454,6 +455,7 @@ export async function createRegistryItemVersion(params: {
   bump: "patch" | "minor" | "major";
   userId: string;
   message?: string;
+  registryDependencies?: string[];
   /** 可选：更新用于预览的 props（将写回 registry_items.meta.previewProps） */
   previewProps?: unknown;
 }) {
@@ -468,6 +470,8 @@ export async function createRegistryItemVersion(params: {
   const currentVer = getCurrentVersion(item);
   const nextVersion = bumpVersion(currentVer, params.bump);
   const normalizedType = normalizeRegistryItemType(item.type);
+  const nextRegistryDependencies =
+    params.registryDependencies ?? ((item.registryDependencies ?? []) as string[]);
 
   // 归一化为多文件 bundle：
   // - 若显式提供 files，则优先使用
@@ -529,7 +533,7 @@ export async function createRegistryItemVersion(params: {
       title: item.title,
       description: item.description,
       dependencies: item.dependencies ?? [],
-      registryDependencies: item.registryDependencies ?? [],
+      registryDependencies: nextRegistryDependencies,
       meta: ((): Record<string, unknown> => {
         const next: Record<string, unknown> = {
           ...baseMeta,
@@ -577,6 +581,7 @@ export async function createRegistryItemVersion(params: {
     .update(registryItems)
     .set({
       currentVersion: nextVersion,
+      registryDependencies: nextRegistryDependencies,
       updatedAt: new Date(),
       ...(params.previewProps !== undefined
         ? {
@@ -715,6 +720,36 @@ export async function getRegistryItemsByUserId(userId: string) {
   return items;
 }
 
+/**
+ * Get registry items owned by a specific team (for dashboard / team scope).
+ */
+export async function getRegistryItemsByTeamId(teamId: string) {
+  const items = await db
+    .select({
+      id: registryItems.id,
+      userId: registryItems.userId,
+      teamId: registryItems.teamId,
+      ownerHandle: user.handle,
+      teamName: team.name,
+      name: registryItems.name,
+      type: registryItems.type,
+      title: registryItems.title,
+      description: registryItems.description,
+      visibility: registryItems.visibility,
+      createdAt: registryItems.createdAt,
+      updatedAt: registryItems.updatedAt,
+      currentVersion: registryItems.currentVersion,
+      meta: registryItems.meta,
+    })
+    .from(registryItems)
+    .leftJoin(user, eq(registryItems.userId, user.id))
+    .leftJoin(team, eq(registryItems.teamId, team.id))
+    .where(eq(registryItems.teamId, teamId))
+    .orderBy(registryItems.name);
+
+  return items;
+}
+
 export async function createRegistryItem(data: {
   name: string;
   type: string;
@@ -736,6 +771,7 @@ export async function createRegistryItem(data: {
   userId?: string | null;
   visibility?: "public" | "private";
   dependencies?: string[];
+  registryDependencies?: string[];
   /** 用于预览的 props 对象（会存入 registry_items.meta.previewProps） */
   previewProps?: unknown;
 }) {
@@ -770,6 +806,7 @@ export async function createRegistryItem(data: {
       userId: data.userId ?? null,
       visibility: data.visibility ?? "public",
       dependencies: data.dependencies ?? [],
+      registryDependencies: data.registryDependencies ?? [],
       meta: {
         ...(data.previewProps !== undefined ? { previewProps: data.previewProps } : {}),
         ...(thumbnail ? { thumbnail } : {}),
@@ -821,7 +858,7 @@ export async function createRegistryItem(data: {
       title: data.title,
       description: data.description ?? null,
       dependencies: data.dependencies ?? [],
-      registryDependencies: [],
+      registryDependencies: data.registryDependencies ?? [],
       meta: {
         source: "initial",
         ...(thumbnail ? { thumbnail } : {}),

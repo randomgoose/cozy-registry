@@ -1,16 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { FigmaAuthIcon } from "@/app/components/icons/FigmaAuthIcon";
 
-export default function SignUpPage() {
+const DEFAULT_CALLBACK = "/onboarding/handle";
+
+function SignUpForm() {
+  const searchParams = useSearchParams();
+  const callbackURL = searchParams.get("callbackUrl") ?? DEFAULT_CALLBACK;
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const signInHref =
+    callbackURL !== DEFAULT_CALLBACK
+      ? `/sign-in?callbackUrl=${encodeURIComponent(callbackURL)}`
+      : "/sign-in";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -21,7 +32,7 @@ export default function SignUpPage() {
         name,
         email,
         password,
-        callbackURL: "/onboarding/handle",
+        callbackURL,
       });
       if (err) setError(err.message ?? "Sign up failed");
     } finally {
@@ -114,7 +125,9 @@ export default function SignUpPage() {
         <div className="space-y-2">
           <button
             type="button"
-            onClick={() => authClient.signIn.social({ provider: "google", callbackURL: "/onboarding/handle" })}
+            onClick={() =>
+              authClient.signIn.social({ provider: "google", callbackURL })
+            }
             className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -139,7 +152,9 @@ export default function SignUpPage() {
           </button>
           <button
             type="button"
-            onClick={() => authClient.signIn.social({ provider: "figma", callbackURL: "/onboarding/handle" })}
+            onClick={() =>
+              authClient.signIn.social({ provider: "figma", callbackURL })
+            }
             className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#0d99ff] bg-[#0d99ff] px-4 py-2 text-sm font-medium text-white transition-colors hover:border-[#0b8ae5] hover:bg-[#0b8ae5] dark:border-[#0d99ff] dark:bg-[#0d99ff] dark:text-white dark:hover:border-[#0b8ae5] dark:hover:bg-[#0b8ae5]"
           >
             <FigmaAuthIcon className="h-5 w-5 text-white" />
@@ -149,11 +164,25 @@ export default function SignUpPage() {
 
         <p className="mt-4 text-center text-sm text-zinc-600 dark:text-zinc-400">
           Already have an account?{" "}
-          <Link href="/sign-in" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
+          <Link href={signInHref} className="font-medium text-blue-600 hover:underline dark:text-blue-400">
             Sign in
           </Link>
         </p>
       </div>
     </div>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">Loading…</p>
+        </div>
+      }
+    >
+      <SignUpForm />
+    </Suspense>
   );
 }

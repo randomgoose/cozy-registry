@@ -6,6 +6,11 @@ import { organization as organizationPlugin } from "better-auth/plugins";
 import { db } from "./db";
 import * as schema from "./db/schema";
 import { organizationAccessControl, organizationRoles } from "./auth-organization";
+import { sendOrganizationInvitationEmail } from "./email/send-organization-invitation";
+import {
+  createInvitationInAppNotification,
+  markInvitationNotificationsRead,
+} from "./user-notifications";
 
 function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null;
@@ -56,6 +61,56 @@ export const auth = betterAuth({
       teams: {
         enabled: true,
         defaultTeam: { enabled: true },
+      },
+      sendInvitationEmail: async (data) => {
+        await sendOrganizationInvitationEmail({
+          id: data.id,
+          role: data.role,
+          email: data.email,
+          organization: data.organization,
+          inviter: data.inviter,
+        });
+      },
+      organizationHooks: {
+        afterCreateInvitation: async ({ invitation, inviter, organization }) => {
+          try {
+            await createInvitationInAppNotification({
+              invitation: {
+                id: invitation.id,
+                email: invitation.email,
+                role: invitation.role,
+                teamId:
+                  invitation.teamId !== undefined && invitation.teamId !== null
+                    ? String(invitation.teamId)
+                    : null,
+              },
+              inviter: {
+                id: inviter.id,
+                name: inviter.name,
+                email: inviter.email,
+              },
+              organization: {
+                id: organization.id,
+                name: organization.name,
+              },
+            });
+          } catch (err) {
+            console.warn(
+              "[auth] afterCreateInvitation in-app notification failed:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+        },
+        afterAcceptInvitation: async ({ invitation, user }) => {
+          try {
+            await markInvitationNotificationsRead(user.id, invitation.id);
+          } catch (err) {
+            console.warn(
+              "[auth] afterAcceptInvitation notification update failed:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+        },
       },
       schema: {
         session: {

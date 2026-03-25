@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 export type RegistryPolicy = {
   apiKeyId: string;
   ownerUserId: string | null;
+  ownerTeamId?: string | null;
   allowedCollectionIds: string[];
   allowedTypes: string[];
   allowedOwnerHandlesOrIds: string[];
@@ -24,6 +25,7 @@ export async function getRegistryPolicyForApiKey(
   return {
     apiKeyId: row.apiKeyId,
     ownerUserId: row.ownerUserId ?? null,
+    ownerTeamId: row.ownerTeamId ?? null,
     allowedCollectionIds: (row.allowedCollectionIds ?? []) as string[],
     allowedTypes: (row.allowedTypes ?? []) as string[],
     allowedOwnerHandlesOrIds: (row.allowedOwnerHandlesOrIds ?? []) as string[],

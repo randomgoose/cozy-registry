@@ -1,22 +1,14 @@
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { auth } from "@/lib/auth";
-import { getAuthContextFromToken } from "@/lib/auth-api";
+import { getCollectionScopeContext } from "@/lib/collection-scope";
 import { registryCollectionItems, registryCollections, registryItems } from "@/lib/db/schema";
-
-async function requireUserId(request: Request): Promise<string | null> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  const tokenCtx = await getAuthContextFromToken(request);
-  return tokenCtx?.userId ?? session?.user?.id ?? null;
-}
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const userId = await requireUserId(request);
+  const { userId, activeTeamId } = await getCollectionScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
@@ -25,7 +17,14 @@ export async function GET(
   const [collection] = await db
     .select()
     .from(registryCollections)
-    .where(and(eq(registryCollections.id, id), eq(registryCollections.ownerUserId, userId)))
+    .where(
+      and(
+        eq(registryCollections.id, id),
+        activeTeamId
+          ? eq(registryCollections.ownerTeamId, activeTeamId)
+          : eq(registryCollections.ownerUserId, userId),
+      ),
+    )
     .limit(1);
   if (!collection) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -53,7 +52,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const userId = await requireUserId(request);
+  const { userId, activeTeamId } = await getCollectionScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
@@ -66,7 +65,14 @@ export async function POST(
   const [collection] = await db
     .select()
     .from(registryCollections)
-    .where(and(eq(registryCollections.id, id), eq(registryCollections.ownerUserId, userId)))
+    .where(
+      and(
+        eq(registryCollections.id, id),
+        activeTeamId
+          ? eq(registryCollections.ownerTeamId, activeTeamId)
+          : eq(registryCollections.ownerUserId, userId),
+      ),
+    )
     .limit(1);
   if (!collection) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -75,7 +81,14 @@ export async function POST(
   const [item] = await db
     .select({ id: registryItems.id })
     .from(registryItems)
-    .where(eq(registryItems.id, body.itemId))
+    .where(
+      and(
+        eq(registryItems.id, body.itemId),
+        activeTeamId
+          ? eq(registryItems.teamId, activeTeamId)
+          : eq(registryItems.userId, userId),
+      ),
+    )
     .limit(1);
   if (!item) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
@@ -97,4 +110,3 @@ export async function POST(
 
   return NextResponse.json({ success: true });
 }
-

@@ -11,7 +11,10 @@ import {
 } from "@/lib/registry-types";
 
 export default function SettingsPage() {
-  const [session, setSession] = useState<{ user: { name?: string; email?: string } } | null>(null);
+  const [session, setSession] = useState<{
+    user: { name?: string; email?: string };
+    session?: { activeTeamId?: string | null; activeOrganizationId?: string | null };
+  } | null>(null);
   const [apiKeys, setApiKeys] = useState<Array<{ id: string; name?: string | null; start?: string | null }>>([]);
   const [newKeyName, setNewKeyName] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
@@ -27,6 +30,30 @@ export default function SettingsPage() {
     allowedTypes: string[];
     allowPublicOutsideCollections: boolean;
   } | null>(null);
+  const isTeamScope = !!session?.session?.activeTeamId;
+  const [teamCollab, setTeamCollab] = useState<{
+    role: string | null;
+    team: { id: string; name: string; organizationId: string } | null;
+    members: Array<{
+      id: string;
+      name: string;
+      email: string;
+      image?: string | null;
+      joinedAt: string;
+    }>;
+    invitations: Array<{
+      id: string;
+      email: string;
+      role: string;
+      status: string;
+      createdAt: string;
+      expiresAt: string;
+    }>;
+  } | null>(null);
+  const [teamCollabLoading, setTeamCollabLoading] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("viewer");
+  const [inviting, setInviting] = useState(false);
 
   useEffect(() => {
     authClient.getSession().then(({ data }) => setSession(data ?? null));
@@ -50,6 +77,26 @@ export default function SettingsPage() {
       })
       .catch(() => {});
   }, [session]);
+
+  useEffect(() => {
+    if (!session || !isTeamScope) {
+      setTeamCollab(null);
+      return;
+    }
+
+    setTeamCollabLoading(true);
+    fetch("/api/team/current/collaboration", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        setTeamCollab(data ?? null);
+      })
+      .catch(() => {
+        setTeamCollab(null);
+      })
+      .finally(() => {
+        setTeamCollabLoading(false);
+      });
+  }, [session, isTeamScope]);
 
   async function openPolicy(keyId: string) {
     setPolicyKeyId(keyId);
@@ -167,6 +214,71 @@ export default function SettingsPage() {
     setApiKeys((prev) => prev.filter((k) => k.id !== id));
   }
 
+  async function refreshTeamCollaboration() {
+    if (!isTeamScope) return;
+    setTeamCollabLoading(true);
+    try {
+      const response = await fetch("/api/team/current/collaboration", {
+        cache: "no-store",
+      });
+      const data = await response.json();
+      setTeamCollab(data ?? null);
+    } finally {
+      setTeamCollabLoading(false);
+    }
+  }
+
+  async function handleInviteMember(e: React.FormEvent) {
+    e.preventDefault();
+    if (!teamCollab?.team?.id || !inviteEmail.trim()) return;
+
+    setInviting(true);
+    try {
+      const response = await fetch("/api/auth/organization/invite-member", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          role: inviteRole,
+          organizationId: teamCollab.team.organizationId,
+          teamId: teamCollab.team.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text().catch(() => "");
+        alert(message || "Failed to invite member");
+        return;
+      }
+
+      setInviteEmail("");
+      setInviteRole("viewer");
+      await refreshTeamCollaboration();
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  async function handleCancelInvitation(invitationId: string) {
+    if (!confirm("Cancel this invitation?")) return;
+
+    const response = await fetch("/api/auth/organization/cancel-invitation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ invitationId }),
+    });
+
+    if (!response.ok) {
+      const message = await response.text().catch(() => "");
+      alert(message || "Failed to cancel invitation");
+      return;
+    }
+
+    await refreshTeamCollaboration();
+  }
+
   if (!session) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
@@ -185,11 +297,19 @@ export default function SettingsPage() {
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
         Settings
       </h1>
+      <p className="mt-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+        Current scope: {isTeamScope ? "Team" : "Personal"}
+      </p>
 
       <section className="mt-8">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
           API Tokens
         </h2>
+        {isTeamScope ? (
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+            API keys are still user-owned. The scope policy you edit below will apply to the collections and item types in your currently active team scope.
+          </p>
+        ) : null}
 
         {newKey && (
           <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
@@ -243,7 +363,7 @@ export default function SettingsPage() {
                     </span>
                   )}
                   <div className="mt-1 text-xs text-zinc-500">
-                    Scope controls let you limit which collections and item types this token can access.
+                    Scope controls let you limit which collections and item types this token can access in the current {isTeamScope ? "team" : "personal"} scope.
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -269,6 +389,133 @@ export default function SettingsPage() {
           <p className="mt-4 text-sm text-zinc-500">No tokens yet.</p>
         )}
       </section>
+
+      {isTeamScope ? (
+        <section className="mt-8 rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                Team members
+              </h2>
+              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                Manage who can access the active team workspace and review pending invitations.
+              </p>
+            </div>
+            {teamCollab?.team ? (
+              <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                {teamCollab.team.name}
+              </span>
+            ) : null}
+          </div>
+
+          {teamCollabLoading ? (
+            <p className="mt-4 text-sm text-zinc-500">Loading...</p>
+          ) : teamCollab ? (
+            <>
+              {teamCollab.role === "owner" ? (
+                <form onSubmit={handleInviteMember} className="mt-5 flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/50">
+                  <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    Invite member
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="teammate@example.com"
+                      className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    />
+                    <select
+                      value={inviteRole}
+                      onChange={(e) => setInviteRole(e.target.value)}
+                      className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    >
+                      <option value="viewer">Viewer</option>
+                      <option value="editor">Editor</option>
+                    </select>
+                    <button
+                      type="submit"
+                      disabled={inviting || !inviteEmail.trim()}
+                      className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                    >
+                      {inviting ? "Inviting..." : "Send invite"}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <p className="mt-5 text-sm text-zinc-500 dark:text-zinc-400">
+                  Only team owners can send invitations in this MVP.
+                </p>
+              )}
+
+              <div className="mt-6 grid gap-6 lg:grid-cols-2">
+                <div>
+                  <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    Members
+                  </div>
+                  {teamCollab.members.length === 0 ? (
+                    <p className="mt-2 text-sm text-zinc-500">No team members yet.</p>
+                  ) : (
+                    <ul className="mt-3 space-y-2">
+                      {teamCollab.members.map((member) => (
+                        <li
+                          key={member.id}
+                          className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950/40"
+                        >
+                          <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                            {member.name || member.email}
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-500">{member.email}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div>
+                  <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    Pending invitations
+                  </div>
+                  {teamCollab.invitations.length === 0 ? (
+                    <p className="mt-2 text-sm text-zinc-500">No pending invitations.</p>
+                  ) : (
+                    <ul className="mt-3 space-y-2">
+                      {teamCollab.invitations.map((invitation) => (
+                        <li
+                          key={invitation.id}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950/40"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                              {invitation.email}
+                            </div>
+                            <div className="mt-1 text-xs text-zinc-500">
+                              {invitation.role}
+                            </div>
+                          </div>
+                          {teamCollab.role === "owner" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleCancelInvitation(invitation.id)}
+                              className="text-sm text-red-600 hover:underline dark:text-red-400"
+                            >
+                              Cancel
+                            </button>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="mt-4 text-sm text-zinc-500">
+              Team collaboration details are unavailable right now.
+            </p>
+          )}
+        </section>
+      ) : null}
 
         {policyKeyId && (
           <div className="mt-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

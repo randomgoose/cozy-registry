@@ -154,6 +154,25 @@ MVP 页面重点应该围绕：
 - `View collections`
 - `Publish from Figma Make / Cursor` 入口或引导
 
+### 发布行为说明
+
+MVP 中 team dashboard 上出现的发布入口，不应该只依赖“当前 active team”这个 UI 状态。
+
+更准确的产品语义应该是：
+
+- dashboard 提供当前 scope 的发布入口
+- 但 MCP / AI 调用时，发布目标最好仍然可以被显式指定
+
+也就是说：
+
+- `activeTeamId` 可以提供默认发布上下文
+- 但最终的 publish 行为应支持显式目标 team
+
+这样可以避免：
+
+- 用户在 UI 中切换过 scope
+- AI 工具却在隐式上下文下把资源写到错误 team
+
 ### 按角色差异
 
 #### owner / editor

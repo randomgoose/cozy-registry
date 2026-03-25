@@ -4,6 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CozyLogoIcon } from "@/app/components/icons/CozyLogoIcon";
 import { HomeUserMenu } from "@/app/components/HomeUserMenu";
+import { NotificationBell } from "@/app/components/NotificationBell";
+import { WorkspaceScopeSwitcher } from "@/app/components/WorkspaceScopeSwitcher";
+import type { WorkspaceContext } from "@/lib/workspace-context";
 import { cn } from "@/lib/utils";
 
 function shouldShowAppNav(pathname: string, email: string | null) {
@@ -30,8 +33,7 @@ export function AppShell(props: {
   email: string | null;
   fullName: string;
   username: string;
-  activeOrganizationName?: string | null;
-  activeTeamName?: string | null;
+  workspace: WorkspaceContext;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -50,13 +52,14 @@ export function AppShell(props: {
           >
             <CozyLogoIcon className="size-6" />
           </Link>
-          <nav className="flex items-center gap-4">
+          <nav className="flex items-center gap-3">
             <Link
               href="/docs"
               className="text-[13px] font-medium text-zinc-700 dark:text-zinc-300"
             >
               Docs
             </Link>
+            <NotificationBell />
             <HomeUserMenu fullName={props.fullName} username={props.username} />
           </nav>
         </div>
@@ -69,19 +72,10 @@ export function AppShell(props: {
               <div className="px-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
                 Workspace
               </div>
-              {props.activeTeamName ? (
-                <div className="mt-2 px-2">
-                  <div className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">
-                    {props.activeTeamName}
-                  </div>
-                  {props.activeOrganizationName ? (
-                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                      {props.activeOrganizationName}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              <nav className="mt-3 space-y-1">
+              <div className="mt-2">
+                <WorkspaceScopeSwitcher workspace={props.workspace} />
+              </div>
+              <nav className="mt-4 space-y-1">
                 {APP_NAV_ITEMS.map((item) => {
                   const isActive = pathname === item.href;
                   return (

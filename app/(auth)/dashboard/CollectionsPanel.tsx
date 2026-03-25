@@ -45,7 +45,12 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-export function CollectionsPanel(props: { items: ItemSummary[]; className?: string }) {
+export function CollectionsPanel(props: {
+  items: ItemSummary[];
+  className?: string;
+  scopeLabel?: string;
+  isTeamScope?: boolean;
+}) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -163,6 +168,9 @@ export function CollectionsPanel(props: { items: ItemSummary[]; className?: stri
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
         Organize blocks, components, and themes into reusable groups, and use collections to scope what AI tools can access.
       </p>
+      <p className="mt-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+        Current scope: {props.scopeLabel ?? "Personal"}
+      </p>
 
       <div className="mt-4">
         <Dialog
@@ -249,12 +257,16 @@ export function CollectionsPanel(props: { items: ItemSummary[]; className?: stri
       {loading ? (
         <p className="mt-4 text-sm text-zinc-500">Loading...</p>
       ) : collections.length === 0 ? (
-        <p className="mt-4 text-sm text-zinc-500">No collections yet.</p>
+        <p className="mt-4 text-sm text-zinc-500">
+          {props.isTeamScope
+            ? "No team collections yet."
+            : "No collections yet."}
+        </p>
       ) : (
         <div className="mt-4 grid gap-4">
           <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
             <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Your collections
+              {props.isTeamScope ? "Team collections" : "Your collections"}
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {collections.map((c) => (

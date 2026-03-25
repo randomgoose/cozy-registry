@@ -4,10 +4,14 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
-import { getRegistryItemsByUserId } from "@/lib/registry";
+import {
+  getRegistryItemsByTeamId,
+  getRegistryItemsByUserId,
+} from "@/lib/registry";
 import { ComponentCard } from "@/app/components/ComponentCard";
 import { FigmaPublishPromptCard } from "@/app/components/FigmaPublishPromptCard";
 import { getThumbnailFromMeta } from "@/lib/thumbnail";
+import { getWorkspaceContextForSession } from "@/lib/workspace-context";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +36,12 @@ export default async function DashboardPage() {
     );
   }
 
-  const items = await getRegistryItemsByUserId(session.user.id);
+  const workspace = await getWorkspaceContextForSession(session);
+  const activeTeam = workspace.activeTeam;
+  const activeOrganization = workspace.activeOrganization;
+  const items = activeTeam
+    ? await getRegistryItemsByTeamId(activeTeam.id)
+    : await getRegistryItemsByUserId(session.user.id);
   const [ownerRow] = await db
     .select({ handle: user.handle })
     .from(user)
@@ -42,6 +51,12 @@ export default async function DashboardPage() {
   const publicCount = items.filter((item) => item.visibility === "public").length;
   const privateCount = items.length - publicCount;
   const latestItem = items[0] ?? null;
+  const isTeamScope = !!activeTeam;
+  const eyebrow = isTeamScope ? "Team space" : "Personal space";
+  const title = isTeamScope ? activeTeam.name : "Your registry workspace";
+  const description = isTeamScope
+    ? `Shared registry assets for ${activeOrganization?.name ?? "your organization"} / ${activeTeam.name}.`
+    : `Manage everything published under @${ownerHandle}.`;
 
   return (
     <>
@@ -49,23 +64,35 @@ export default async function DashboardPage() {
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
-              Personal space
+              {eyebrow}
             </p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              Your registry workspace
+              {title}
             </h1>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Manage everything published under <span className="font-medium text-zinc-900 dark:text-zinc-100">@{ownerHandle}</span>.
+              {isTeamScope ? (
+                description
+              ) : (
+                <>
+                  Manage everything published under{" "}
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                    @{ownerHandle}
+                  </span>
+                  .
+                </>
+              )}
             </p>
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Link
-              href="/publish"
-              className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
-            >
-              Publish new item
-            </Link>
+            {!isTeamScope ? (
+              <Link
+                href="/publish"
+                className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
+              >
+                Publish new item
+              </Link>
+            ) : null}
             <Link
               href="/collections"
               className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800/70"
@@ -113,16 +140,22 @@ export default async function DashboardPage() {
         <div className="mt-10 rounded-[28px] border border-dashed border-zinc-300 bg-white/60 p-6 pb-10 dark:border-zinc-700 dark:bg-zinc-900/30">
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-zinc-700 dark:text-zinc-300">
-              You haven’t published anything yet.
+              {isTeamScope
+                ? "This team doesn’t have any published items yet."
+                : "You haven’t published anything yet."}
             </p>
             <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-              Start from the tool you already use. We’ll swap these placeholders with the final walkthrough images next.
+              {isTeamScope
+                ? "Team publishing will plug into this shared scope next. For now, you can start by organizing team collections."
+                : "Start from the tool you already use. We’ll swap these placeholders with the final walkthrough images next."}
             </p>
           </div>
 
-          <div className="mt-8">
-            <FigmaPublishPromptCard />
-          </div>
+          {!isTeamScope ? (
+            <div className="mt-8">
+              <FigmaPublishPromptCard />
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -130,7 +163,13 @@ export default async function DashboardPage() {
             <div key={item.id} className="relative">
               <ComponentCard
                 itemId={item.id}
-                owner={item.ownerHandle ?? item.userId ?? "legacy"}
+                owner={
+                  item.ownerHandle ??
+                  item.userId ??
+                  activeOrganization?.slug ??
+                  activeTeam?.id ??
+                  "legacy"
+                }
                 name={item.name}
                 title={item.title}
                 description={item.description}
