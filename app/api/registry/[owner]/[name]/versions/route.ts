@@ -24,6 +24,8 @@ type VersionRequestBody = {
   bump?: "patch" | "minor" | "major";
   message?: string;
   registryDependencies?: unknown;
+  previewProps?: unknown;
+  previewExport?: unknown;
 };
 
 /** 获取组件的版本列表 + 当前版本 */
@@ -79,7 +81,7 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  const { content, files, bump, message } = body;
+  const { content, files, bump, message, previewProps, previewExport } = body;
   const hasRegistryDependencies = Object.prototype.hasOwnProperty.call(
     body,
     "registryDependencies",
@@ -230,6 +232,9 @@ export async function POST(request: Request, { params }: Params) {
       registryDependencies: hasRegistryDependencies
         ? normalizedRegistryDeps.value
         : undefined,
+      previewProps,
+      previewExport:
+        typeof previewExport === "string" ? previewExport : undefined,
     });
     return NextResponse.json({ version: result.version, hints });
   } catch (e) {

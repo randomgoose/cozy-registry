@@ -164,6 +164,7 @@ export async function GET(
   const { owner, name } = await params;
   const url = new URL(request.url);
   const version = url.searchParams.get("v") ?? null;
+  const debugTheme = url.searchParams.get("debugTheme") === "1";
   const previewMode =
     url.searchParams.get("thumbnail") === "1" ? "thumbnail" : "default";
 
@@ -383,20 +384,43 @@ ${versionToolbarHtml}
 
   // 按 SPEC §5.5：递归解析 registryDependencies，先注入所有 theme CSS（Tailwind 之后、preview.js 之前）
   let themeStyles = "";
+  let themeSources: string[] = [];
+  let themeResolveError: string | null = null;
   try {
-    const { css } = await resolveTransitiveThemeCss({
+    const { css, sources } = await resolveTransitiveThemeCss({
       owner,
       name,
       version,
       requestUserId: userId,
     });
+    themeSources = sources;
     if (css && css.trim().length > 0) {
       themeStyles = `\n    <style>${escapeHtmlCss(css)}</style>`;
     }
-  } catch {
+  } catch (err) {
     // Theme deps failure should not block preview rendering.
+    themeResolveError = err instanceof Error ? err.message : String(err);
     themeStyles = "";
   }
+  const themeDebug =
+    debugTheme
+      ? JSON.stringify(
+          {
+            owner,
+            name,
+            requestedVersion: version,
+            registryDependencies: (item.registryDependencies ?? []) as string[],
+            resolvedThemeSources: themeSources,
+            injected: themeStyles.trim().length > 0,
+            resolveError: themeResolveError,
+          },
+          null,
+          2,
+        )
+      : "";
+  const themeDebugScript = debugTheme
+    ? `\n    <script>\nwindow.__COZY_THEME_DEBUG__ = ${themeDebug};\nconsole.info("[preview:theme-debug]", window.__COZY_THEME_DEBUG__);\n</script>`
+    : "";
   const bundleStyles =
     buildResult.css != null && buildResult.css !== ""
       ? `\n    <style>${escapeHtmlCss(buildResult.css)}</style>`
@@ -416,6 +440,7 @@ ${importMapJson}
   <body class="${previewMode === "thumbnail" ? "min-h-screen overflow-hidden bg-transparent" : "min-h-screen bg-white"}" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}${toolbarBodyPadding}">
 ${versionToolbarHtml}
     <div id="root"></div>
+${themeDebugScript}
     <script type="module">
 ${buildResult.code}
     </script>

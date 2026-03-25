@@ -31,6 +31,8 @@ export async function POST(request: Request) {
       files?: Record<string, unknown> | null;
       visibility?: string | null;
       registryDependencies?: unknown;
+      previewProps?: unknown;
+      previewExport?: unknown;
     };
 
     const hasFiles =
@@ -215,6 +217,11 @@ export async function POST(request: Request) {
       visibility: validVisibility,
       dependencies,
       registryDependencies: normalizedRegistryDeps.value,
+      previewProps: (body as { previewProps?: unknown }).previewProps,
+      previewExport:
+        typeof (body as { previewExport?: unknown }).previewExport === "string"
+          ? ((body as { previewExport?: unknown }).previewExport as string)
+          : undefined,
     });
 
     return NextResponse.json({ success: true, item, hints });
