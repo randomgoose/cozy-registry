@@ -160,19 +160,27 @@ export async function maybeBuildRegistryThumbnail(params: {
       variant: "card",
       extension: "svg",
     });
-    const uploaded = await uploadPublicAsset({
-      path,
-      body: svg,
-      contentType: "image/svg+xml; charset=utf-8",
-      cacheControl: "31536000",
-    });
-    return {
-      url: uploaded.url,
-      kind: "theme-template",
-      width: 1200,
-      height: 900,
-      generatedAt,
-    };
+    try {
+      const uploaded = await uploadPublicAsset({
+        path,
+        body: svg,
+        contentType: "image/svg+xml; charset=utf-8",
+        cacheControl: "31536000",
+      });
+      return {
+        url: uploaded.url,
+        kind: "theme-template",
+        width: 1200,
+        height: 900,
+        generatedAt,
+      };
+    } catch (err) {
+      // Wrong SUPABASE_* in env must not block registry publish; same as unset storage.
+      console.warn(
+        "[thumbnail] Supabase theme thumbnail upload failed; using inline data URL",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   return {
