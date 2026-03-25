@@ -458,6 +458,8 @@ export async function createRegistryItemVersion(params: {
   registryDependencies?: string[];
   /** 可选：更新用于预览的 props（将写回 registry_items.meta.previewProps） */
   previewProps?: unknown;
+  /** 可选：强制预览使用的命名导出（将写回 meta.previewExport） */
+  previewExport?: string | null;
 }) {
   const item = await getRegistryItemByOwnerAndName(
     params.ownerId,
@@ -543,6 +545,9 @@ export async function createRegistryItemVersion(params: {
         if (params.previewProps !== undefined) {
           next.previewProps = params.previewProps;
         }
+        if (params.previewExport !== undefined) {
+          next.previewExport = params.previewExport;
+        }
         if (thumbnail) {
           next.thumbnail = thumbnail;
         }
@@ -583,22 +588,22 @@ export async function createRegistryItemVersion(params: {
       currentVersion: nextVersion,
       registryDependencies: nextRegistryDependencies,
       updatedAt: new Date(),
-      ...(params.previewProps !== undefined
+      ...((params.previewProps !== undefined ||
+        params.previewExport !== undefined ||
+        thumbnail)
         ? {
             meta: {
               ...baseMeta,
-              previewProps: params.previewProps,
+              ...(params.previewProps !== undefined
+                ? { previewProps: params.previewProps }
+                : {}),
+              ...(params.previewExport !== undefined
+                ? { previewExport: params.previewExport }
+                : {}),
               ...(thumbnail ? { thumbnail } : {}),
             } as Record<string, unknown>,
           }
-        : thumbnail
-          ? {
-            meta: {
-                ...baseMeta,
-                thumbnail,
-              } as Record<string, unknown>,
-            }
-          : {}),
+        : {}),
     })
     .where(eq(registryItems.id, item.id));
 
@@ -774,6 +779,8 @@ export async function createRegistryItem(data: {
   registryDependencies?: string[];
   /** 用于预览的 props 对象（会存入 registry_items.meta.previewProps） */
   previewProps?: unknown;
+  /** 可选：强制预览使用的命名导出（meta.previewExport） */
+  previewExport?: string | null;
 }) {
   const normalizedType = normalizeRegistryItemType(data.type);
   const normalizedFiles = (() => {
@@ -809,6 +816,9 @@ export async function createRegistryItem(data: {
       registryDependencies: data.registryDependencies ?? [],
       meta: {
         ...(data.previewProps !== undefined ? { previewProps: data.previewProps } : {}),
+        ...(data.previewExport !== undefined
+          ? { previewExport: data.previewExport }
+          : {}),
         ...(thumbnail ? { thumbnail } : {}),
       },
       currentVersion: INITIAL_VERSION,

@@ -9,7 +9,33 @@ type ComponentBundle = {
   version: string;
   files: Record<string, string>;
   dependencies?: string[];
+  /**
+   * 可选：强制用于预览的命名导出（来自 registry meta.previewExport）。
+   * 优先级高于 default，用于仅有命名导出或 default 非组件时。
+   */
+  previewExport?: string | null;
 };
+
+/** slug / kebab → PascalCase，如 gate-button → GateButton */
+function slugToPascalExportName(slug: string): string {
+  return slug
+    .split(/[^a-zA-Z0-9]/)
+    .filter(Boolean)
+    .map((s) => (s[0] ? s[0].toUpperCase() + s.slice(1) : ""))
+    .join("");
+}
+
+/** slug / kebab → camelCase，如 gate-button → gateButton；button → button */
+function slugToCamelExportName(slug: string): string {
+  const parts = slug.split(/[^a-zA-Z0-9]/).filter(Boolean);
+  if (parts.length === 0) return "";
+  const [first, ...rest] = parts;
+  const head = first ? first[0].toLowerCase() + first.slice(1) : "";
+  const tail = rest
+    .map((p) => (p[0] ? p[0].toUpperCase() + p.slice(1) : ""))
+    .join("");
+  return head + tail;
+}
 
 export type PreviewBuildResult =
   | { ok: true; code: string; css?: string }
@@ -101,6 +127,14 @@ export async function buildPreviewBundle(
     }
 
     const mode = options?.mode === "thumbnail" ? "thumbnail" : "default";
+    const previewHints = JSON.stringify({
+      previewExport:
+        typeof bundle.previewExport === "string" && bundle.previewExport.trim()
+          ? bundle.previewExport.trim()
+          : null,
+      pascal: slugToPascalExportName(bundle.name),
+      camel: slugToCamelExportName(bundle.name),
+    });
     const previewEntryContent = `import React from "react";
 import { createRoot } from "react-dom/client";
 import * as Mod from "./index";
@@ -108,25 +142,95 @@ import * as Mod from "./index";
 const COZY_PREVIEW_INITIAL = "cozy-preview-initial-props";
 const COZY_PREVIEW_SET = "cozy-preview-set-props";
 
-const Component =
-  // 优先使用默认导出
-  (Mod as any).default ??
-  // 其次使用与组件名匹配的导出（如 name: "button-group" → ButtonGroup）
-  (Mod as any)["${bundle.name
-    .split(/[^a-zA-Z0-9]/)
-    .filter(Boolean)
-    .map((s) => s[0]?.toUpperCase() + s.slice(1))
-    .join("")}"] ??
-  // 其次使用约定的 PreviewComponent
-  (Mod as any).PreviewComponent ??
-  // 否则挑选首个大写开头的命名导出
-  (() => {
-    const keys = Object.keys(Mod);
-    const found = keys.find((k) => /^[A-Z]/.test(k));
-    return found ? (Mod as any)[found] : null;
-  })();
+const PREVIEW_HINTS = ${previewHints};
 
-if (!Component) {
+function cozyIsRenderableExport(v) {
+  if (v == null) return false;
+  if (typeof v === "function") return true;
+  if (typeof v === "object" && "$$typeof" in v) return true;
+  return false;
+}
+
+function cozyResolvePreviewComponent(Mod, hints) {
+  var tryKey = function (key) {
+    if (key == null || key === "") return null;
+    var v = Mod[key];
+    return cozyIsRenderableExport(v) ? v : null;
+  };
+
+  var chain = [
+    function () {
+      return tryKey(hints.previewExport);
+    },
+    function () {
+      return cozyIsRenderableExport(Mod.default) ? Mod.default : null;
+    },
+    function () {
+      return tryKey(hints.pascal);
+    },
+    function () {
+      return tryKey(hints.camel);
+    },
+    function () {
+      return tryKey("PreviewComponent");
+    },
+  ];
+
+  for (var i = 0; i < chain.length; i++) {
+    var picked = chain[i]();
+    if (cozyIsRenderableExport(picked)) return picked;
+  }
+
+  var keys = Object.keys(Mod);
+  var pascalLike = keys
+    .filter(function (k) {
+      return (
+        k !== "default" &&
+        k !== "__esModule" &&
+        /^[A-Z][A-Za-z0-9]*$/.test(k)
+      );
+    })
+    .sort();
+  for (var pi = 0; pi < pascalLike.length; pi++) {
+    var pv = tryKey(pascalLike[pi]);
+    if (pv) return pv;
+  }
+
+  var utilityExact = {
+    cn: 1,
+    cx: 1,
+    cva: 1,
+    tv: 1,
+    tw: 1,
+    twMerge: 1,
+    clsx: 1,
+    classNames: 1,
+  };
+  var utilitySuffix =
+    /(?:[Vv]ariants|[Pp]rops|[Ss]chema|[Cc]onfig|[Cc]ontext|[Tt]heme|[Ss]tyles?)$/;
+
+  var rest = keys
+    .filter(function (k) {
+      return (
+        k !== "default" &&
+        k !== "__esModule" &&
+        pascalLike.indexOf(k) === -1 &&
+        !utilityExact[k] &&
+        !utilitySuffix.test(k)
+      );
+    })
+    .sort();
+  for (var ri = 0; ri < rest.length; ri++) {
+    var rv = tryKey(rest[ri]);
+    if (rv) return rv;
+  }
+
+  return null;
+}
+
+var Component = cozyResolvePreviewComponent(Mod, PREVIEW_HINTS);
+
+if (!cozyIsRenderableExport(Component)) {
   throw new Error("No suitable component export found from ./index for preview");
 }
 

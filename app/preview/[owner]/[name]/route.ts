@@ -270,10 +270,12 @@ ${versionToolbarHtml}
     files[f.path] = f.content;
   }
 
-  const rawPreviewProps =
+  const itemMeta =
     item.meta && typeof item.meta === "object"
-      ? (item.meta as Record<string, unknown>).previewProps
+      ? (item.meta as Record<string, unknown>)
       : undefined;
+  const rawPreviewProps = itemMeta?.previewProps;
+  const rawPreviewExport = itemMeta?.previewExport;
   let previewProps: unknown;
   if (rawPreviewProps === undefined || rawPreviewProps === null) {
     previewProps = DEMO_PROPS[name] ?? {};
@@ -286,6 +288,11 @@ ${versionToolbarHtml}
   } else {
     previewProps = rawPreviewProps;
   }
+
+  const previewExport =
+    typeof rawPreviewExport === "string" && rawPreviewExport.trim()
+      ? rawPreviewExport.trim()
+      : undefined;
 
   // 运行时依赖来源：
   // - 存储在 DB 中的 item.dependencies（兼容旧数据）
@@ -310,6 +317,7 @@ ${versionToolbarHtml}
       files,
       // 传给 esbuild，用于 external 出所有运行时依赖
       dependencies: runtimeDependencies,
+      previewExport,
     },
     previewProps,
     { mode: previewMode },

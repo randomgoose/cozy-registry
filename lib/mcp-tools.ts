@@ -1737,6 +1737,12 @@ ${fileContent}
         .describe(
           "Optional preview props object (will be stored in meta.previewProps and used by /preview)",
         ),
+      previewExport: z
+        .string()
+        .optional()
+        .describe(
+          "Optional named export to render in preview (meta.previewExport), e.g. GateButton when there is no default export. Overrides default export when set.",
+        ),
       /**
        * 单文件模式：入口 TSX/CSS 源码（向后兼容）。
        * 当 files 存在时会被忽略。
@@ -2013,6 +2019,7 @@ ${fileContent}
           userId,
           message: description || undefined,
           previewProps: args.previewProps,
+          previewExport: args.previewExport,
         });
 
         const canonicalOwner =
@@ -2067,6 +2074,7 @@ ${fileContent}
         visibility: visibility === "public" ? "public" : "private",
         dependencies,
         previewProps: args.previewProps,
+        previewExport: args.previewExport,
       });
 
       const canonicalOwner =
