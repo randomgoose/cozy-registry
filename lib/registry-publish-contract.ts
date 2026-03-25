@@ -1,7 +1,14 @@
 import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
-import { createHash } from "crypto";
 import path from "path";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
+import {
+  isPlaceholderContentHash,
+  isProvenanceFileRegistry,
+  isProvenanceFileRoot,
+  normalizeProvenanceFiles,
+  sha256Utf8,
+  type CozyProvenanceManifestV1,
+} from "@/lib/cozy-provenance";
 
 export type PublishMode = "create" | "version";
 
@@ -33,70 +40,6 @@ export type PublishContractResult = {
 };
 
 export type ProvenancePolicy = "strict" | "split" | "inlineVendor";
-
-type CozyProvenanceFileRoot = { path: string; source: "root" };
-type CozyProvenanceFileGenerated = { path: string; source: "generated" };
-type CozyProvenanceFileRegistry = {
-  path: string;
-  source: "registry";
-  ref: string;
-  originalPath: string;
-  contentHash: string;
-};
-
-type CozyProvenanceFile =
-  | CozyProvenanceFileRoot
-  | CozyProvenanceFileGenerated
-  | CozyProvenanceFileRegistry;
-
-export type CozyProvenanceManifestV1 = {
-  schemaVersion: 1;
-  root: { ref: string; version?: string };
-  files: CozyProvenanceFile[];
-};
-
-function sha256Utf8(content: string): string {
-  const hex = createHash("sha256").update(content, "utf8").digest("hex");
-  return `sha256:${hex}`;
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return !!v && typeof v === "object" && !Array.isArray(v);
-}
-
-function isProvenanceFileRoot(v: unknown): v is CozyProvenanceFileRoot {
-  return isRecord(v) && v["source"] === "root" && typeof v["path"] === "string";
-}
-
-function isProvenanceFileRegistry(
-  v: unknown,
-): v is CozyProvenanceFileRegistry {
-  return (
-    isRecord(v) &&
-    v["source"] === "registry" &&
-    typeof v["path"] === "string" &&
-    typeof v["ref"] === "string" &&
-    typeof v["contentHash"] === "string"
-  );
-}
-
-function normalizeProvenanceFiles(input: unknown): unknown[] {
-  if (Array.isArray(input)) return input as unknown[];
-  // AI-friendly form: { "path.tsx": { source: "...", ref: "...", ... } }
-  if (isRecord(input)) {
-    const out: unknown[] = [];
-    for (const [filePath, meta] of Object.entries(input)) {
-      if (!filePath || typeof filePath !== "string") continue;
-      if (!isRecord(meta)) {
-        out.push({ path: filePath, source: "root" });
-        continue;
-      }
-      out.push({ path: filePath, ...meta });
-    }
-    return out;
-  }
-  return [];
-}
 
 export function normalizePublishContract(params: {
   mode: PublishMode;
@@ -228,6 +171,9 @@ export function normalizePublishContract(params: {
       const meta = byPath.get(p);
       if (!meta) continue;
       const expected = meta.contentHash;
+      if (isPlaceholderContentHash(expected)) {
+        continue;
+      }
       const actual = sha256Utf8(v);
       if (expected && expected !== actual) dirtyDependencyPaths.push(p);
     }

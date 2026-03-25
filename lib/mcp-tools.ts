@@ -1791,7 +1791,7 @@ ${fileContent}
         .unknown()
         .optional()
         .describe(
-          "Optional provenance manifest to de-vendor expanded dependency files into registryDependencies.",
+          "Optional provenance manifest to de-vendor expanded dependency files into registryDependencies. `contentHash` is optional; when omitted/unknown, strict mode skips dirty detection.",
         ),
       provenancePolicy: z
         .enum(["strict", "split", "inlineVendor"])

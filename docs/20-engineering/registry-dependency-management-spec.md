@@ -169,7 +169,7 @@ Fields:
   - if `source === "registry"`:
     - `ref`: dependency ref used to fetch (`@owner/name@version` recommended pinned).
     - `originalPath`: path within the dependency bundle.
-    - `contentHash`: hash of the installed content at expansion time (used for dirty detection).
+    - `contentHash` (optional): hash of the installed content at expansion time (used for dirty detection). If omitted/unknown, strict mode may skip dirty detection.
 
 Hash requirements:
 
@@ -265,7 +265,7 @@ Option (1) is simplest; option (2) is safer and enables audits.
 
 When using in-band manifest, publish APIs/tools MUST accept:
 
-- `provenance`: an object matching section 3.3.2 (or a subset that includes `files[]` with `source/ref/contentHash`).
+- `provenance`: an object matching section 3.3.2 (or a subset that includes `files[]` with `source/ref` and optional `contentHash`).
 - `provenancePolicy`: `"strict" | "split" | "inlineVendor"` (default `"strict"`).
 
 For REST endpoints, these fields live in the JSON body.

@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
-import { createHash } from "crypto";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
+import { sha256Utf8, type CozyProvenanceManifestV1 } from "@/lib/cozy-provenance";
 
 export type RegistryCoordinate = `@${string}/${string}`;
 
@@ -111,26 +111,6 @@ type FetchLike = typeof fetch;
 
 const LOCKFILE_NAME = "cozy-registry.lock.json";
 const PROVENANCE_FILE_NAME = "cozy.provenance.json";
-
-type CozyProvenanceManifestV1 = {
-  schemaVersion: 1;
-  root: { ref: RegistryCoordinate; version?: string };
-  files: Array<
-    | { path: string; source: "root" | "generated" }
-    | {
-        path: string;
-        source: "registry";
-        ref: string;
-        originalPath: string;
-        contentHash: string;
-      }
-  >;
-};
-
-function sha256Utf8(content: string): string {
-  const hex = createHash("sha256").update(content, "utf8").digest("hex");
-  return `sha256:${hex}`;
-}
 
 async function writeProvenanceManifest(params: {
   projectRoot: string;
