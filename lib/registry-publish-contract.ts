@@ -80,6 +80,24 @@ function isProvenanceFileRegistry(
   );
 }
 
+function normalizeProvenanceFiles(input: unknown): unknown[] {
+  if (Array.isArray(input)) return input as unknown[];
+  // AI-friendly form: { "path.tsx": { source: "...", ref: "...", ... } }
+  if (isRecord(input)) {
+    const out: unknown[] = [];
+    for (const [filePath, meta] of Object.entries(input)) {
+      if (!filePath || typeof filePath !== "string") continue;
+      if (!isRecord(meta)) {
+        out.push({ path: filePath, source: "root" });
+        continue;
+      }
+      out.push({ path: filePath, ...meta });
+    }
+    return out;
+  }
+  return [];
+}
+
 export function normalizePublishContract(params: {
   mode: PublishMode;
   /** raw args/body from REST or MCP */
@@ -135,7 +153,7 @@ export function normalizePublishContract(params: {
 
   if (provenancePresent && params.input.provenance != null && params.files) {
     const prov = params.input.provenance as Partial<CozyProvenanceManifestV1>;
-    const files: unknown[] = Array.isArray(prov.files) ? (prov.files as unknown[]) : [];
+    const files: unknown[] = normalizeProvenanceFiles(prov.files);
     const rootPaths = new Set(
       files
         .filter(isProvenanceFileRoot)

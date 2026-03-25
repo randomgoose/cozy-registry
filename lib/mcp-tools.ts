@@ -1116,6 +1116,9 @@ ${fileContent}
           version: selectedVersion,
           source,
           files: shadcnItem?.files ?? [],
+          registryDependencies: (item.registryDependencies ?? []) as string[],
+          registryBaseUrl: getBaseUrl(),
+          fetchImpl: getRegistryFetch(),
         });
 
         return {
