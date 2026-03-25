@@ -14,7 +14,7 @@ import {
 import { validateComponentBundle, validateTsx } from "@/lib/validate-tsx";
 import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
 import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
-import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
+import { normalizePublishContract } from "@/lib/registry-publish-contract";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -81,17 +81,7 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  const { content, files, bump, message, previewProps, previewExport } = body;
-  const hasRegistryDependencies = Object.prototype.hasOwnProperty.call(
-    body,
-    "registryDependencies",
-  );
-  const normalizedRegistryDeps = hasRegistryDependencies
-    ? normalizeRegistryDependenciesInput(body.registryDependencies)
-    : { value: [] as string[] };
-  if (normalizedRegistryDeps.error) {
-    return NextResponse.json({ error: normalizedRegistryDeps.error }, { status: 400 });
-  }
+  const { content, files, bump, message } = body;
   const resolved = await resolveOwner(owner);
   if (!resolved) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -155,6 +145,21 @@ export async function POST(request: Request, { params }: Params) {
       };
       finalContent = undefined;
     }
+  }
+
+  const contract = normalizePublishContract({
+    mode: "version",
+    input: body as {
+      registryDependencies?: unknown;
+      previewProps?: unknown;
+      previewExport?: unknown;
+      provenance?: unknown;
+      provenancePolicy?: unknown;
+    },
+    files: finalFiles,
+  });
+  if (!contract.ok) {
+    return NextResponse.json({ error: contract.error }, { status: 400 });
   }
 
   if (finalFiles) {
@@ -225,16 +230,13 @@ export async function POST(request: Request, { params }: Params) {
       ownerId: resolved.userId,
       name,
       content: finalContent,
-      files: finalFiles,
+      files: contract.value.filesToWrite ?? finalFiles,
       bump: bumpType,
       userId,
       message: typeof message === "string" ? message : undefined,
-      registryDependencies: hasRegistryDependencies
-        ? normalizedRegistryDeps.value
-        : undefined,
-      previewProps,
-      previewExport:
-        typeof previewExport === "string" ? previewExport : undefined,
+      registryDependencies: contract.value.registryDependenciesToWrite,
+      previewProps: contract.value.previewProps,
+      previewExport: contract.value.previewExport,
     });
     return NextResponse.json({ version: result.version, hints });
   } catch (e) {

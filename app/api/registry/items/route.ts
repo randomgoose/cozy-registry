@@ -17,7 +17,7 @@ import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
 import { auth } from "@/lib/auth";
 import { getUserIdFromToken } from "@/lib/auth-api";
 import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
-import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
+import { normalizePublishContract } from "@/lib/registry-publish-contract";
 
 export async function POST(request: Request) {
   try {
@@ -50,11 +50,19 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    const normalizedRegistryDeps = normalizeRegistryDependenciesInput(
-      (body as { registryDependencies?: unknown }).registryDependencies,
-    );
-    if (normalizedRegistryDeps.error) {
-      return NextResponse.json({ error: normalizedRegistryDeps.error }, { status: 400 });
+    const contract = normalizePublishContract({
+      mode: "create",
+      input: body as {
+        registryDependencies?: unknown;
+        previewProps?: unknown;
+        previewExport?: unknown;
+        provenance?: unknown;
+        provenancePolicy?: unknown;
+      },
+      files: undefined,
+    });
+    if (!contract.ok) {
+      return NextResponse.json({ error: contract.error }, { status: 400 });
     }
 
     let userId: string | null = null;
@@ -206,22 +214,50 @@ export async function POST(request: Request) {
       content: normalizedFiles ? null : normalizedContent,
     });
 
+    const finalRegistryDeps = contract.value.registryDependenciesToWrite ?? [];
+    const finalPreviewProps = contract.value.previewProps;
+    const finalPreviewExport = contract.value.previewExport;
+
+    // Apply provenance de-vendoring for multi-file payloads (optional).
+    const maybeProvenanced =
+      normalizedFiles && Object.keys(normalizedFiles).length > 0
+        ? normalizePublishContract({
+            mode: "create",
+            input: body as {
+              registryDependencies?: unknown;
+              previewProps?: unknown;
+              previewExport?: unknown;
+              provenance?: unknown;
+              provenancePolicy?: unknown;
+            },
+            files: normalizedFiles,
+          })
+        : null;
+    if (maybeProvenanced && !maybeProvenanced.ok) {
+      return NextResponse.json({ error: maybeProvenanced.error }, { status: 400 });
+    }
+    const filesToWrite =
+      maybeProvenanced?.ok && maybeProvenanced.value.filesToWrite
+        ? maybeProvenanced.value.filesToWrite
+        : normalizedFiles;
+    const depsToWrite =
+      maybeProvenanced?.ok && maybeProvenanced.value.registryDependenciesToWrite
+        ? maybeProvenanced.value.registryDependenciesToWrite
+        : finalRegistryDeps;
+
     const item = await createRegistryItem({
       name,
       type: normalizedType,
       title,
       description: description || null,
-      content: normalizedFiles ? undefined : normalizedContent,
-      files: normalizedFiles,
+      content: filesToWrite ? undefined : normalizedContent,
+      files: filesToWrite,
       userId,
       visibility: validVisibility,
       dependencies,
-      registryDependencies: normalizedRegistryDeps.value,
-      previewProps: (body as { previewProps?: unknown }).previewProps,
-      previewExport:
-        typeof (body as { previewExport?: unknown }).previewExport === "string"
-          ? ((body as { previewExport?: unknown }).previewExport as string)
-          : undefined,
+      registryDependencies: depsToWrite,
+      previewProps: finalPreviewProps,
+      previewExport: finalPreviewExport,
     });
 
     return NextResponse.json({ success: true, item, hints });

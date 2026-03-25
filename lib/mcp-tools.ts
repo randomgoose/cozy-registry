@@ -46,7 +46,7 @@ import {
   REGISTRY_UI_TYPE,
   normalizeRegistryItemType,
 } from "./registry-types";
-import { normalizeRegistryDependenciesInput } from "./registry-dependency-input";
+import { normalizePublishContract } from "./registry-publish-contract";
 
 /** MCP Tool.annotations (hints for clients; not a security boundary). */
 const MCP_ANN = {
@@ -1784,6 +1784,16 @@ ${fileContent}
         .describe(
           "Optional registry dependency refs, e.g. [\"@owner/theme\", \"@owner/base-theme@0.2.0\"].",
         ),
+      provenance: z
+        .unknown()
+        .optional()
+        .describe(
+          "Optional provenance manifest to de-vendor expanded dependency files into registryDependencies.",
+        ),
+      provenancePolicy: z
+        .enum(["strict", "split", "inlineVendor"])
+        .optional()
+        .describe("Provenance enforcement policy. Defaults to strict."),
     }),
   }, async (args) => {
     const files =
@@ -1816,19 +1826,6 @@ ${fileContent}
       const { name, title, description, visibility, bump } = args;
       const type = normalizeRegistryItemType(args.type);
       const isTheme = type === REGISTRY_THEME_TYPE;
-      const hasRegistryDependencies = Object.prototype.hasOwnProperty.call(
-        args,
-        "registryDependencies",
-      );
-      const normalizedRegistryDeps = hasRegistryDependencies
-        ? normalizeRegistryDependenciesInput(args.registryDependencies)
-        : { value: [] as string[] };
-      if (normalizedRegistryDeps.error) {
-        return {
-          content: [{ type: "text" as const, text: normalizedRegistryDeps.error }],
-          isError: true,
-        };
-      }
 
       const nameRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
       if (!nameRegex.test(name)) {
@@ -2029,20 +2026,35 @@ ${fileContent}
       ).catch(() => null);
 
       if (existing) {
+        const contract = normalizePublishContract({
+          mode: "version",
+          input: args as {
+            registryDependencies?: unknown;
+            previewProps?: unknown;
+            previewExport?: unknown;
+            provenance?: unknown;
+            provenancePolicy?: unknown;
+          },
+          files: (normalizedTheme.files ?? files) as Record<string, string> | undefined,
+        });
+        if (!contract.ok) {
+          return {
+            content: [{ type: "text" as const, text: contract.error }],
+            isError: true,
+          };
+        }
         const bumpType = bump ?? "patch";
         const result = await createRegistryItemVersion({
           ownerId: userId,
           name,
           content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
-          files: normalizedTheme.files ?? files,
+          files: contract.value.filesToWrite ?? (normalizedTheme.files ?? files),
           bump: bumpType,
           userId,
           message: description || undefined,
-          previewProps: args.previewProps,
-          previewExport: args.previewExport,
-          registryDependencies: hasRegistryDependencies
-            ? normalizedRegistryDeps.value
-            : undefined,
+          previewProps: contract.value.previewProps,
+          previewExport: contract.value.previewExport,
+          registryDependencies: contract.value.registryDependenciesToWrite,
         });
 
         const canonicalOwner =
@@ -2086,19 +2098,36 @@ ${fileContent}
 
         return Array.from(allDeps).sort();
       })();
+      const contract = normalizePublishContract({
+        mode: "create",
+        input: args as {
+          registryDependencies?: unknown;
+          previewProps?: unknown;
+          previewExport?: unknown;
+          provenance?: unknown;
+          provenancePolicy?: unknown;
+        },
+        files: (normalizedTheme.files ?? files) as Record<string, string> | undefined,
+      });
+      if (!contract.ok) {
+        return {
+          content: [{ type: "text" as const, text: contract.error }],
+          isError: true,
+        };
+      }
       const item = await createRegistryItem({
         name,
         type,
         title,
         description: description || null,
         content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
-        files: normalizedTheme.files ?? files,
+        files: contract.value.filesToWrite ?? (normalizedTheme.files ?? files),
         userId,
         visibility: visibility === "public" ? "public" : "private",
         dependencies,
-        registryDependencies: normalizedRegistryDeps.value,
-        previewProps: args.previewProps,
-        previewExport: args.previewExport,
+        registryDependencies: contract.value.registryDependenciesToWrite ?? [],
+        previewProps: contract.value.previewProps,
+        previewExport: contract.value.previewExport,
       });
 
       const canonicalOwner =

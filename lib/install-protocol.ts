@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { createHash } from "crypto";
 
 export type RegistryCoordinate = `@${string}/${string}`;
 
@@ -108,6 +109,68 @@ type RegistryBundle = {
 type FetchLike = typeof fetch;
 
 const LOCKFILE_NAME = "cozy-registry.lock.json";
+const PROVENANCE_FILE_NAME = "cozy.provenance.json";
+
+type CozyProvenanceManifestV1 = {
+  schemaVersion: 1;
+  root: { ref: RegistryCoordinate; version?: string };
+  files: Array<
+    | { path: string; source: "root" | "generated" }
+    | {
+        path: string;
+        source: "registry";
+        ref: string;
+        originalPath: string;
+        contentHash: string;
+      }
+  >;
+};
+
+function sha256Utf8(content: string): string {
+  const hex = createHash("sha256").update(content, "utf8").digest("hex");
+  return `sha256:${hex}`;
+}
+
+async function writeProvenanceManifest(params: {
+  projectRoot: string;
+  installBaseDir: string;
+  coordinate: RegistryCoordinate;
+  version: string;
+  files: Array<{ projectRelative: string; originalPath: string; content: string }>;
+}): Promise<{ projectRelativePath: string; changed: boolean }> {
+  const manifest: CozyProvenanceManifestV1 = {
+    schemaVersion: 1,
+    root: { ref: params.coordinate, version: params.version },
+    files: params.files.map((f) => ({
+      path: f.projectRelative,
+      source: "registry" as const,
+      ref: `${params.coordinate}@${params.version}`,
+      originalPath: f.originalPath,
+      contentHash: sha256Utf8(f.content),
+    })),
+  };
+
+  const projectRelativePath = normalizePosix(
+    path.posix.join(params.installBaseDir, PROVENANCE_FILE_NAME),
+  );
+  const absolutePath = path.join(params.projectRoot, projectRelativePath);
+  const next = `${JSON.stringify(manifest, null, 2)}\n`;
+
+  let previous = "";
+  try {
+    previous = await fs.readFile(absolutePath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+
+  if (previous === next) {
+    return { projectRelativePath, changed: false };
+  }
+
+  await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+  await fs.writeFile(absolutePath, next, "utf8");
+  return { projectRelativePath, changed: true };
+}
 
 export function getLockfilePath(projectRoot: string): string {
   return path.join(projectRoot, LOCKFILE_NAME);
@@ -258,6 +321,12 @@ export async function installRegistryBundle(params: {
   const changedFiles: string[] = [];
   const unchangedFiles: string[] = [];
 
+  const provenanceInputFiles: Array<{
+    projectRelative: string;
+    originalPath: string;
+    content: string;
+  }> = [];
+
   for (const file of params.files) {
     const projectRelative = normalizePosix(
       path.posix.join(installBaseDir, normalizePosix(file.path)),
@@ -274,12 +343,32 @@ export async function installRegistryBundle(params: {
 
     if (previous === file.content) {
       unchangedFiles.push(projectRelative);
+      provenanceInputFiles.push({
+        projectRelative,
+        originalPath: normalizePosix(file.path),
+        content: file.content,
+      });
       continue;
     }
 
     await fs.writeFile(absolutePath, file.content, "utf8");
     changedFiles.push(projectRelative);
+    provenanceInputFiles.push({
+      projectRelative,
+      originalPath: normalizePosix(file.path),
+      content: file.content,
+    });
   }
+
+  const provenanceWrite = await writeProvenanceManifest({
+    projectRoot: validatedProjectRoot,
+    installBaseDir,
+    coordinate: params.coordinate,
+    version: params.version,
+    files: provenanceInputFiles,
+  });
+  if (provenanceWrite.changed) changedFiles.push(provenanceWrite.projectRelativePath);
+  else unchangedFiles.push(provenanceWrite.projectRelativePath);
 
   await upsertLockfileItem({
     projectRoot: validatedProjectRoot,
@@ -430,6 +519,12 @@ export async function upgradeInstalledItem(params: {
   const changedFiles: string[] = [];
   const unchangedFiles: string[] = [];
 
+  const provenanceInputFiles: Array<{
+    projectRelative: string;
+    originalPath: string;
+    content: string;
+  }> = [];
+
   for (const file of targetBundle.files) {
     const projectRelative = normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path)));
     const absolutePath = path.join(validatedProjectRoot, projectRelative);
@@ -444,12 +539,32 @@ export async function upgradeInstalledItem(params: {
 
     if (previous === file.content) {
       unchangedFiles.push(projectRelative);
+      provenanceInputFiles.push({
+        projectRelative,
+        originalPath: normalizePosix(file.path),
+        content: file.content,
+      });
       continue;
     }
 
     await fs.writeFile(absolutePath, file.content, "utf8");
     changedFiles.push(projectRelative);
+    provenanceInputFiles.push({
+      projectRelative,
+      originalPath: normalizePosix(file.path),
+      content: file.content,
+    });
   }
+
+  const provenanceWrite = await writeProvenanceManifest({
+    projectRoot: validatedProjectRoot,
+    installBaseDir,
+    coordinate: params.coordinate,
+    version: targetVersion,
+    files: provenanceInputFiles,
+  });
+  if (provenanceWrite.changed) changedFiles.push(provenanceWrite.projectRelativePath);
+  else unchangedFiles.push(provenanceWrite.projectRelativePath);
 
   await upsertLockfileItem({
     projectRoot: validatedProjectRoot,
