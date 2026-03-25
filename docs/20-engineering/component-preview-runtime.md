@@ -4,6 +4,12 @@ This document defines the v1 technical specification for the Component Registry 
 
 ---
 
+## Related Specs
+
+- [Registry Dependency Management Spec](./registry-dependency-management-spec.md): dependency declaration, graph resolution, and preview dependency behavior contract.
+
+---
+
 ## 1. System Goal
 
 The system should support the following flow:
@@ -436,4 +442,71 @@ Estimated complexity:
 - Component storage: **low**
 
 Overall system complexity: **medium**, with clear module boundaries and a straightforward evolution path.
+
+---
+
+## 14. Component Entry Resolution (Manifest Proposal)
+
+### 14.1 Problem Definition
+
+Preview runtime needs a stable way to answer one question:
+
+- **Which export is the preview root React component?**
+
+When this is inferred only by heuristics (filename order, export naming, regex), edge cases appear:
+
+- `function Foo() {}` + `export { Foo, fooVariants }`
+- multiple TSX files where `utils.tsx` may be chosen as synthetic entry
+- components without `default` export
+- utility exports accidentally selected as preview component
+
+### 14.2 Proposed Contract (Manifest in `meta`)
+
+Store optional preview hints in registry metadata:
+
+```json
+{
+  "previewEntry": "path/to/component-file.tsx",
+  "previewExport": "GateButton"
+}
+```
+
+Semantics:
+
+- `previewEntry`: optional source file path used when synthetic `index.tsx` is needed.
+- `previewExport`: optional export name to render (supports `"default"` or named export).
+
+Resolution order (authoritative):
+
+1. `meta.previewEntry` + `meta.previewExport`
+2. `meta.previewExport` + existing/synthetic index resolution
+3. fallback heuristic resolution (current behavior)
+4. fail with structured error code (e.g. `PREVIEW_COMPONENT_UNRESOLVED`)
+
+### 14.3 Compatibility and User Impact
+
+This proposal is designed to be non-breaking:
+
+- **No source rewriting**: uploaded component files remain unchanged.
+- **No installer/runtime change**: consumers still receive original files.
+- **Preview-only metadata**: fields only affect `/preview` build/runtime.
+- **Backward compatible**: old items without manifest keep using heuristic fallback.
+
+### 14.4 Recommended Rollout
+
+Phase 1 (now):
+
+- Keep current heuristic logic.
+- Accept optional `previewExport` and (future) `previewEntry`.
+
+Phase 2:
+
+- Auto-generate manifest during publish when confidence is high.
+- Allow manual override from MCP/API for ambiguous cases.
+
+Phase 3:
+
+- Prefer manifest path as default behavior.
+- Keep heuristic as compatibility fallback only.
+- Improve diagnostics to suggest exact `previewEntry` / `previewExport` values.
 
