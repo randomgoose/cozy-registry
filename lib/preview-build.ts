@@ -37,6 +37,87 @@ function slugToCamelExportName(slug: string): string {
   return head + tail;
 }
 
+/**
+ * 从源码中推断应用作 default 再导出的 PascalCase 符号（无 index.tsx 时的合成入口）。
+ * 覆盖：`export { GateButton, gateButtonVariants }`、`export function Foo` 等；
+ * 不覆盖仅有 `export type` / `export { type X }` 中可擦除的名字。
+ */
+function pickSyntheticDefaultExportName(source: string): string | null {
+  const exportBlocks = /export\s*\{([^}]+)\}/g;
+  let block: RegExpExecArray | null;
+  while ((block = exportBlocks.exec(source)) !== null) {
+    const segments = block[1].split(",").map((s) => s.trim()).filter(Boolean);
+    for (const seg of segments) {
+      if (/^type\s+/i.test(seg)) continue;
+      const id = seg.match(/^([A-Z][A-Za-z0-9_]*)\b/);
+      if (id) return id[1];
+    }
+  }
+  const exportFn = source.match(
+    /export\s+function\s+([A-Z][A-Za-z0-9_]*)\b/,
+  );
+  if (exportFn) return exportFn[1];
+  const exportClass = source.match(
+    /export\s+class\s+([A-Z][A-Za-z0-9_]*)\b/,
+  );
+  if (exportClass) return exportClass[1];
+  const exportConst = source.match(
+    /export\s+const\s+([A-Z][A-Za-z0-9_]*)\b/,
+  );
+  if (exportConst) return exportConst[1];
+  return null;
+}
+
+/**
+ * bundle 无 index 时选择入口 TS/TSX：优先路径含组件 slug，其次含 default / 命名导出组件 的源码。
+ */
+function pickPreviewEntrySourcePath(
+  files: Record<string, string>,
+  bundleName: string,
+): string | null {
+  const jsLike = Object.keys(files).filter((p) =>
+    /\.(tsx|ts|jsx|js)$/.test(p),
+  );
+  if (jsLike.length === 0) return null;
+
+  const slug = bundleName.trim().toLowerCase();
+  const slugParts = slug.split(/[^a-z0-9]+/).filter(Boolean);
+  const slugHyphen = slugParts.join("-");
+
+  const pathScore = (p: string): number => {
+    const lower = p.toLowerCase().replace(/\\/g, "/");
+    if (slugHyphen && lower.includes(slugHyphen)) return 100;
+    if (
+      slugParts.length > 0 &&
+      slugParts.every((part) => part.length > 0 && lower.includes(part))
+    ) {
+      return 50;
+    }
+    return 0;
+  };
+
+  const sourceScore = (src: string): number => {
+    let s = 0;
+    if (/export\s+default\b/.test(src)) s += 5;
+    if (/export\s*\{[^}]*\b[A-Z][A-Za-z0-9_]*/.test(src)) s += 3;
+    if (
+      /export\s+function\s+[A-Z]/.test(src) ||
+      /export\s+class\s+[A-Z]/.test(src)
+    ) {
+      s += 3;
+    }
+    if (/function\s+[A-Z][A-Za-z0-9_]*\s*[\({]/.test(src)) s += 1;
+    return s;
+  };
+
+  const ranked = jsLike.map((p) => ({
+    p,
+    score: pathScore(p) + sourceScore(files[p] ?? ""),
+  }));
+  ranked.sort((a, b) => b.score - a.score || a.p.localeCompare(b.p));
+  return ranked[0]?.p ?? null;
+}
+
 export type PreviewBuildResult =
   | { ok: true; code: string; css?: string }
   | {
@@ -83,7 +164,9 @@ export async function buildPreviewBundle(
     // - 否则使用首个导出的组件名（大写开头）
     if (!("index.tsx" in bundle.files)) {
       const entrySourcePath =
-        Object.keys(bundle.files).find((p) => p.endsWith(".tsx")) ??
+        pickPreviewEntrySourcePath(bundle.files, bundle.name) ??
+        Object.keys(bundle.files).find((p) => /\.(tsx|jsx)$/.test(p)) ??
+        Object.keys(bundle.files).find((p) => /\.(ts|js)$/.test(p)) ??
         Object.keys(bundle.files)[0];
 
       if (!entrySourcePath) {
@@ -106,10 +189,10 @@ export async function buildPreviewBundle(
       ) {
         indexContent = `export { PreviewComponent as default } from "${importPath}";\n`;
       } else {
-        const namedMatch = source.match(
-          /export\s+(?:const|function|class)\s+([A-Z][A-Za-z0-9_]*)\b/,
-        );
-        const pickedName = namedMatch?.[1] ?? "Component";
+        const pickedName =
+          pickSyntheticDefaultExportName(source) ||
+          slugToPascalExportName(bundle.name) ||
+          "Component";
         indexContent = `export { ${pickedName} as default } from "${importPath}";\n`;
       }
 
