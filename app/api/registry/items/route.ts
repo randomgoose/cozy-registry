@@ -19,6 +19,7 @@ import { getUserIdFromToken } from "@/lib/auth-api";
 import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
 import { normalizePublishContract } from "@/lib/registry-publish-contract";
 import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
+import { getWritableTeamTargetForUser } from "@/lib/publish-target";
 
 export async function POST(request: Request) {
   try {
@@ -34,6 +35,8 @@ export async function POST(request: Request) {
       registryDependencies?: unknown;
       previewProps?: unknown;
       previewExport?: unknown;
+      publishScope?: "personal" | "team";
+      teamId?: string | null;
     };
 
     const hasFiles =
@@ -69,6 +72,32 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Authentication required. Sign in or provide Authorization: Bearer <token>" },
         { status: 401 }
+      );
+    }
+
+    const requestedScope = body.publishScope === "team" ? "team" : "personal";
+    const requestedTeamId =
+      typeof body.teamId === "string" && body.teamId.trim().length > 0
+        ? body.teamId.trim()
+        : null;
+    const activeTeamId = session?.session?.activeTeamId ?? null;
+    const effectiveTeamId =
+      requestedTeamId ?? (requestedScope === "team" ? activeTeamId : null);
+    const teamTarget = effectiveTeamId
+      ? await getWritableTeamTargetForUser(userId, effectiveTeamId)
+      : null;
+
+    if (requestedScope === "team" && !effectiveTeamId) {
+      return NextResponse.json(
+        { error: "A team publish target requires teamId or an active team scope" },
+        { status: 400 },
+      );
+    }
+
+    if (effectiveTeamId && !teamTarget) {
+      return NextResponse.json(
+        { error: "You do not have publish access to the selected team" },
+        { status: 403 },
       );
     }
 
@@ -235,7 +264,8 @@ export async function POST(request: Request) {
       description: description || null,
       content: filesToWrite ? undefined : normalizedContent,
       files: filesToWrite,
-      userId,
+      userId: teamTarget ? null : userId,
+      teamId: teamTarget?.id ?? null,
       visibility: validVisibility,
       dependencies,
       registryDependencies: depsToWrite,
@@ -246,6 +276,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       item,
+      publishTarget: teamTarget
+        ? { kind: "team", teamId: teamTarget.id, teamName: teamTarget.name }
+        : { kind: "user", userId },
       hints,
       publishDiagnostics: {
         appliedRegistryDependencies: contract.value.appliedRegistryDependencies ?? depsToWrite,

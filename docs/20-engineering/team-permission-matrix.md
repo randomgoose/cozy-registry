@@ -1,6 +1,6 @@
 Status: proposed
 Owner: engineering
-Last updated: 2026-03-24
+Last updated: 2026-03-26
 Source of truth: no
 
 # Team 权限矩阵（MVP）
@@ -195,6 +195,7 @@ MVP 阶段建议把 organization 权限尽量收窄，避免过早做复杂平�
 
 - MVP 里删除权限可以先给 owner + editor，保持内容维护顺畅
 - 如果后面风险感知变强，再把删除收回到 owner
+- team item 的 canonical ref 后续推荐采用 `@orgSlug/teamSlug/itemName`
 
 ### 4.4 Team collections
 
@@ -241,6 +242,12 @@ MVP 第一阶段可以先不开放 UI，但权限语义建议先定住。
 - 创建 team-owned item
 - 发布新版本
 - 更新 metadata
+
+补充说明：
+
+- 浏览上下文可以来自 `activeTeamId`
+- 但写入动作不应只依赖隐式 active scope
+- publish / update 后续应支持显式 team target，并最终解析成明确的 `team_id`
 
 ## 5.2 团队资源的读取
 

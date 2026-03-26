@@ -251,6 +251,30 @@ export async function getRegistryItemByOwnerAndName(
   return { ...item, files };
 }
 
+export async function getRegistryItemByTeamAndName(
+  teamId: string,
+  name: string,
+) {
+  const [item] = await db
+    .select()
+    .from(registryItems)
+    .where(
+      and(
+        eq(registryItems.teamId, teamId),
+        eq(registryItems.name, name),
+      ),
+    );
+
+  if (!item) return null;
+
+  const files = await db
+    .select()
+    .from(registryFiles)
+    .where(eq(registryFiles.itemId, item.id));
+
+  return { ...item, files };
+}
+
 /**
  * Whether a registry item exists for dependency resolution and whether the caller may read it.
  */
@@ -542,7 +566,8 @@ export async function getRegistryItemVersions(
  * 发布新版本（Vibe 更新已有组件时调用）。仅组件 owner 可调用。
  */
 export async function createRegistryItemVersion(params: {
-  ownerId: string;
+  ownerId?: string;
+  teamId?: string;
   name: string;
   /**
    * 单文件入口内容（向后兼容）。当提供 files 时会被忽略。
@@ -561,13 +586,24 @@ export async function createRegistryItemVersion(params: {
   /** 可选：强制预览使用的命名导出（将写回 meta.previewExport） */
   previewExport?: string | null;
 }) {
-  const item = await getRegistryItemByOwnerAndName(
-    params.ownerId,
-    params.name,
-    params.userId
-  );
+  const item =
+    params.teamId
+      ? await getRegistryItemByTeamAndName(params.teamId, params.name)
+      : params.ownerId
+        ? await getRegistryItemByOwnerAndName(
+            params.ownerId,
+            params.name,
+            params.userId,
+          )
+        : null;
   if (!item) throw new Error("Item not found or no access");
-  if (item.userId !== params.userId) throw new Error("Only owner can publish new version");
+  if (params.teamId) {
+    if (item.teamId !== params.teamId) {
+      throw new Error("Only the owning team can publish a new version");
+    }
+  } else if (item.userId !== params.userId) {
+    throw new Error("Only owner can publish new version");
+  }
 
   const currentVer = getCurrentVersion(item);
   const nextVersion = bumpVersion(currentVer, params.bump);
@@ -594,7 +630,7 @@ export async function createRegistryItemVersion(params: {
     type: normalizedType,
     files: normalizedFiles,
     content: params.content,
-    ownerId: params.ownerId,
+    ownerId: params.teamId ?? params.ownerId ?? "legacy",
     itemName: params.name,
     version: nextVersion,
   });
@@ -614,7 +650,7 @@ export async function createRegistryItemVersion(params: {
       normalizedType === REGISTRY_THEME_TYPE ||
       pathKey.toLowerCase().endsWith(".css");
     const contentWithHeader = withCozyHeader({
-      ownerId: params.ownerId,
+      ownerId: params.teamId ?? params.ownerId ?? undefined,
       name: params.name,
       version: nextVersion,
       content: rawContent,
@@ -708,10 +744,10 @@ export async function createRegistryItemVersion(params: {
     .where(eq(registryItems.id, item.id));
 
   await enqueueThumbnailJob({
-    itemId: item.id,
-    itemVersionId: itemVersion.id,
-    payload: {
-      ownerId: params.ownerId,
+      itemId: item.id,
+      itemVersionId: itemVersion.id,
+      payload: {
+      ownerId: params.teamId ?? params.ownerId ?? "legacy",
       ownerHandle: null,
       name: params.name,
       version: nextVersion,
@@ -874,6 +910,7 @@ export async function createRegistryItem(data: {
    */
   files?: Record<string, string>;
   userId?: string | null;
+  teamId?: string | null;
   visibility?: "public" | "private";
   dependencies?: string[];
   registryDependencies?: string[];
@@ -882,6 +919,9 @@ export async function createRegistryItem(data: {
   /** 可选：强制预览使用的命名导出（meta.previewExport） */
   previewExport?: string | null;
 }) {
+  if (!!data.userId === !!data.teamId) {
+    throw new Error("Registry items must belong to exactly one owner scope");
+  }
   const normalizedType = normalizeRegistryItemType(data.type);
   const normalizedFiles = (() => {
     const files = data.files && Object.keys(data.files).length > 0 ? data.files : null;
@@ -899,7 +939,7 @@ export async function createRegistryItem(data: {
     type: normalizedType,
     files: normalizedFiles,
     content: data.content,
-    ownerId: data.userId ?? "legacy",
+    ownerId: data.teamId ?? data.userId ?? "legacy",
     itemName: data.name,
     version: INITIAL_VERSION,
   });
@@ -911,6 +951,7 @@ export async function createRegistryItem(data: {
       title: data.title,
       description: data.description ?? null,
       userId: data.userId ?? null,
+      teamId: data.teamId ?? null,
       visibility: data.visibility ?? "public",
       dependencies: data.dependencies ?? [],
       registryDependencies: data.registryDependencies ?? [],
@@ -938,7 +979,7 @@ export async function createRegistryItem(data: {
       normalizedType === REGISTRY_THEME_TYPE ||
       pathKey.toLowerCase().endsWith(".css");
     const contentWithHeader = withCozyHeader({
-      ownerId: data.userId,
+      ownerId: data.teamId ?? data.userId ?? undefined,
       name: data.name,
       version: INITIAL_VERSION,
       content: rawContent,
@@ -991,7 +1032,7 @@ export async function createRegistryItem(data: {
       itemId: item.id,
       itemVersionId: itemVersion.id,
       payload: {
-        ownerId: data.userId ?? "legacy",
+        ownerId: data.teamId ?? data.userId ?? "legacy",
         ownerHandle: null,
         name: data.name,
         version: INITIAL_VERSION,

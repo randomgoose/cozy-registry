@@ -1,6 +1,6 @@
 Status: proposed
 Owner: engineering
-Last updated: 2026-03-24
+Last updated: 2026-03-26
 Source of truth: no
 
 # Team 数据模型设计（MVP）
@@ -298,6 +298,104 @@ MVP 建议采用：
 
 - personal publish -> `user_id`
 - team publish -> `team_id`
+
+## 2.5 Registry ref 与 namespace 设计（Personal / Team）
+
+团队发布真正落地前，需要先把 registry item 的可引用身份定义清楚。
+
+这里有两个不同层次的问题：
+
+- **publish target**：这次写入要落到哪个 scope
+- **canonical registry ref**：这个资源之后如何被引用、安装、依赖、展示
+
+这两者不能混为一谈。
+
+### personal item
+
+个人资源继续沿用当前的 canonical ref：
+
+- `@userHandle/itemName`
+
+例如：
+
+- `@chen/button`
+
+### team item
+
+团队资源推荐采用三段式 ref：
+
+- `@orgSlug/teamSlug/itemName`
+
+例如：
+
+- `@gate/trading/button`
+- `@gate/marketing/hero-banner`
+
+### 为什么不推荐 `@teamSlug/itemName`
+
+如果只使用 team slug：
+
+- 无法表达 team 属于哪个 organization
+- team slug 就不得不做全局唯一
+- 后续组织边界、权限和依赖引用都会变得模糊
+
+而采用：
+
+- `@orgSlug/teamSlug/itemName`
+
+可以带来更稳定的性质：
+
+- team slug 只需要在 organization 内唯一
+- ref 自身就能表达组织归属
+- 更适合未来用于 dependency / install / preview / publish response
+
+### canonical ref 与数据库归属的关系
+
+推荐关系如下：
+
+- `@userHandle/itemName` -> `registry_items.user_id`
+- `@orgSlug/teamSlug/itemName` -> `registry_items.team_id`
+
+也就是说：
+
+- personal item 的 owner 是 user
+- team item 的 owner 是 team
+
+不要把 team item 伪装成某个 user 的 owner。
+
+### resolver 方向
+
+当前系统里存在较多“owner = user handle”的假设。后续需要演进成更通用的 scope resolver。
+
+推荐目标是：
+
+- `@user/item` -> resolve to `{ type: "user", userId }`
+- `@org/team/item` -> resolve to `{ type: "team", organizationId, teamId }`
+
+后续实现时，建议逐步从：
+
+- `resolveOwner(...)`
+
+过渡到：
+
+- `resolveRegistryScopeRef(...)`
+
+以避免把 personal 与 team world 混在一起。
+
+### MVP 实现顺序建议
+
+这套 ref 设计先作为 **规范先行** 落下来，但不要求团队发布第一版就把 public URL / install / dependency 全链路一次做完。
+
+推荐顺序：
+
+1. 先支持 team-owned item 的落库与 team-aware publish target
+2. 再补 team item 的 canonical ref resolver
+3. 最后统一 dependency / install / preview / public route
+
+也就是说：
+
+- 先把“team 里真的能发资源”打通
+- 再把“团队资源如何稳定对外引用”收完整
 
 也就是说，MCP 发布最终要落成：
 

@@ -12,7 +12,7 @@ import {
 
 export default function SettingsPage() {
   const [session, setSession] = useState<{
-    user: { name?: string; email?: string };
+    user: { id?: string; name?: string; email?: string };
     session?: { activeTeamId?: string | null; activeOrganizationId?: string | null };
   } | null>(null);
   const [apiKeys, setApiKeys] = useState<Array<{ id: string; name?: string | null; start?: string | null }>>([]);
@@ -33,12 +33,14 @@ export default function SettingsPage() {
   const isTeamScope = !!session?.session?.activeTeamId;
   const [teamCollab, setTeamCollab] = useState<{
     role: string | null;
-    team: { id: string; name: string; organizationId: string } | null;
+    team: { id: string; name: string; organizationId: string; organizationName: string } | null;
     members: Array<{
+      memberId: string;
       id: string;
       name: string;
       email: string;
       image?: string | null;
+      role: string;
       joinedAt: string;
     }>;
     invitations: Array<{
@@ -54,6 +56,9 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("viewer");
   const [inviting, setInviting] = useState(false);
+  const [memberActionId, setMemberActionId] = useState<string | null>(null);
+  const [teamNameDraft, setTeamNameDraft] = useState("");
+  const [teamSaving, setTeamSaving] = useState(false);
 
   useEffect(() => {
     authClient.getSession().then(({ data }) => setSession(data ?? null));
@@ -89,9 +94,11 @@ export default function SettingsPage() {
       .then((r) => r.json())
       .then((data) => {
         setTeamCollab(data ?? null);
+        setTeamNameDraft(data?.team?.name ?? "");
       })
       .catch(() => {
         setTeamCollab(null);
+        setTeamNameDraft("");
       })
       .finally(() => {
         setTeamCollabLoading(false);
@@ -223,6 +230,7 @@ export default function SettingsPage() {
       });
       const data = await response.json();
       setTeamCollab(data ?? null);
+      setTeamNameDraft(data?.team?.name ?? "");
     } finally {
       setTeamCollabLoading(false);
     }
@@ -277,6 +285,93 @@ export default function SettingsPage() {
     }
 
     await refreshTeamCollaboration();
+  }
+
+  async function handleUpdateMemberRole(memberId: string, role: string) {
+    if (!teamCollab?.team?.organizationId) return;
+
+    setMemberActionId(memberId);
+    try {
+      const response = await fetch("/api/auth/organization/update-member-role", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          memberId,
+          role,
+          organizationId: teamCollab.team.organizationId,
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text().catch(() => "");
+        alert(message || "Failed to update member role");
+        return;
+      }
+
+      await refreshTeamCollaboration();
+    } finally {
+      setMemberActionId(null);
+    }
+  }
+
+  async function handleRemoveTeamMember(userId: string) {
+    if (!teamCollab?.team?.id) return;
+    if (!confirm("Remove this member from the active team?")) return;
+
+    setMemberActionId(userId);
+    try {
+      const response = await fetch("/api/auth/organization/remove-team-member", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          teamId: teamCollab.team.id,
+          userId,
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text().catch(() => "");
+        alert(message || "Failed to remove team member");
+        return;
+      }
+
+      await refreshTeamCollaboration();
+    } finally {
+      setMemberActionId(null);
+    }
+  }
+
+  async function handleUpdateTeam(e: React.FormEvent) {
+    e.preventDefault();
+    if (!teamCollab?.team?.id || !teamNameDraft.trim()) return;
+
+    setTeamSaving(true);
+    try {
+      const response = await fetch("/api/auth/organization/update-team", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          teamId: teamCollab.team.id,
+          data: {
+            name: teamNameDraft.trim(),
+            organizationId: teamCollab.team.organizationId,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text().catch(() => "");
+        alert(message || "Failed to update team");
+        return;
+      }
+
+      await refreshTeamCollaboration();
+    } finally {
+      setTeamSaving(false);
+    }
   }
 
   if (!session) {
@@ -392,13 +487,83 @@ export default function SettingsPage() {
 
       {isTeamScope ? (
         <section className="mt-8 rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+              Team workspace
+            </h2>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              Review the current workspace context and update the team name if you own this team.
+            </p>
+          </div>
+
+          {teamCollabLoading ? (
+            <p className="mt-4 text-sm text-zinc-500">Loading...</p>
+          ) : teamCollab?.team ? (
+            <div className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/50">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+                    Organization
+                  </div>
+                  <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    {teamCollab.team.organizationName}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+                    Your role
+                  </div>
+                  <div className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    {teamCollab.role ?? "viewer"}
+                  </div>
+                </div>
+              </div>
+
+              {teamCollab.role === "owner" ? (
+                <form onSubmit={handleUpdateTeam} className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <label className="flex-1">
+                    <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                      Team name
+                    </div>
+                    <input
+                      type="text"
+                      value={teamNameDraft}
+                      onChange={(e) => setTeamNameDraft(e.target.value)}
+                      placeholder="Trading"
+                      className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={teamSaving || !teamNameDraft.trim() || teamNameDraft.trim() === teamCollab.team.name}
+                    className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                  >
+                    {teamSaving ? "Saving..." : "Save team name"}
+                  </button>
+                </form>
+              ) : (
+                <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
+                  Only team owners can update workspace details in this MVP.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="mt-4 text-sm text-zinc-500">
+              Team workspace details are unavailable right now.
+            </p>
+          )}
+        </section>
+      ) : null}
+
+      {isTeamScope ? (
+        <section className="mt-8 rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
                 Team members
               </h2>
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Manage who can access the active team workspace and review pending invitations.
+                Manage who can access the active team workspace, adjust access roles, and review pending invitations.
               </p>
             </div>
             {teamCollab?.team ? (
@@ -462,10 +627,47 @@ export default function SettingsPage() {
                           key={member.id}
                           className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950/40"
                         >
-                          <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                            {member.name || member.email}
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                {member.name || member.email}
+                              </div>
+                              <div className="mt-1 text-xs text-zinc-500">{member.email}</div>
+                              <div className="mt-2 inline-flex rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                                {member.role}
+                              </div>
+                            </div>
+                            {teamCollab.role === "owner" ? (
+                              <div className="flex shrink-0 items-center gap-2">
+                                {member.role === "owner" ? null : (
+                                  <>
+                                    <select
+                                      value={member.role}
+                                      disabled={memberActionId === member.memberId}
+                                      onChange={(e) => {
+                                        const nextRole = e.target.value;
+                                        if (nextRole !== member.role) {
+                                          void handleUpdateMemberRole(member.memberId, nextRole);
+                                        }
+                                      }}
+                                      className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                                    >
+                                      <option value="viewer">Viewer</option>
+                                      <option value="editor">Editor</option>
+                                    </select>
+                                    <button
+                                      type="button"
+                                      disabled={memberActionId === member.id}
+                                      onClick={() => void handleRemoveTeamMember(member.id)}
+                                      className="text-xs text-red-600 hover:underline disabled:opacity-50 dark:text-red-400"
+                                    >
+                                      Remove
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            ) : null}
                           </div>
-                          <div className="mt-1 text-xs text-zinc-500">{member.email}</div>
                         </li>
                       ))}
                     </ul>

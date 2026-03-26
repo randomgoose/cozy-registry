@@ -1,6 +1,6 @@
 Status: proposed
 Owner: product
-Last updated: 2026-03-24
+Last updated: 2026-03-26
 Source of truth: no
 
 # Team MVP 页面清单
@@ -172,6 +172,23 @@ MVP 中 team dashboard 上出现的发布入口，不应该只依赖“当前 ac
 
 - 用户在 UI 中切换过 scope
 - AI 工具却在隐式上下文下把资源写到错误 team
+
+### 团队资源的命名空间说明
+
+团队资源不建议继续伪装成个人 owner。
+
+产品上推荐逐步采用：
+
+- 个人：`@userHandle/itemName`
+- 团队：`@orgSlug/teamSlug/itemName`
+
+这会影响：
+
+- dashboard 中资源的展示方式
+- publish 成功提示
+- install / dependency 的 ref 语义
+
+MVP 第一阶段不要求这些入口一次全部切完，但产品语义应先定住，避免后续在 UI 文案和 API 输入上左右摇摆。
 
 ### 按角色差异
 

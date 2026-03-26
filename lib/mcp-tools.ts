@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import {
   getRegistryItemsScoped,
   getRegistryItemByName,
+  getRegistryItemByTeamAndName,
   getRegistryItemByOwnerNameAndVersion,
   getRegistryItemByOwnerNameAndVersionScoped,
   getRegistryItemVersions,
@@ -51,6 +52,7 @@ import {
   suggestRegistryDependenciesFromFiles,
   toRegistryCatalogEntries,
 } from "./registry-dependency-suggestions";
+import { getWritableTeamTargetForUser } from "./publish-target";
 import {
   computeRegistryDependencyHealth,
   formatDependencyHealthForMcp,
@@ -1851,6 +1853,18 @@ ${fileContent}
         .describe(
           "When updating an existing component, how to bump the version. Defaults to patch.",
         ),
+      publishScope: z
+        .enum(["personal", "team"])
+        .optional()
+        .describe(
+          "Publish target. Defaults to personal. For team publishes, also provide teamId in this MVP.",
+        ),
+      teamId: z
+        .string()
+        .optional()
+        .describe(
+          "Explicit team publish target. Required for MCP team publishing in this MVP because MCP requests should not rely on an implicit browser active team.",
+        ),
       registryDependencies: z
         .unknown()
         .optional()
@@ -2116,17 +2130,50 @@ ${fileContent}
         };
       }
 
+      const requestedTeamId =
+        typeof args.teamId === "string" && args.teamId.trim().length > 0
+          ? args.teamId.trim()
+          : null;
+      const publishScope = args.publishScope === "team" || requestedTeamId ? "team" : "personal";
+      if (publishScope === "team" && !requestedTeamId) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Team publishing requires an explicit teamId in this MVP.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const teamTarget =
+        requestedTeamId ? await getWritableTeamTargetForUser(userId, requestedTeamId) : null;
+      if (requestedTeamId && !teamTarget) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "You do not have publish access to the selected team.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // 归一化 theme：若 type === registry:theme，优先将 content / files 中的 JSON 视为 tokens.json，
       // 并从中派生 theme.css。
       const normalizedTheme = normalizeThemeArgs(args);
 
       // 如果当前用户已经有同名组件，则视为「发布新版本」，而不是创建新组件。
-      const existing = await getRegistryItemByOwnerNameAndVersion(
-        userId,
-        name,
-        null,
-        userId,
-      ).catch(() => null);
+      const existing = teamTarget
+        ? await getRegistryItemByTeamAndName(teamTarget.id, name).catch(() => null)
+        : await getRegistryItemByOwnerNameAndVersion(
+            userId,
+            name,
+            null,
+            userId,
+          ).catch(() => null);
 
       if (existing) {
         const contract = normalizePublishContract({
@@ -2157,7 +2204,8 @@ ${fileContent}
         }
         const bumpType = bump ?? "patch";
         const result = await createRegistryItemVersion({
-          ownerId: userId,
+          ownerId: teamTarget ? undefined : userId,
+          teamId: teamTarget?.id,
           name,
           content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
           files: contract.value.filesToWrite ?? (normalizedTheme.files ?? files),
@@ -2169,10 +2217,6 @@ ${fileContent}
           registryDependencies: contract.value.registryDependenciesToWrite,
         });
 
-        const canonicalOwner =
-          (await resolveOwner(existing.userId ?? userId))?.handle ??
-          existing.userId ??
-          "legacy";
         const effectiveRegistryDeps =
           contract.value.registryDependenciesToWrite ??
           ((existing.registryDependencies ?? []) as string[]);
@@ -2188,7 +2232,9 @@ ${fileContent}
           content: [
             {
               type: "text" as const,
-              text: `Updated "${existing.title}" (@${canonicalOwner}/${existing.name}) to version v${result.version}. View at /registry/${canonicalOwner}/${existing.name}${healthSuffix}`,
+              text: teamTarget
+                ? `Updated team component "${existing.title}" in ${teamTarget.name} to version v${result.version}.${healthSuffix}`
+                : `Updated "${existing.title}" (@${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}) to version v${result.version}. View at /registry/${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}${healthSuffix}`,
             },
           ],
         };
@@ -2253,7 +2299,8 @@ ${fileContent}
         description: description || null,
         content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
         files: contract.value.filesToWrite ?? (normalizedTheme.files ?? files),
-        userId,
+        userId: teamTarget ? null : userId,
+        teamId: teamTarget?.id ?? null,
         visibility: visibility === "public" ? "public" : "private",
         dependencies,
         registryDependencies: contract.value.registryDependenciesToWrite ?? [],
@@ -2261,10 +2308,6 @@ ${fileContent}
         previewExport: contract.value.previewExport,
       });
 
-      const canonicalOwner =
-        (await resolveOwner(item.userId ?? "legacy"))?.handle ??
-        item.userId ??
-        "legacy";
       const effectiveRegistryDepsCreate =
         contract.value.registryDependenciesToWrite ?? [];
       let healthSuffixCreate = "";
@@ -2279,7 +2322,9 @@ ${fileContent}
         content: [
           {
             type: "text" as const,
-            text: `Published new component "${item.title}" (@${canonicalOwner}/${item.name}). View at /registry/${canonicalOwner}/${item.name}${healthSuffixCreate}`,
+            text: teamTarget
+              ? `Published new team component "${item.title}" to ${teamTarget.name}.${healthSuffixCreate}`
+              : `Published new component "${item.title}" (@${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}). View at /registry/${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}${healthSuffixCreate}`,
           },
         ],
       };

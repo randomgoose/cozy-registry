@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { invitation, member, team, teamMember, user } from "@/lib/db/schema";
+import { invitation, member, organization, team, teamMember, user } from "@/lib/db/schema";
 
 export async function GET() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -34,20 +34,32 @@ export async function GET() {
       .where(and(eq(member.userId, userId), eq(member.organizationId, activeOrganizationId)))
       .limit(1),
     db
-      .select({ id: team.id, name: team.name, organizationId: team.organizationId })
+      .select({
+        id: team.id,
+        name: team.name,
+        organizationId: team.organizationId,
+        organizationName: organization.name,
+      })
       .from(team)
+      .innerJoin(organization, eq(team.organizationId, organization.id))
       .where(and(eq(team.id, activeTeamId), eq(team.organizationId, activeOrganizationId)))
       .limit(1),
     db
       .select({
+        memberId: member.id,
         id: user.id,
         name: user.name,
         email: user.email,
         image: user.image,
+        role: member.role,
         joinedAt: teamMember.createdAt,
       })
       .from(teamMember)
       .innerJoin(user, eq(teamMember.userId, user.id))
+      .innerJoin(
+        member,
+        and(eq(member.userId, teamMember.userId), eq(member.organizationId, activeOrganizationId)),
+      )
       .where(eq(teamMember.teamId, activeTeamId))
       .orderBy(asc(user.name), asc(user.email)),
     db
