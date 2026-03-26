@@ -1721,7 +1721,7 @@ ${fileContent}
   server.registerTool("publish_component", {
     title: "Publish or update component",
     description:
-      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token. New components default to private visibility unless `visibility` is explicitly set to public.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.",
+      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token. New components default to private visibility unless `visibility` is explicitly set to public.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.\n\nPreview props (`previewProps`): Optional. The registry preview still works without it (sensible defaults). Provide `previewProps` when you want designers and reviewers to see representative component states in the browser—variants, labels, disabled/open, sample content—without reading source. Stored in meta.previewProps for the /preview page.",
     annotations: MCP_ANN.writeRegistry,
     inputSchema: z.object({
       name: z
@@ -1746,7 +1746,7 @@ ${fileContent}
         .any()
         .optional()
         .describe(
-          "Optional preview props object (will be stored in meta.previewProps and used by /preview)",
+          "Optional JSON-serializable props for the registry preview page. Omitted: preview still renders with defaults. Prefer setting when the component has meaningful props so designers can review multiple states (variants, content, flags) in the browser. Stored in meta.previewProps.",
         ),
       previewExport: z
         .string()
