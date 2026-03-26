@@ -44,6 +44,8 @@ export function buildRegistryRef(ownerId: string | null, name: string): Registry
 }
 
 export function buildRegistryGraph(items: BuildGraphInputItem[]): RegistryGraph {
+  // Note: edges use @owner/name only (version pins in refs are ignored). For
+  // version-accurate graphs, use resolver/runtime paths instead of this helper.
   const nodes = new Map<RegistryNodeRef, RegistryNode>();
   const edges = new Map<RegistryNodeRef, RegistryNodeRef[]>();
   const danglingEdges: RegistryGraphEdge[] = [];

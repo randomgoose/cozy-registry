@@ -38,6 +38,7 @@ export async function DELETE(request: Request, { params }: Params) {
       ownerId: resolved.userId,
       name,
       requestUserId: userId,
+      ownerRef: owner,
     });
     return NextResponse.json({ success: true });
   } catch (e) {
@@ -47,6 +48,12 @@ export async function DELETE(request: Request, { params }: Params) {
     }
     if (msg.includes("Only owner")) {
       return NextResponse.json({ error: msg }, { status: 403 });
+    }
+    if (msg.includes("Cannot delete: still referenced")) {
+      return NextResponse.json(
+        { error: msg, code: "REGDEP_REFERENCED" },
+        { status: 409 },
+      );
     }
     return NextResponse.json({ error: msg }, { status: 500 });
   }

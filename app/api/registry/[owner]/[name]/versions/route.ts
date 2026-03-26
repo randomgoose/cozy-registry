@@ -157,9 +157,13 @@ export async function POST(request: Request, { params }: Params) {
       provenancePolicy?: unknown;
     },
     files: finalFiles,
+    previousRegistryDependencies: (item.registryDependencies ?? []) as string[],
   });
   if (!contract.ok) {
-    return NextResponse.json({ error: contract.error }, { status: 400 });
+    return NextResponse.json(
+      { error: contract.error, code: contract.code },
+      { status: 400 },
+    );
   }
 
   if (finalFiles) {
@@ -238,7 +242,21 @@ export async function POST(request: Request, { params }: Params) {
       previewProps: contract.value.previewProps,
       previewExport: contract.value.previewExport,
     });
-    return NextResponse.json({ version: result.version, hints });
+    return NextResponse.json({
+      version: result.version,
+      hints,
+      publishDiagnostics: {
+        appliedRegistryDependencies:
+          contract.value.appliedRegistryDependencies ??
+          contract.value.registryDependenciesToWrite ??
+          ((item.registryDependencies ?? []) as string[]),
+        droppedPaths: contract.value.diagnostics.droppedPaths,
+        dirtyDependencyPaths: contract.value.diagnostics.dirtyDependencyPaths,
+        stubInferredRegistryDependencies:
+          contract.value.diagnostics.stubInferredRegistryDependencies,
+        policyApplied: contract.value.diagnostics.policyApplied,
+      },
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     if (msg.includes("not found") || msg.includes("no access")) {

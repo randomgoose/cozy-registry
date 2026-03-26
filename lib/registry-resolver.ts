@@ -1,4 +1,13 @@
-import { getRegistryItemByOwnerNameAndVersion, getThemeEntryCss } from "@/lib/registry";
+import {
+  getRegistryDependencyAccessForRef,
+  getRegistryItemByOwnerNameAndVersion,
+  getThemeEntryCss,
+} from "@/lib/registry";
+import {
+  RegistryDependencyCycleError,
+  RegistryDependencyNotFoundError,
+  RegistryDependencyPermissionDeniedError,
+} from "@/lib/registry-dependency-errors";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 import path from "path";
 
@@ -13,14 +22,11 @@ export type ResolvedRegistryItem = Awaited<
   ReturnType<typeof getRegistryItemByOwnerNameAndVersion>
 >;
 
-export class RegistryDependencyCycleError extends Error {
-  path: string[];
-  constructor(path: string[]) {
-    super(`Registry dependency cycle detected: ${path.join(" -> ")}`);
-    this.name = "RegistryDependencyCycleError";
-    this.path = path;
-  }
-}
+export {
+  RegistryDependencyCycleError,
+  RegistryDependencyNotFoundError,
+  RegistryDependencyPermissionDeniedError,
+};
 
 function toRef(owner: string, name: string, version: string | null): string {
   return version ? `@${owner}/${name}@${version}` : `@${owner}/${name}`;
@@ -55,6 +61,20 @@ export async function resolveRegistryDependencies(params: {
 
     stack.push(ref);
 
+    const access = await getRegistryDependencyAccessForRef(
+      owner,
+      name,
+      params.requestUserId,
+    );
+    if (access === "not_found") {
+      stack.pop();
+      throw new RegistryDependencyNotFoundError(ref);
+    }
+    if (access === "denied") {
+      stack.pop();
+      throw new RegistryDependencyPermissionDeniedError(ref);
+    }
+
     const item = await getRegistryItemByOwnerNameAndVersion(
       owner,
       name,
@@ -63,8 +83,7 @@ export async function resolveRegistryDependencies(params: {
     );
     if (!item) {
       stack.pop();
-      // Missing dependency is treated as an error for resolver consumers.
-      throw new Error(`Registry dependency not found: ${ref}`);
+      throw new RegistryDependencyNotFoundError(ref);
     }
 
     const deps = (item.registryDependencies ?? []) as string[];

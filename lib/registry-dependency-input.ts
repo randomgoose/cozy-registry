@@ -3,7 +3,14 @@ import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 export function normalizeRegistryDependenciesInput(
   input: unknown,
 ): { value: string[]; error?: string } {
-  if (input == null) return { value: [] };
+  if (input === undefined) return { value: [] };
+  if (input === null) {
+    return {
+      value: [],
+      error:
+        "registryDependencies cannot be null; omit the field (inherit on update) or use [] to clear",
+    };
+  }
   if (!Array.isArray(input)) {
     return { value: [], error: "registryDependencies must be an array of strings" };
   }

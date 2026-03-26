@@ -1,3 +1,4 @@
+import { inferRegistryDependenciesFromStubScan } from "@/lib/registry-dependency-stub-scan";
 import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
 import path from "path";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
@@ -23,6 +24,10 @@ export type PublishContractDiagnostics = {
   droppedPaths: string[];
   /** dependency paths whose content hash differs from provenance */
   dirtyDependencyPaths: string[];
+  /** refs inferred from cozy stub patterns (spec §3.5.2) */
+  stubInferredRegistryDependencies: string[];
+  /** effective provenance policy */
+  policyApplied: ProvenancePolicy | "none";
 };
 
 export type PublishContractResult = {
@@ -37,9 +42,26 @@ export type PublishContractResult = {
   /** When provenance is provided, only these files should be published. */
   filesToWrite?: Record<string, string>;
   diagnostics: PublishContractDiagnostics;
+  /** Same as written registryDependencies when a write occurs (create or explicit version update). */
+  appliedRegistryDependencies?: string[];
 };
 
 export type ProvenancePolicy = "strict" | "split" | "inlineVendor";
+
+function appendStubInferredDeps(params: {
+  mode: PublishMode;
+  registryDependenciesPresent: boolean;
+  values: string[];
+  files?: Record<string, string>;
+  provenancePresent: boolean;
+}): string[] {
+  if (params.provenancePresent || !params.files) return params.values;
+  if (params.mode === "version" && !params.registryDependenciesPresent) {
+    return params.values;
+  }
+  const inferred = inferRegistryDependenciesFromStubScan(params.files);
+  return Array.from(new Set([...params.values, ...inferred]));
+}
 
 export function normalizePublishContract(params: {
   mode: PublishMode;
@@ -53,7 +75,9 @@ export function normalizePublishContract(params: {
   };
   /** optional multi-file bundle submitted by caller */
   files?: Record<string, string> | undefined;
-}): { ok: true; value: PublishContractResult } | { ok: false; error: string } {
+  /** When mode is version and registryDependencies is absent: previous stored deps (for provenance merge). */
+  previousRegistryDependencies?: string[] | undefined;
+}): { ok: true; value: PublishContractResult } | { ok: false; error: string; code?: string } {
   const registryDependenciesPresent = Object.prototype.hasOwnProperty.call(
     params.input,
     "registryDependencies",
@@ -62,7 +86,7 @@ export function normalizePublishContract(params: {
     ? normalizeRegistryDependenciesInput(params.input.registryDependencies)
     : { value: [] as string[] };
   if (normalizedDeps.error) {
-    return { ok: false, error: normalizedDeps.error };
+    return { ok: false, error: normalizedDeps.error, code: "REGDEP_INVALID_FORMAT" };
   }
 
   const registryDependenciesToWrite =
@@ -128,6 +152,10 @@ export function normalizePublishContract(params: {
         }
 
         const reg = registryByPath.get(p);
+        if (reg && policy === "inlineVendor") {
+          next[p] = params.files[p] as string;
+          continue;
+        }
         if (reg && policy !== "inlineVendor") {
           // Replace expanded dependency implementation with a stub that forwards to `_deps/...`.
           const parsed = parseRegistryDependencyRef(reg.ref.trim());
@@ -184,40 +212,88 @@ export function normalizePublishContract(params: {
         error:
           "Provenance strict mode: dependency files were modified. Publish the dependency item(s) instead, or revert changes.\n\nDirty paths:\n" +
           dirtyDependencyPaths.slice(0, 20).map((p) => `- ${p}`).join("\n"),
+        code: "PROV_DIRTY_DEPENDENCY",
+      };
+    }
+
+    if (dirtyDependencyPaths.length > 0 && policy === "split") {
+      return {
+        ok: false,
+        error:
+          "Provenance split mode is not automated yet: publish updated dependency items first with pinned refs, then publish the root (or use provenancePolicy \"strict\" after reverting local edits, or \"inlineVendor\" to vendor copies).",
+        code: "PROV_SPLIT_NOT_IMPLEMENTED",
       };
     }
   }
 
   const mergedDeps = (() => {
-    // If provenance exists, treat derived deps as additive to explicit deps.
-    const out = new Set<string>(normalizedDeps.value);
+    const base: string[] =
+      provenancePresent && params.mode === "version" && !registryDependenciesPresent
+        ? (params.previousRegistryDependencies ?? [])
+        : normalizedDeps.value;
+    const out = new Set<string>(base);
     for (const d of depsFromProvenance) out.add(d);
     return Array.from(out);
   })();
 
+  const stubInferred = params.files
+    ? inferRegistryDependenciesFromStubScan(params.files)
+    : [];
+
   const effectiveRegistryDependenciesToWrite = (() => {
     if (provenancePresent) {
-      // provenance is an explicit signal; treat as present
-      return params.mode === "create" ? mergedDeps : mergedDeps;
+      return mergedDeps;
+    }
+    if (params.mode === "create") {
+      return appendStubInferredDeps({
+        mode: params.mode,
+        registryDependenciesPresent,
+        values: normalizedDeps.value,
+        files: params.files,
+        provenancePresent: false,
+      });
+    }
+    if (registryDependenciesPresent) {
+      return appendStubInferredDeps({
+        mode: params.mode,
+        registryDependenciesPresent,
+        values: normalizedDeps.value,
+        files: params.files,
+        provenancePresent: false,
+      });
     }
     return registryDependenciesToWrite;
   })();
+
+  const policyApplied: ProvenancePolicy | "none" = provenancePresent ? policy : "none";
+
+  const appliedRegistryDependencies =
+    effectiveRegistryDependenciesToWrite !== undefined
+      ? effectiveRegistryDependenciesToWrite
+      : undefined;
+
+  const normalizedRegistryDependenciesForDiagnostics =
+    effectiveRegistryDependenciesToWrite !== undefined
+      ? effectiveRegistryDependenciesToWrite
+      : mergedDeps;
 
   return {
     ok: true,
     value: {
       registryDependenciesToWrite: effectiveRegistryDependenciesToWrite,
+      appliedRegistryDependencies,
       previewProps: params.input.previewProps,
       previewExport,
       filesToWrite,
       diagnostics: {
-        normalizedRegistryDependencies: mergedDeps,
+        normalizedRegistryDependencies: normalizedRegistryDependenciesForDiagnostics,
         registryDependenciesPresent,
         provenancePresent,
         droppedPaths,
         dirtyDependencyPaths,
+        stubInferredRegistryDependencies: stubInferred,
+        policyApplied,
       },
     },
   };
 }
-

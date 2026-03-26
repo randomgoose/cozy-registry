@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   registryItems,
@@ -249,6 +249,106 @@ export async function getRegistryItemByOwnerAndName(
     .where(eq(registryFiles.itemId, item.id));
 
   return { ...item, files };
+}
+
+/**
+ * Whether a registry item exists for dependency resolution and whether the caller may read it.
+ */
+export async function getRegistryDependencyAccessForRef(
+  ownerHandle: string,
+  itemName: string,
+  requestUserId?: string | null,
+): Promise<"not_found" | "denied" | "ok"> {
+  const resolved = await resolveOwner(ownerHandle);
+  if (!resolved) return "not_found";
+  const [row] = await db
+    .select({
+      userId: registryItems.userId,
+      visibility: registryItems.visibility,
+    })
+    .from(registryItems)
+    .where(
+      and(
+        eq(registryItems.userId, resolved.userId),
+        eq(registryItems.name, itemName),
+      ),
+    )
+    .limit(1);
+  if (!row || !row.userId) return "not_found";
+  if (row.visibility === "private" && row.userId !== requestUserId) return "denied";
+  return "ok";
+}
+
+export type RegistryItemReferrer = {
+  ownerHandle: string;
+  itemName: string;
+};
+
+/**
+ * Other registry items (snapshot or any historical version) whose registryDependencies reference @ownerHandle/itemName.
+ */
+export async function findRegistryItemsReferencing(
+  ownerHandle: string,
+  itemName: string,
+  exclude?: { ownerUserId: string; itemName: string },
+): Promise<RegistryItemReferrer[]> {
+  const refExact = `@${ownerHandle}/${itemName}`;
+  const versionPrefix = `@${ownerHandle}/${itemName}@`;
+
+  const depMatchSnapshot = sql`
+    EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements_text(COALESCE(${registryItems.registryDependencies}, '[]'::jsonb)) AS t(dep)
+      WHERE t.dep = ${refExact}
+         OR t.dep LIKE ${versionPrefix + "%"}
+    )
+  `;
+
+  const excludeCond =
+    exclude != null
+      ? sql`NOT (${registryItems.userId} = ${exclude.ownerUserId} AND ${registryItems.name} = ${exclude.itemName})`
+      : sql`true`;
+
+  const snapRows = await db
+    .select({ userId: registryItems.userId, name: registryItems.name })
+    .from(registryItems)
+    .where(and(depMatchSnapshot, excludeCond));
+
+  const depMatchVersion = sql`
+    EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements_text(COALESCE(${registryItemVersions.registryDependencies}, '[]'::jsonb)) AS t(dep)
+      WHERE t.dep = ${refExact}
+         OR t.dep LIKE ${versionPrefix + "%"}
+    )
+  `;
+
+  const verRows = await db
+    .select({ userId: registryItems.userId, name: registryItems.name })
+    .from(registryItemVersions)
+    .innerJoin(registryItems, eq(registryItemVersions.itemId, registryItems.id))
+    .where(and(depMatchVersion, excludeCond));
+
+  const seen = new Set<string>();
+  const out: RegistryItemReferrer[] = [];
+
+  const add = async (userId: string | null, name: string) => {
+    if (!userId) return;
+    const k = `${userId}\0${name}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    const handle = (await resolveOwner(userId))?.handle ?? userId;
+    out.push({ ownerHandle: handle, itemName: name });
+  };
+
+  for (const r of snapRows) {
+    await add(r.userId, r.name);
+  }
+  for (const r of verRows) {
+    await add(r.userId, r.name);
+  }
+
+  return out;
 }
 
 /** 当前展示版本号（兼容旧数据无 currentVersion） */
@@ -905,11 +1005,14 @@ export async function createRegistryItem(data: {
 
 /**
  * 删除组件（包括所有文件与版本）。仅 owner 可删除。
+ * 若 `ownerRef` 与 `name` 给出，则阻止删除仍被其它条目的 `registryDependencies` 引用的组件。
  */
 export async function deleteRegistryItem(params: {
   ownerId: string;
   name: string;
   requestUserId: string;
+  /** Public owner handle from URL (`@handle/name` 中的 handle) */
+  ownerRef?: string;
 }) {
   const item = await getRegistryItemByOwnerAndName(
     params.ownerId,
@@ -921,6 +1024,23 @@ export async function deleteRegistryItem(params: {
   }
   if (item.userId !== params.requestUserId) {
     throw new Error("Only owner can delete the component");
+  }
+
+  if (params.ownerRef) {
+    const referrers = await findRegistryItemsReferencing(
+      params.ownerRef,
+      params.name,
+      { ownerUserId: params.ownerId, itemName: params.name },
+    );
+    if (referrers.length > 0) {
+      const list = referrers
+        .slice(0, 20)
+        .map((r) => `@${r.ownerHandle}/${r.itemName}`)
+        .join(", ");
+      throw new Error(
+        `Cannot delete: still referenced in registryDependencies by: ${list}${referrers.length > 20 ? " …" : ""}`,
+      );
+    }
   }
 
   await db

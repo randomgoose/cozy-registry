@@ -14,6 +14,11 @@ import {
   resolveTransitiveComponentSourceFiles,
   resolveTransitiveThemeCss,
 } from "@/lib/registry-resolver";
+import {
+  RegistryDependencyCycleError,
+  RegistryDependencyNotFoundError,
+  RegistryDependencyPermissionDeniedError,
+} from "@/lib/registry-dependency-errors";
 
 function escapeHtml(s: string): string {
   return s
@@ -168,6 +173,7 @@ export async function GET(
   const url = new URL(request.url);
   const version = url.searchParams.get("v") ?? null;
   const debugTheme = url.searchParams.get("debugTheme") === "1";
+  const debugDeps = url.searchParams.get("debugDeps") === "1";
   const previewMode =
     url.searchParams.get("thumbnail") === "1" ? "thumbnail" : "default";
 
@@ -315,6 +321,7 @@ ${versionToolbarHtml}
   const runtimeDependencies = allDependencies.filter(isBareModuleSpecifier);
 
   // Materialize transitive component dependencies under `_deps/...` so stub files can re-export.
+  let componentDepSources: string[] = [];
   try {
     const resolved = await resolveTransitiveComponentSourceFiles({
       owner,
@@ -322,12 +329,40 @@ ${versionToolbarHtml}
       version,
       requestUserId: userId,
     });
+    componentDepSources = resolved.sources;
     for (const [p, c] of Object.entries(resolved.files)) {
       // do not overwrite root files
       if (!(p in files)) files[p] = c;
     }
-  } catch {
-    // Dependency materialization failure should not block build (for now).
+  } catch (err) {
+    const code =
+      err instanceof RegistryDependencyPermissionDeniedError
+        ? "REGDEP_PERMISSION_DENIED"
+        : err instanceof RegistryDependencyNotFoundError
+          ? "REGDEP_NOT_FOUND"
+          : err instanceof RegistryDependencyCycleError
+            ? "REGDEP_CYCLE_DETECTED"
+            : "PREVIEW_COMPONENT_DEP_RESOLVE_FAILED";
+    const message = err instanceof Error ? err.message : String(err);
+    const cyclePath =
+      err instanceof RegistryDependencyCycleError ? err.path : undefined;
+    const html = `<!DOCTYPE html>
+<html lang="en" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Preview dependency error</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  </head>
+  <body style="margin:0;padding:24px;font-family:system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;background:#fef2f2;color:#b91c1c;">
+    <h1 style="font-size:16px;margin:0 0 8px;">Registry dependency resolution failed</h1>
+    <p style="font-size:13px;margin:0 0 8px;"><strong>${escapeHtml(code)}</strong></p>
+    <pre style="white-space:pre-wrap;font-size:13px;background:#fff;border-radius:8px;border:1px solid #fecaca;padding:12px;color:#991b1b;">${escapeHtml(message)}${cyclePath ? "\n\n" + escapeHtml(cyclePath.join(" -> ")) : ""}</pre>
+  </body>
+</html>`;
+    return new NextResponse(html, {
+      status: 500,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
 
   const buildResult = await buildPreviewBundle(
@@ -440,6 +475,25 @@ ${versionToolbarHtml}
   const themeDebugScript = debugTheme
     ? `\n    <script>\nwindow.__COZY_THEME_DEBUG__ = ${themeDebug};\nconsole.info("[preview:theme-debug]", window.__COZY_THEME_DEBUG__);\n</script>`
     : "";
+  const depsDebug =
+    debugDeps
+      ? JSON.stringify(
+          {
+            owner,
+            name,
+            requestedVersion: version,
+            registryDependencies: (item.registryDependencies ?? []) as string[],
+            materializedComponentDepSources: componentDepSources,
+            themeResolveError,
+            resolvedThemeSources: themeSources,
+          },
+          null,
+          2,
+        )
+      : "";
+  const depsDebugScript = debugDeps
+    ? `\n    <script>\nwindow.__COZY_DEPS_DEBUG__ = ${depsDebug};\nconsole.info("[preview:deps-debug]", window.__COZY_DEPS_DEBUG__);\n</script>`
+    : "";
   const bundleStyles =
     buildResult.css != null && buildResult.css !== ""
       ? `\n    <style>${escapeHtmlCss(buildResult.css)}</style>`
@@ -459,7 +513,7 @@ ${importMapJson}
   <body class="${previewMode === "thumbnail" ? "min-h-screen overflow-hidden bg-transparent" : "min-h-screen bg-white"}" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}${toolbarBodyPadding}">
 ${versionToolbarHtml}
     <div id="root"></div>
-${themeDebugScript}
+${themeDebugScript}${depsDebugScript}
     <script type="module">
 ${buildResult.code}
     </script>

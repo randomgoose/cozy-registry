@@ -1664,6 +1664,7 @@ ${fileContent}
         ownerId,
         name,
         requestUserId: userId,
+        ownerRef: canonicalOwner,
       });
 
       return {
@@ -1676,6 +1677,12 @@ ${fileContent}
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("Cannot delete: still referenced")) {
+        return {
+          content: [{ type: "text" as const, text: msg }],
+          isError: true,
+        };
+      }
       if (msg.includes("not found") || msg.includes("no access")) {
         return {
           content: [
@@ -2062,10 +2069,18 @@ ${fileContent}
             provenancePolicy?: unknown;
           },
           files: (normalizedTheme.files ?? files) as Record<string, string> | undefined,
+          previousRegistryDependencies: (existing.registryDependencies ?? []) as string[],
         });
         if (!contract.ok) {
           return {
-            content: [{ type: "text" as const, text: contract.error }],
+            content: [
+              {
+                type: "text" as const,
+                text: contract.code
+                  ? `[${contract.code}] ${contract.error}`
+                  : contract.error,
+              },
+            ],
             isError: true,
           };
         }
@@ -2137,7 +2152,14 @@ ${fileContent}
       });
       if (!contract.ok) {
         return {
-          content: [{ type: "text" as const, text: contract.error }],
+          content: [
+            {
+              type: "text" as const,
+              text: contract.code
+                ? `[${contract.code}] ${contract.error}`
+                : contract.error,
+            },
+          ],
           isError: true,
         };
       }

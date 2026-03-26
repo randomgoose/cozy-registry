@@ -18,6 +18,7 @@ import { auth } from "@/lib/auth";
 import { getUserIdFromToken } from "@/lib/auth-api";
 import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
 import { normalizePublishContract } from "@/lib/registry-publish-contract";
+import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
 
 export async function POST(request: Request) {
   try {
@@ -50,19 +51,14 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    const contract = normalizePublishContract({
-      mode: "create",
-      input: body as {
-        registryDependencies?: unknown;
-        previewProps?: unknown;
-        previewExport?: unknown;
-        provenance?: unknown;
-        provenancePolicy?: unknown;
-      },
-      files: undefined,
-    });
-    if (!contract.ok) {
-      return NextResponse.json({ error: contract.error }, { status: 400 });
+    if (Object.prototype.hasOwnProperty.call(body, "registryDependencies")) {
+      const nd = normalizeRegistryDependenciesInput(body.registryDependencies);
+      if (nd.error) {
+        return NextResponse.json(
+          { error: nd.error, code: "REGDEP_INVALID_FORMAT" },
+          { status: 400 },
+        );
+      }
     }
 
     let userId: string | null = null;
@@ -92,46 +88,6 @@ export async function POST(request: Request) {
           { error: "Theme content is required (either CSS or tokens JSON)" },
           { status: 400 }
         );
-      }
-    } else {
-      // 多文件模式：theme 允许仅包含样式/tokens；component/block 必须保证代码文件可解析且本地 import 完整
-      if (!isTheme) {
-        const recordRaw = Object.fromEntries(
-          Object.entries(files as Record<string, unknown>).filter(
-            ([, value]) => typeof value === "string",
-          ),
-        ) as Record<string, string>;
-        const record = (() => {
-          const contractForValidation = normalizePublishContract({
-            mode: "create",
-            input: body as {
-              registryDependencies?: unknown;
-              previewProps?: unknown;
-              previewExport?: unknown;
-              provenance?: unknown;
-              provenancePolicy?: unknown;
-            },
-            files: recordRaw,
-          });
-          return contractForValidation.ok && contractForValidation.value.filesToWrite
-            ? contractForValidation.value.filesToWrite
-            : recordRaw;
-        })();
-        const validation = validateComponentBundle(record);
-        if (!validation.valid) {
-          const details =
-            validation.invalidFiles?.length
-              ? validation.invalidFiles.slice(0, 10).join("\n")
-              : validation.missingImports?.slice(0, 20).join("\n");
-          return NextResponse.json(
-            {
-              error: details
-                ? `${validation.error}:\n${details}`
-                : validation.error ?? "Invalid component bundle",
-            },
-            { status: 400 }
-          );
-        }
       }
     }
 
@@ -230,36 +186,46 @@ export async function POST(request: Request) {
       content: normalizedFiles ? null : normalizedContent,
     });
 
-    const finalRegistryDeps = contract.value.registryDependenciesToWrite ?? [];
-    const finalPreviewProps = contract.value.previewProps;
-    const finalPreviewExport = contract.value.previewExport;
-
-    // Apply provenance de-vendoring for multi-file payloads (optional).
-    const maybeProvenanced =
-      normalizedFiles && Object.keys(normalizedFiles).length > 0
-        ? normalizePublishContract({
-            mode: "create",
-            input: body as {
-              registryDependencies?: unknown;
-              previewProps?: unknown;
-              previewExport?: unknown;
-              provenance?: unknown;
-              provenancePolicy?: unknown;
-            },
-            files: normalizedFiles,
-          })
-        : null;
-    if (maybeProvenanced && !maybeProvenanced.ok) {
-      return NextResponse.json({ error: maybeProvenanced.error }, { status: 400 });
+    const contract = normalizePublishContract({
+      mode: "create",
+      input: body as {
+        registryDependencies?: unknown;
+        previewProps?: unknown;
+        previewExport?: unknown;
+        provenance?: unknown;
+        provenancePolicy?: unknown;
+      },
+      files: normalizedFiles,
+    });
+    if (!contract.ok) {
+      return NextResponse.json(
+        { error: contract.error, code: contract.code },
+        { status: 400 },
+      );
     }
-    const filesToWrite =
-      maybeProvenanced?.ok && maybeProvenanced.value.filesToWrite
-        ? maybeProvenanced.value.filesToWrite
-        : normalizedFiles;
-    const depsToWrite =
-      maybeProvenanced?.ok && maybeProvenanced.value.registryDependenciesToWrite
-        ? maybeProvenanced.value.registryDependenciesToWrite
-        : finalRegistryDeps;
+
+    if (!isTheme && normalizedFiles && Object.keys(normalizedFiles).length > 0) {
+      const toValidate =
+        contract.value.filesToWrite ?? normalizedFiles;
+      const validation = validateComponentBundle(toValidate);
+      if (!validation.valid) {
+        const details =
+          validation.invalidFiles?.length
+            ? validation.invalidFiles.slice(0, 10).join("\n")
+            : validation.missingImports?.slice(0, 20).join("\n");
+        return NextResponse.json(
+          {
+            error: details
+              ? `${validation.error}:\n${details}`
+              : validation.error ?? "Invalid component bundle",
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    const filesToWrite = contract.value.filesToWrite ?? normalizedFiles;
+    const depsToWrite = contract.value.registryDependenciesToWrite ?? [];
 
     const item = await createRegistryItem({
       name,
@@ -272,11 +238,23 @@ export async function POST(request: Request) {
       visibility: validVisibility,
       dependencies,
       registryDependencies: depsToWrite,
-      previewProps: finalPreviewProps,
-      previewExport: finalPreviewExport,
+      previewProps: contract.value.previewProps,
+      previewExport: contract.value.previewExport,
     });
 
-    return NextResponse.json({ success: true, item, hints });
+    return NextResponse.json({
+      success: true,
+      item,
+      hints,
+      publishDiagnostics: {
+        appliedRegistryDependencies: contract.value.appliedRegistryDependencies ?? depsToWrite,
+        droppedPaths: contract.value.diagnostics.droppedPaths,
+        dirtyDependencyPaths: contract.value.diagnostics.dirtyDependencyPaths,
+        stubInferredRegistryDependencies:
+          contract.value.diagnostics.stubInferredRegistryDependencies,
+        policyApplied: contract.value.diagnostics.policyApplied,
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create";
     if (message.includes("unique") || message.includes("duplicate")) {
