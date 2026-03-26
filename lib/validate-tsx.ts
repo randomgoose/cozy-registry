@@ -69,11 +69,12 @@ function normalizePosix(p: string): string {
   return p.replaceAll("\\", "/");
 }
 
-function isCodeFile(filePath: string): boolean {
+export function isCodeFile(filePath: string): boolean {
   return /\.(tsx?|jsx?)$/i.test(filePath);
 }
 
-function resolveRelativeImport(importerPath: string, spec: string): string[] {
+/** Resolve relative import to candidate paths (for bundle validation and dependency suggestions). */
+export function resolveRelativeImport(importerPath: string, spec: string): string[] {
   const importer = normalizePosix(importerPath);
   const dir = path.posix.dirname(importer);
   const base = normalizePosix(path.posix.normalize(path.posix.join(dir, spec)));

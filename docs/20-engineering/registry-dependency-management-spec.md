@@ -10,6 +10,8 @@ This document defines the dependency management contract for registry items (the
 - [Component Preview Runtime](./component-preview-runtime.md): preview build/runtime pipeline and rendering contract.
 - [Install Protocol](./install-protocol.md): project-side installation and lockfile contract.
 
+**Human-in-the-loop dependency suggestions** (AST + catalog matching, non-blocking health checks) are normative in **§1.1**, **§3.6**, **§3.7**.
+
 ---
 
 ## 1. Goals
@@ -28,6 +30,30 @@ Non-goals (for this version):
 
 - npm package dependency solving (handled by `dependencies` / bare import extraction).
 - lockfile-level install protocol redesign.
+
+---
+
+## 1.1 Core principles (explicit deps, suggestions, determinism)
+
+These principles govern **product and agent behavior** alongside the technical contracts below. They do not replace §2–§4; they constrain how **suggestions**, **publishing**, and **resolution** interact.
+
+1. **Dependencies MUST be explicit in storage**  
+   The persisted graph (`registryDependencies` per §2.3) is the source of truth. Nothing may silently add or remove registry edges without a user-visible write.
+
+2. **Dependencies SHOULD be version-pinned for reproducibility**  
+   Refs MAY use `@owner/name` (floating) or `@owner/name@version` (pinned); see §7. Pinned refs are recommended for stable, debuggable builds. Stricter “no floating” policies are a future policy flag, not required by Contract v1.
+
+3. **The system MAY suggest; it MUST NOT auto-decide**  
+   Code analysis or catalog matching MAY produce **suggestions** (§3.6). Persisted `registryDependencies` MUST only change when the user/agent **explicitly** confirms them in the publish payload (or equivalent confirmed action). No automatic linking, no automatic import rewrites, no silent DB writes.
+
+4. **Publish MUST be deterministic with respect to declared inputs**  
+   Given the same declared `registryDependencies` and source bundle, publish normalization MUST NOT “re-guess” dependencies or override confirmed values. Stub inference (§3.5.2) remains opt-in and diagnostic-first.
+
+5. **Runtime resolution MUST NOT depend on provenance or stub heuristics**  
+   Preview, install, and graph resolution (§4) MUST use **persisted** refs and resolver output only. Provenance manifests (§3.3–§3.4) are **publish-time aids** for de-vendoring and explicit derivation when provided; they MUST NOT define an alternate implicit resolution path at preview/install time. Stub scanning MUST NOT substitute for declared deps unless the caller explicitly opts in (`applyStubInference`).
+
+6. **Outdated-dependency signals MUST be non-blocking by default**  
+   Health or version-drift warnings (§3.7) MUST NOT block publish or auto-upgrade refs unless a separate, explicit policy is introduced later.
 
 ---
 
@@ -340,6 +366,118 @@ Notes:
 
 - Stub scanning must be best-effort and MUST NOT be the only mechanism (it is less reliable than provenance).
 - Stub scanning must not override explicit `registryDependencies` declarations; it only merges when opt-in.
+
+---
+
+## 3.6 Dependency suggestions (code analysis vs catalog)
+
+This section defines **optional** tooling behavior: help users and agents discover likely registry links (e.g. Dialog uses Button) **without** silently persisting them.
+
+### 3.6.1 Purpose
+
+**Implementation (this repo):** MCP tool `suggest_registry_dependencies` performs read-only analysis of a `files` map (same shape as publish) against the scoped catalog from `getRegistryItemsScoped`, using static imports and optional cozy stub paths (`lib/registry-dependency-suggestions.ts`).
+
+When a user creates or updates a component, tools MAY:
+
+1. Analyze source (e.g. static import graph / AST).
+2. Detect referenced symbols or import paths that may correspond to **other registry items**.
+3. Match candidates against **existing registry items** the caller can see (e.g. via list/search APIs).
+4. Emit **dependency suggestions** for human or agent review.
+
+This pipeline is **orthogonal** to stub inference (§3.5.2): suggestions MUST NOT rely on stub patterns as the primary signal. Stub inference remains a separate, last-resort diagnostic.
+
+### 3.6.2 Matching rules (v1)
+
+Matching MAY use:
+
+- **Component / file name** (e.g. `Button` → candidate `@owner/button`).
+- **Import source** when present (e.g. bare specifier `@scope/button` or documented registry import convention).
+
+Matching MUST:
+
+- assign a **confidence** level and **reasons** (for transparency).
+
+Matching MUST NOT:
+
+- create **fuzzy implicit links** without user confirmation when multiple candidates exist;
+- auto-persist suggestions as `registryDependencies`.
+
+### 3.6.3 Suggestion shape (informative)
+
+Tools MAY expose suggestions using a structure equivalent to:
+
+```ts
+type DependencySuggestion = {
+  /** Local symbol or file-level hint, e.g. "Button" */
+  name: string;
+  /** Canonical ref, e.g. "@cozy/button" */
+  registryItem: string;
+  /** Resolved latest or chosen catalog version */
+  latestVersion: string;
+  confidence: "high" | "medium" | "low";
+  /** Why this match was proposed */
+  reasons: string[];
+};
+```
+
+### 3.6.4 UI / agent behavior
+
+Before persisting, the system MUST present suggestions in a way that allows an explicit choice, for example:
+
+- **Use as registry dependency** (recommended when match is correct), or
+- **Keep as local / inline** (no `registryDependencies` edge).
+
+The **user** (or an agent acting on **explicit** user instruction) confirms the final `registryDependencies` array in the publish request.
+
+### 3.6.5 Allowed smart defaults
+
+If and only if tooling shows a confirmation step:
+
+- **Pre-selecting** “use as registry dependency” MAY be used when confidence is **high** and there is a **single** unambiguous candidate.
+
+This does not waive the requirement that the published payload explicitly contains the confirmed refs.
+
+### 3.6.6 Integration with extraction pipelines
+
+Downstream extractors MAY output:
+
+```ts
+type ExtractedComponent = {
+  dependencies: {
+    npm: Record<string, string>;
+    registry: Array<{ name: string; version: string }>; // empty until confirmed
+  };
+  dependencySuggestions: DependencySuggestion[];
+};
+```
+
+Flow: **extract → suggest → user confirms → finalize `registryDependencies` → publish**.
+
+---
+
+## 3.7 Publish-time dependency health (non-blocking)
+
+### 3.7.1 Trigger
+
+On publish or republish, tooling MAY compare each **pinned** registry dependency (`@owner/name@version`) against the **latest** resolvable version visible to the publisher.
+
+### 3.7.2 Status
+
+Informative status per edge:
+
+- `up-to-date` — pinned version equals latest (or float resolves to current).
+- `outdated` — newer version exists.
+- `missing` — ref does not resolve.
+
+### 3.7.3 UX rules
+
+- **MUST NOT** block publish solely because dependencies are outdated.
+- **MUST NOT** auto-upgrade pinned refs without explicit user choice.
+- **SHOULD** show a clear summary, e.g. current vs latest, with actions:
+  - **Continue with current** (default), or
+  - **Upgrade to latest** (explicit opt-in; new pin written in the same publish or a follow-up).
+
+Optional enhancements (non-normative): trigger preview rebuild, show diff.
 
 ---
 
@@ -657,3 +795,8 @@ These reports keep the registry maintainable as it scales.
 - Missing dependencies should fail only when graph resolution is required by the execution path.
 - This spec is backward compatible with existing schema and resolver utilities.
 
+---
+
+## 14. Agent and tooling guideline (one sentence)
+
+**Treat registry dependencies as explicit, version-aware, and user-confirmed:** the system and agents MAY propose edges and flag drift, but MUST NOT silently decide, mutate stored dependencies, or substitute stub/provenance heuristics for declared refs at resolution time (see §1.1).

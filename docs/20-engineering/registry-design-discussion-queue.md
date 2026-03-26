@@ -6,7 +6,7 @@ Source of truth: no（讨论队列；条目状态见各节）
 # Registry 设计讨论队列
 
 本文把与 **registry 依赖与解析** 相关的改进意向，按 **合理性 + 落地优先级** 归档。  
-讨论结论回写到 [Registry Dependency Management Spec](./registry-dependency-management-spec.md) 等规范后再扩展实现。
+讨论结论回写到 [Registry Dependency Management Spec](./registry-dependency-management-spec.md)（§1.1、§3.6、§3.7：显式依赖、建议与人工确认、非阻塞健康检查）等规范后再扩展实现。
 
 ---
 

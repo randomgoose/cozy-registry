@@ -47,6 +47,14 @@ import {
   normalizeRegistryItemType,
 } from "./registry-types";
 import { normalizePublishContract } from "./registry-publish-contract";
+import {
+  suggestRegistryDependenciesFromFiles,
+  toRegistryCatalogEntries,
+} from "./registry-dependency-suggestions";
+import {
+  computeRegistryDependencyHealth,
+  formatDependencyHealthForMcp,
+} from "./registry-dependency-health";
 
 /** MCP Tool.annotations (hints for clients; not a security boundary). */
 const MCP_ANN = {
@@ -223,7 +231,7 @@ export function createRegistryMcpServer(request?: Request) {
   server.registerTool("list_components", {
     title: "List components",
     description:
-      "List components and modules available in the registry. Use this to discover what's available before fetching a specific component. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>. For large registries, pass `limit` (and increase `offset` for the next page) to avoid huge responses—similar to paginated UI lists.",
+      "List components and modules available in the registry. Use this to discover what's available before fetching a specific component or before setting `registryDependencies` on publish. Registry dependencies MUST be explicit (see registry-dependency-management-spec §1.1): the system does not auto-link; use `suggest_registry_dependencies` + this list to choose refs. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>. For large registries, pass `limit` (and increase `offset` for the next page) to avoid huge responses—similar to paginated UI lists.",
     inputSchema: z
       .object({
         collection: z
@@ -292,8 +300,63 @@ export function createRegistryMcpServer(request?: Request) {
         },
       ],
     };
-  })
+  });
 
+  server.registerTool("suggest_registry_dependencies", {
+    title: "Suggest registry dependencies (read-only)",
+    description:
+      "Analyze a multi-file component bundle (same shape as `publish_component.files`) and suggest which existing registry items might be linked as `registryDependencies`. Read-only: does not write to the database. Uses static imports + optional cozy stub paths; results are suggestions only—confirm before publishing (registry-dependency-management-spec §3.6). Requires Bearer token; catalog is scoped like list_components.",
+    inputSchema: z.object({
+      files: z
+        .record(z.string(), z.string())
+        .describe(
+          "Multi-file bundle map, e.g. { \"index.tsx\": \"...\", \"Button.tsx\": \"...\" }.",
+        ),
+      collection: z
+        .string()
+        .optional()
+        .describe(
+          "Optional collection slug to scope the catalog (same as list_components).",
+        ),
+    }),
+    annotations: MCP_ANN.readOpen,
+  }, async ({ files, collection }) => {
+    const ctx = request ? await getAuthContextFromToken(request) : null;
+    const userId = ctx?.userId ?? null;
+    if (!userId) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "Authentication required. Add Authorization: Bearer <token>.",
+          },
+        ],
+        isError: true,
+      };
+    }
+    const policyFromToken = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
+    const policy =
+      collection && userId
+        ? await getAdhocPolicyForCollectionSlug(collection, userId)
+        : policyFromToken;
+    const catalogRows = await getRegistryItemsScoped({
+      requestUserId: userId,
+      policy,
+    });
+    const catalog = toRegistryCatalogEntries(catalogRows);
+    const suggestions = suggestRegistryDependenciesFromFiles(files, catalog);
+    const payload = { suggestions, catalogSize: catalog.length };
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text:
+            `Suggested registry dependencies (${suggestions.length}; catalog ${catalog.length} items). Confirm refs in \`registryDependencies\` before publish.\n\n` +
+            `${JSON.stringify(payload, null, 2)}`,
+        },
+      ],
+    };
+  });
 
   server.registerTool(
     "get_component",
@@ -1721,7 +1784,7 @@ ${fileContent}
   server.registerTool("publish_component", {
     title: "Publish or update component",
     description:
-      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token. New components default to private visibility unless `visibility` is explicitly set to public.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.\n\nPreview props (`previewProps`): Optional. The registry preview still works without it (sensible defaults). Provide `previewProps` when you want designers and reviewers to see representative component states in the browser—variants, labels, disabled/open, sample content—without reading source. Stored in meta.previewProps for the /preview page.",
+      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token. New components default to private visibility unless `visibility` is explicitly set to public.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.\n\nRegistry dependencies (`registryDependencies`): Optional refs `@owner/name` or `@owner/name@version`. MUST be explicit—the system does not auto-link to other registry items (registry-dependency-management-spec §1.1). Use `list_components` and read-only `suggest_registry_dependencies` to discover candidates, then set refs in this payload. Successful responses may append informational dependency health (e.g. outdated vs latest); it does not block publish (§3.7).\n\nPreview props (`previewProps`): Optional. The registry preview still works without it (sensible defaults). Provide `previewProps` when you want designers and reviewers to see representative component states in the browser—variants, labels, disabled/open, sample content—without reading source. Stored in meta.previewProps for the /preview page.",
     annotations: MCP_ANN.writeRegistry,
     inputSchema: z.object({
       name: z
@@ -1792,7 +1855,7 @@ ${fileContent}
         .unknown()
         .optional()
         .describe(
-          "Optional registry dependency refs, e.g. [\"@owner/theme\", \"@owner/base-theme@0.2.0\"].",
+          "Optional explicit refs, e.g. [\"@owner/theme\", \"@owner/button@1.0.0\"]. Not auto-filled; use list_components / suggest_registry_dependencies to choose. Omit on version update to inherit previous.",
         ),
       provenance: z
         .unknown()
@@ -2110,11 +2173,22 @@ ${fileContent}
           (await resolveOwner(existing.userId ?? userId))?.handle ??
           existing.userId ??
           "legacy";
+        const effectiveRegistryDeps =
+          contract.value.registryDependenciesToWrite ??
+          ((existing.registryDependencies ?? []) as string[]);
+        let healthSuffix = "";
+        if (effectiveRegistryDeps.length > 0) {
+          const health = await computeRegistryDependencyHealth(
+            effectiveRegistryDeps,
+            userId,
+          );
+          healthSuffix = formatDependencyHealthForMcp(health);
+        }
         return {
           content: [
             {
               type: "text" as const,
-              text: `Updated "${existing.title}" (@${canonicalOwner}/${existing.name}) to version v${result.version}. View at /registry/${canonicalOwner}/${existing.name}`,
+              text: `Updated "${existing.title}" (@${canonicalOwner}/${existing.name}) to version v${result.version}. View at /registry/${canonicalOwner}/${existing.name}${healthSuffix}`,
             },
           ],
         };
@@ -2191,11 +2265,21 @@ ${fileContent}
         (await resolveOwner(item.userId ?? "legacy"))?.handle ??
         item.userId ??
         "legacy";
+      const effectiveRegistryDepsCreate =
+        contract.value.registryDependenciesToWrite ?? [];
+      let healthSuffixCreate = "";
+      if (effectiveRegistryDepsCreate.length > 0) {
+        const health = await computeRegistryDependencyHealth(
+          effectiveRegistryDepsCreate,
+          userId,
+        );
+        healthSuffixCreate = formatDependencyHealthForMcp(health);
+      }
       return {
         content: [
           {
             type: "text" as const,
-            text: `Published new component "${item.title}" (@${canonicalOwner}/${item.name}). View at /registry/${canonicalOwner}/${item.name}`,
+            text: `Published new component "${item.title}" (@${canonicalOwner}/${item.name}). View at /registry/${canonicalOwner}/${item.name}${healthSuffixCreate}`,
           },
         ],
       };
