@@ -5,6 +5,9 @@ Source of truth: yes
 
 # System Overview
 
+更完整的架构分层与 Mermaid 图见 [系统架构与数据流](./system-architecture.md)。  
+设计北极星（Explicit / Deterministic / Source-first / 抽取与发布分层）见 [Registry 设计原则](./registry-design-principles.md)。
+
 ## 模块
 
 - Web App: 浏览、发布、预览、设置、dashboard、collections
@@ -40,3 +43,8 @@ Source of truth: yes
 - 同时支持 `registry:block`、`registry:ui`、`registry:theme`
 - theme 支持作为独立 registry item，并可通过 `registryDependencies` 递归注入
 - API key 支持集合、类型和 owner 范围限制
+
+## 工程与优化 backlog
+
+- [项目优化与健康状况（非测试）](../20-engineering/project-optimization.md)：CI、安全、可观测性、性能与后续优先级。
+- [Registry 依赖测试方案](../20-engineering/registry-dependency-test-plan.md)：自动化测试与集成建议。

@@ -1804,6 +1804,12 @@ ${fileContent}
         .enum(["strict", "split", "inlineVendor"])
         .optional()
         .describe("Provenance enforcement policy. Defaults to strict."),
+      applyStubInference: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true, merge Cozy stub-inferred registry refs into persisted registryDependencies. Default false: stub hints appear in tool/diagnostics only.",
+        ),
     }),
   }, async (args) => {
     const files =
@@ -1934,6 +1940,7 @@ ${fileContent}
                 previewExport?: unknown;
                 provenance?: unknown;
                 provenancePolicy?: unknown;
+                applyStubInference?: unknown;
               },
               files,
             });
@@ -2067,6 +2074,7 @@ ${fileContent}
             previewExport?: unknown;
             provenance?: unknown;
             provenancePolicy?: unknown;
+            applyStubInference?: unknown;
           },
           files: (normalizedTheme.files ?? files) as Record<string, string> | undefined,
           previousRegistryDependencies: (existing.registryDependencies ?? []) as string[],
@@ -2147,6 +2155,7 @@ ${fileContent}
           previewExport?: unknown;
           provenance?: unknown;
           provenancePolicy?: unknown;
+          applyStubInference?: unknown;
         },
         files: (normalizedTheme.files ?? files) as Record<string, string> | undefined,
       });

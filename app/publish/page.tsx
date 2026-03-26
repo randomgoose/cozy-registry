@@ -9,6 +9,7 @@ import {
   REGISTRY_THEME_TYPE,
   REGISTRY_UI_TYPE,
 } from "@/lib/registry-types";
+import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
 
 type PublishRequestBody = {
   name: string;
@@ -18,6 +19,8 @@ type PublishRequestBody = {
   visibility: "public" | "private";
   content?: string;
   files?: Record<string, string>;
+  registryDependencies?: string[];
+  applyStubInference?: boolean;
 };
 
 const TYPE_LABELS = {
@@ -100,6 +103,16 @@ export default function PublishPage() {
   const [tokensJson, setTokensJson] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [error, setError] = useState("");
+  /** 每行或逗号分隔，如 @you/theme、@you/button@1.0.0 */
+  const [registryDepsText, setRegistryDepsText] = useState("");
+  /** 将 stub 扫描结果合并写入（默认关，符合显式优先） */
+  const [applyStubInference, setApplyStubInference] = useState(false);
+  /** 有未合并的 stub 建议时，先展示再跳转详情 */
+  const [stubReview, setStubReview] = useState<{
+    owner: string;
+    name: string;
+    refs: string[];
+  } | null>(null);
 
   const normalizedName = normalizeName(name);
   const isTheme = type === REGISTRY_THEME_TYPE;
@@ -126,7 +139,8 @@ export default function PublishPage() {
     !descriptionTooLong &&
     hasValidThemeSource &&
     contentLooksValid &&
-    status !== "loading";
+    status !== "loading" &&
+    status !== "success";
 
   function convertTokensJsonToCss(raw: string): string {
     const tokens = parseTokensFromJson(raw);
@@ -152,6 +166,7 @@ export default function PublishPage() {
 
     setStatus("loading");
     setError("");
+    setStubReview(null);
 
     try {
       const body: PublishRequestBody = {
@@ -161,6 +176,24 @@ export default function PublishPage() {
         description: description.trim() || null,
         visibility,
       };
+
+      const depRaw = registryDepsText.trim();
+      if (depRaw.length > 0) {
+        const parts = depRaw.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        const nd = normalizeRegistryDependenciesInput(parts);
+        if (nd.error) {
+          setStatus("error");
+          setError(nd.error);
+          return;
+        }
+        if (nd.value.length > 0) {
+          body.registryDependencies = nd.value;
+        }
+      }
+
+      if (applyStubInference) {
+        body.applyStubInference = true;
+      }
 
       if (type === REGISTRY_THEME_TYPE && tokensJson.trim()) {
         const css = convertTokensJsonToCss(tokensJson);
@@ -187,7 +220,6 @@ export default function PublishPage() {
         throw new Error(data.error || "Failed to publish");
       }
 
-      setStatus("success");
       const ownerId = data?.item?.userId ?? "legacy";
       let owner = ownerId;
       try {
@@ -201,6 +233,22 @@ export default function PublishPage() {
       } catch {
         // ignore
       }
+
+      const pd = data?.publishDiagnostics as
+        | {
+            stubInferredRegistryDependencies?: string[];
+            stubInferenceMergedIntoWrite?: boolean;
+          }
+        | undefined;
+      const stubRefs = pd?.stubInferredRegistryDependencies ?? [];
+      const merged = pd?.stubInferenceMergedIntoWrite === true;
+      if (stubRefs.length > 0 && !merged) {
+        setStatus("success");
+        setStubReview({ owner, name: normalizedName, refs: stubRefs });
+        return;
+      }
+
+      setStatus("success");
       window.location.href = `/registry/${owner}/${normalizedName}`;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to publish");
@@ -394,6 +442,43 @@ export default function PublishPage() {
                 )}
               </div>
 
+              <div className="rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                <label
+                  htmlFor="registry-deps"
+                  className="block text-sm font-medium text-zinc-800 dark:text-zinc-200"
+                >
+                  Registry 依赖（可选，显式声明）
+                </label>
+                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                  其它 registry 条目请写在这里（每行或逗号分隔），例如{" "}
+                  <code className="rounded bg-zinc-200/80 px-1 dark:bg-zinc-800">
+                    @you/theme
+                  </code>
+                  。未声明则不会出现在依赖图中；与 npm 包无关。
+                  {isTheme ? " Theme 也可依赖其它主题条目。" : ""}
+                </p>
+                <textarea
+                  id="registry-deps"
+                  value={registryDepsText}
+                  onChange={(e) => setRegistryDepsText(e.target.value)}
+                  placeholder={"@acme/theme\n@acme/button@1.0.0"}
+                  rows={3}
+                  className="mt-2 block w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-100 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-amber-500/10"
+                />
+                <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={applyStubInference}
+                    onChange={(e) => setApplyStubInference(e.target.checked)}
+                    className="mt-1 rounded border-zinc-400"
+                  />
+                  <span>
+                    将 Cozy stub 扫描到的 <code className="text-xs">@owner/name</code>{" "}
+                    合并进上述依赖（高级；默认关闭以保持显式优先）
+                  </span>
+                </label>
+              </div>
+
               <div>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <label
@@ -471,7 +556,32 @@ export default function PublishPage() {
                 </div>
               )}
 
-              {status === "success" && (
+              {status === "success" && stubReview && (
+                <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+                  <p className="font-medium">发布成功</p>
+                  <p className="text-amber-900/90 dark:text-amber-200/90">
+                    源码中检测到 Cozy stub 路径，以下 ref{" "}
+                    <strong>未自动写入</strong>依赖列表（显式优先）。若需要，请下一版本在「Registry
+                    依赖」中补充，或勾选「合并 stub」后重新发布。
+                  </p>
+                  <ul className="list-inside list-disc font-mono text-xs">
+                    {stubReview.refs.map((r) => (
+                      <li key={r}>{r}</li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.location.href = `/registry/${stubReview.owner}/${stubReview.name}`;
+                    }}
+                    className="w-full rounded-xl bg-amber-600 px-4 py-2.5 font-medium text-white hover:bg-amber-700"
+                  >
+                    前往详情页
+                  </button>
+                </div>
+              )}
+
+              {status === "success" && !stubReview && (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300">
                   发布成功，正在跳转到详情页。你也可以先{" "}
                   <Link href="/" className="font-medium underline">
@@ -500,6 +610,9 @@ export default function PublishPage() {
                 <li>名称使用 kebab-case，便于 URL 和安装命令复用。</li>
                 <li>标题和描述尽量写场景语义，方便 AI 搜索和团队浏览。</li>
                 <li>Block 适合整段页面模块，Component 适合基础 UI，Theme 适合一组样式变量。</li>
+                <li>
+                  依赖其它 registry 条目时，请用表单中的「Registry 依赖」显式填写；系统不会默认把推断结果当真相。
+                </li>
               </ul>
             </div>
 

@@ -194,6 +194,7 @@ export async function POST(request: Request) {
         previewExport?: unknown;
         provenance?: unknown;
         provenancePolicy?: unknown;
+        applyStubInference?: unknown;
       },
       files: normalizedFiles,
     });
@@ -252,6 +253,8 @@ export async function POST(request: Request) {
         dirtyDependencyPaths: contract.value.diagnostics.dirtyDependencyPaths,
         stubInferredRegistryDependencies:
           contract.value.diagnostics.stubInferredRegistryDependencies,
+        stubInferenceMergedIntoWrite:
+          contract.value.diagnostics.stubInferenceMergedIntoWrite,
         policyApplied: contract.value.diagnostics.policyApplied,
       },
     });

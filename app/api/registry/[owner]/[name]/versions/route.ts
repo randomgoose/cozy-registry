@@ -26,6 +26,9 @@ type VersionRequestBody = {
   registryDependencies?: unknown;
   previewProps?: unknown;
   previewExport?: unknown;
+  provenance?: unknown;
+  provenancePolicy?: unknown;
+  applyStubInference?: unknown;
 };
 
 /** 获取组件的版本列表 + 当前版本 */
@@ -155,6 +158,7 @@ export async function POST(request: Request, { params }: Params) {
       previewExport?: unknown;
       provenance?: unknown;
       provenancePolicy?: unknown;
+      applyStubInference?: unknown;
     },
     files: finalFiles,
     previousRegistryDependencies: (item.registryDependencies ?? []) as string[],
@@ -254,6 +258,8 @@ export async function POST(request: Request, { params }: Params) {
         dirtyDependencyPaths: contract.value.diagnostics.dirtyDependencyPaths,
         stubInferredRegistryDependencies:
           contract.value.diagnostics.stubInferredRegistryDependencies,
+        stubInferenceMergedIntoWrite:
+          contract.value.diagnostics.stubInferenceMergedIntoWrite,
         policyApplied: contract.value.diagnostics.policyApplied,
       },
     });

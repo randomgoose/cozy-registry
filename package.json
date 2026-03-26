@@ -15,7 +15,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "echo \"(no tests)\"",
+    "test": "vitest run",
     "test:email": "tsx bin/test-resend-email.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
@@ -85,6 +85,7 @@
     "husky": "^9.1.7",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   }
 }

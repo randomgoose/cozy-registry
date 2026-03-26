@@ -26,6 +26,8 @@ export type PublishContractDiagnostics = {
   dirtyDependencyPaths: string[];
   /** refs inferred from cozy stub patterns (spec §3.5.2) */
   stubInferredRegistryDependencies: string[];
+  /** true when stub-inferred refs were merged into the persisted registryDependencies (applyStubInference was true) */
+  stubInferenceMergedIntoWrite: boolean;
   /** effective provenance policy */
   policyApplied: ProvenancePolicy | "none";
 };
@@ -54,11 +56,14 @@ function appendStubInferredDeps(params: {
   values: string[];
   files?: Record<string, string>;
   provenancePresent: boolean;
+  /** When false (default), stub scan does not affect persisted registryDependencies. */
+  applyStubInference: boolean;
 }): string[] {
   if (params.provenancePresent || !params.files) return params.values;
   if (params.mode === "version" && !params.registryDependenciesPresent) {
     return params.values;
   }
+  if (!params.applyStubInference) return params.values;
   const inferred = inferRegistryDependenciesFromStubScan(params.files);
   return Array.from(new Set([...params.values, ...inferred]));
 }
@@ -72,6 +77,11 @@ export function normalizePublishContract(params: {
     previewExport?: unknown;
     provenance?: unknown;
     provenancePolicy?: unknown;
+    /**
+     * When strictly `true`, merge Cozy stub-inferred refs into written `registryDependencies`.
+     * Default / omitted / false: stub results appear only in diagnostics.stubInferredRegistryDependencies.
+     */
+    applyStubInference?: unknown;
   };
   /** optional multi-file bundle submitted by caller */
   files?: Record<string, string> | undefined;
@@ -101,6 +111,8 @@ export function normalizePublishContract(params: {
     params.input.previewExport.trim().length > 0
       ? params.input.previewExport.trim()
       : undefined;
+
+  const applyStubInference = params.input.applyStubInference === true;
 
   const provenancePresent = Object.prototype.hasOwnProperty.call(
     params.input,
@@ -251,6 +263,7 @@ export function normalizePublishContract(params: {
         values: normalizedDeps.value,
         files: params.files,
         provenancePresent: false,
+        applyStubInference,
       });
     }
     if (registryDependenciesPresent) {
@@ -260,6 +273,7 @@ export function normalizePublishContract(params: {
         values: normalizedDeps.value,
         files: params.files,
         provenancePresent: false,
+        applyStubInference,
       });
     }
     return registryDependenciesToWrite;
@@ -277,6 +291,13 @@ export function normalizePublishContract(params: {
       ? effectiveRegistryDependenciesToWrite
       : mergedDeps;
 
+  const stubInferenceMergedIntoWrite =
+    applyStubInference &&
+    stubInferred.length > 0 &&
+    Boolean(params.files) &&
+    !provenancePresent &&
+    (params.mode === "create" || registryDependenciesPresent);
+
   return {
     ok: true,
     value: {
@@ -292,6 +313,7 @@ export function normalizePublishContract(params: {
         droppedPaths,
         dirtyDependencyPaths,
         stubInferredRegistryDependencies: stubInferred,
+        stubInferenceMergedIntoWrite,
         policyApplied,
       },
     },
