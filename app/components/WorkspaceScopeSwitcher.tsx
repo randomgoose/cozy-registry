@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, Plus } from "lucide-react";
+import { toast } from "sonner";
 import type { WorkspaceContext } from "@/lib/workspace-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -42,7 +43,8 @@ export function WorkspaceScopeSwitcher({
   userId,
 }: WorkspaceScopeSwitcherProps) {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [createOpen, setCreateOpen] = useState(false);
   const [teamName, setTeamName] = useState("");
@@ -76,17 +78,18 @@ export function WorkspaceScopeSwitcher({
   function switchToPersonal() {
     startTransition(async () => {
       try {
-        setError(null);
+        setSwitchError(null);
         await postJson("/api/auth/organization/set-active-team", {
           teamId: null,
         });
         router.refresh();
       } catch (nextError) {
-        setError(
+        const message =
           nextError instanceof Error
             ? nextError.message
-            : "Failed to switch workspace",
-        );
+            : "Failed to switch workspace";
+        setSwitchError(message);
+        toast.error(message);
       }
     });
   }
@@ -94,7 +97,7 @@ export function WorkspaceScopeSwitcher({
   function switchToTeam(organizationId: string, teamId: string) {
     startTransition(async () => {
       try {
-        setError(null);
+        setSwitchError(null);
         await postJson("/api/auth/organization/set-active", {
           organizationId,
         });
@@ -103,11 +106,12 @@ export function WorkspaceScopeSwitcher({
         });
         router.refresh();
       } catch (nextError) {
-        setError(
+        const message =
           nextError instanceof Error
             ? nextError.message
-            : "Failed to switch workspace",
-        );
+            : "Failed to switch workspace";
+        setSwitchError(message);
+        toast.error(message);
       }
     });
   }
@@ -118,7 +122,7 @@ export function WorkspaceScopeSwitcher({
 
     startTransition(async () => {
       try {
-        setError(null);
+        setCreateError(null);
         if (!targetOrganization) {
           const slug = slugifyWorkspaceName(nextName);
           if (!slug) {
@@ -190,20 +194,31 @@ export function WorkspaceScopeSwitcher({
 
         setTeamName("");
         setCreateOpen(false);
-        router.refresh();
+          router.refresh();
       } catch (nextError) {
-        setError(
+        const message =
           nextError instanceof Error
             ? nextError.message
-            : "Failed to create team",
-        );
+            : targetOrganization
+              ? "Failed to create team"
+              : "Failed to create workspace";
+        setCreateError(message);
+        toast.error(message);
       }
     });
   }
 
   return (
     <div className="px-2">
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) {
+            setCreateError(null);
+          }
+        }}
+      >
         <DialogContent className="max-w-md rounded-[24px] border border-white/65 bg-white/90 p-5 shadow-[0_24px_48px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/92 dark:shadow-[0_28px_52px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]">
           <DialogHeader>
             <DialogTitle>
@@ -228,6 +243,11 @@ export function WorkspaceScopeSwitcher({
                 autoFocus
               />
             </div>
+            {createError ? (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+                {createError}
+              </p>
+            ) : null}
           </div>
           <DialogFooter>
             <Button
@@ -364,10 +384,10 @@ export function WorkspaceScopeSwitcher({
       <p
         className={cn(
           "mt-2 text-[11px] text-zinc-500 dark:text-zinc-400",
-          error ? "text-amber-600 dark:text-amber-400" : "",
+          switchError ? "text-amber-600 dark:text-amber-400" : "",
         )}
       >
-        {error ??
+        {switchError ??
           (workspace.activeTeam
             ? "You are viewing this team's registry scope."
             : "You are viewing your personal scope.")}
