@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 
 type WorkspaceScopeSwitcherProps = {
   workspace: WorkspaceContext;
+  userId: string | null;
 };
 
 function slugifyWorkspaceName(value: string) {
@@ -38,6 +39,7 @@ function slugifyWorkspaceName(value: string) {
 
 export function WorkspaceScopeSwitcher({
   workspace,
+  userId,
 }: WorkspaceScopeSwitcherProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +170,17 @@ export function WorkspaceScopeSwitcher({
         if (!created?.id) {
           throw new Error("Team created, but no team id was returned.");
         }
+
+        if (userId) {
+          await postJson("/api/auth/organization/add-team-member", {
+            teamId: created.id,
+            userId,
+          });
+        }
+
+        await postJson("/api/team/ensure-slug", {
+          teamId: created.id,
+        });
 
         await postJson("/api/auth/organization/set-active", {
           organizationId: targetOrganization.id,

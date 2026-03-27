@@ -127,6 +127,7 @@ export const team = pgTable(
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
+    slug: text("slug"),
     organizationId: text("organization_id")
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
@@ -137,6 +138,7 @@ export const team = pgTable(
   (table) => [
     index("team_organizationId_idx").on(table.organizationId),
     unique("team_organization_name_key").on(table.organizationId, table.name),
+    unique("team_organization_slug_key").on(table.organizationId, table.slug),
   ],
 );
 

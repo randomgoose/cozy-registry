@@ -30,6 +30,7 @@ const APP_NAV_ITEMS = [
 ];
 
 export function AppShell(props: {
+  userId: string | null;
   email: string | null;
   fullName: string;
   username: string;
@@ -73,7 +74,7 @@ export function AppShell(props: {
                 Workspace
               </div>
               <div className="mt-2">
-                <WorkspaceScopeSwitcher workspace={props.workspace} />
+                <WorkspaceScopeSwitcher workspace={props.workspace} userId={props.userId} />
               </div>
               <nav className="mt-4 space-y-1">
                 {APP_NAV_ITEMS.map((item) => {

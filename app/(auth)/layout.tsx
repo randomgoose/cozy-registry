@@ -32,6 +32,7 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
 
   return (
     <AppShell
+      userId={session?.user?.id ?? null}
       email={email}
       fullName={fullName}
       username={username}

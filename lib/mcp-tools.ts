@@ -3,6 +3,7 @@ import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import {
+  deleteTeamRegistryItem,
   getRegistryItemsScoped,
   getRegistryItemsForTeam,
   getRegistryItemByName,
@@ -28,6 +29,8 @@ import { resolveOwner } from "./owner";
 import {
   getTeamCanonicalOwnerRef,
   isUserTeamMember,
+  parseTeamOwnerPath,
+  resolveTeamByOrgSlugAndTeamSegment,
   slugifyRegistrySegment,
 } from "./registry-team";
 import { getRegistryPolicyForApiKey } from "./registry-policy";
@@ -340,11 +343,12 @@ export function createRegistryMcpServer(request?: Request) {
             userId?: string | null;
             teamId?: string | null;
             orgSlug?: string | null;
+            teamSlug?: string | null;
             teamName?: string | null;
           };
           let ref: string;
           if (row.teamId && row.orgSlug != null && row.teamName != null) {
-            ref = `@${row.orgSlug}/${slugifyRegistrySegment(row.teamName)}/${i.name}`;
+            ref = `@${row.orgSlug}/${row.teamSlug ?? slugifyRegistrySegment(row.teamName)}/${i.name}`;
           } else {
             const owner = row.ownerHandle ?? row.userId ?? "legacy";
             ref = `@${owner}/${i.name}`;
@@ -1774,15 +1778,44 @@ ${fileContent}
       }
 
       const ownerId = owner ?? userId;
-      const canonicalOwner =
-        (await resolveOwner(ownerId))?.handle ?? ownerId;
+      const teamPath = parseTeamOwnerPath(ownerId);
 
-      await deleteRegistryItem({
-        ownerId,
-        name,
-        requestUserId: userId,
-        ownerRef: canonicalOwner,
-      });
+      let canonicalOwner: string;
+      if (teamPath) {
+        const resolvedTeam = await resolveTeamByOrgSlugAndTeamSegment(
+          teamPath.orgSlug,
+          teamPath.teamSegment,
+        );
+        if (!resolvedTeam) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Team owner "${ownerId}" not found.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        canonicalOwner =
+          (await getTeamCanonicalOwnerRef(resolvedTeam.teamId)) ?? ownerId;
+        await deleteTeamRegistryItem({
+          teamId: resolvedTeam.teamId,
+          name,
+          requestUserId: userId,
+          ownerRef: canonicalOwner,
+        });
+      } else {
+        canonicalOwner =
+          (await resolveOwner(ownerId))?.handle ?? ownerId;
+
+        await deleteRegistryItem({
+          ownerId,
+          name,
+          requestUserId: userId,
+          ownerRef: canonicalOwner,
+        });
+      }
 
       return {
         content: [

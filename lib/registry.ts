@@ -17,6 +17,7 @@ import {
   parseTeamOwnerPath,
   resolveTeamByOrgSlugAndTeamSegment,
 } from "@/lib/registry-team";
+import { getWritableTeamTargetForUser } from "@/lib/publish-target";
 import type { RegistryPolicy } from "@/lib/registry-policy";
 import {
   REGISTRY_BLOCK_TYPE,
@@ -177,6 +178,7 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
       teamId: registryItems.teamId,
       ownerHandle: user.handle,
       orgSlug: organization.slug,
+      teamSlug: team.slug,
       teamName: team.name,
       name: registryItems.name,
       type: registryItems.type,
@@ -323,12 +325,12 @@ export async function getRegistryDependencyAccessForRef(
       teamPath.teamSegment,
     );
     if (!resolvedTeam) return "not_found";
-    const item = await getRegistryItemByTeamAndNameForViewer(
-      resolvedTeam.teamId,
-      itemName,
-      requestUserId,
-    );
+    const item = await getRegistryItemByTeamAndName(resolvedTeam.teamId, itemName);
     if (!item) return "not_found";
+    if (item.visibility === "private") {
+      if (!requestUserId) return "denied";
+      if (!(await isUserTeamMember(requestUserId, resolvedTeam.teamId))) return "denied";
+    }
     return "ok";
   }
 
@@ -1019,6 +1021,7 @@ export async function getRegistryItemsForTeam(
       teamId: registryItems.teamId,
       ownerHandle: user.handle,
       orgSlug: organization.slug,
+      teamSlug: team.slug,
       teamName: team.name,
       name: registryItems.name,
       type: registryItems.type,
@@ -1252,6 +1255,50 @@ export async function deleteRegistryItem(params: {
     );
 }
 
+export async function deleteTeamRegistryItem(params: {
+  teamId: string;
+  name: string;
+  requestUserId: string;
+  ownerRef?: string;
+}) {
+  const item = await getRegistryItemByTeamAndName(params.teamId, params.name);
+  if (!item) {
+    throw new Error("Item not found or no access");
+  }
+  const writable = await getWritableTeamTargetForUser(params.requestUserId, params.teamId);
+  if (!writable) {
+    throw new Error("Only owner or editor can delete the component");
+  }
+
+  if (params.ownerRef) {
+    const referrers = await findRegistryItemsReferencing(
+      params.ownerRef,
+      params.name,
+    );
+    const externalReferrers = referrers.filter(
+      (r) => !(r.ownerHandle === params.ownerRef && r.itemName === params.name),
+    );
+    if (externalReferrers.length > 0) {
+      const list = externalReferrers
+        .slice(0, 20)
+        .map((r) => `@${r.ownerHandle}/${r.itemName}`)
+        .join(", ");
+      throw new Error(
+        `Cannot delete: still referenced in registryDependencies by: ${list}${externalReferrers.length > 20 ? " …" : ""}`,
+      );
+    }
+  }
+
+  await db
+    .delete(registryItems)
+    .where(
+      and(
+        eq(registryItems.teamId, params.teamId),
+        eq(registryItems.name, params.name),
+      ),
+    );
+}
+
 /**
  * 更新组件可见性（public/private）。仅 owner 可操作。
  */
@@ -1288,6 +1335,41 @@ export async function updateRegistryItemVisibility(params: {
     .returning();
 
   if (!updated) throw new Error("Failed to update visibility");
+  return updated;
+}
+
+export async function updateTeamRegistryItemVisibility(params: {
+  teamId: string;
+  name: string;
+  requestUserId: string;
+  visibility: "public" | "private";
+}) {
+  const item = await getRegistryItemByTeamAndName(params.teamId, params.name);
+  if (!item) {
+    throw new Error("Item not found or no access");
+  }
+  const writable = await getWritableTeamTargetForUser(params.requestUserId, params.teamId);
+  if (!writable) {
+    throw new Error("Only owner or editor can update visibility");
+  }
+
+  const [updated] = await db
+    .update(registryItems)
+    .set({
+      visibility: params.visibility,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(registryItems.teamId, params.teamId),
+        eq(registryItems.name, params.name),
+      ),
+    )
+    .returning({
+      visibility: registryItems.visibility,
+      updatedAt: registryItems.updatedAt,
+    });
+
   return updated;
 }
 

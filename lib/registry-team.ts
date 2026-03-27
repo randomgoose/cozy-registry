@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { organization, team, teamMember } from "@/lib/db/schema";
@@ -39,11 +39,21 @@ export async function resolveTeamByOrgSlugAndTeamSegment(
   if (!orgRow) return null;
 
   const teams = await db
-    .select({ id: team.id, name: team.name })
+    .select({ id: team.id, name: team.name, slug: team.slug })
     .from(team)
     .where(eq(team.organizationId, orgRow.id));
 
   const seg = teamSegment.toLowerCase();
+  const bySlug = teams.find((row) => (row.slug ?? "").toLowerCase() === seg);
+  if (bySlug) {
+    return {
+      teamId: bySlug.id,
+      organizationId: orgRow.id,
+      teamName: bySlug.name,
+      orgSlug: orgRow.slug,
+    };
+  }
+
   for (const row of teams) {
     if (slugifyRegistrySegment(row.name) === seg || row.name.toLowerCase() === seg) {
       return {
@@ -66,17 +76,75 @@ export async function isUserTeamMember(userId: string, teamId: string): Promise<
   return !!row;
 }
 
+export async function buildUniqueTeamSlug(params: {
+  organizationId: string;
+  name: string;
+  excludeTeamId?: string;
+}): Promise<string> {
+  const base = slugifyRegistrySegment(params.name) || "team";
+  let candidate = base;
+  let attempt = 1;
+
+  while (true) {
+    const query = db
+      .select({ id: team.id })
+      .from(team)
+      .where(
+        params.excludeTeamId
+          ? and(
+              eq(team.organizationId, params.organizationId),
+              eq(team.slug, candidate),
+              ne(team.id, params.excludeTeamId),
+            )
+          : and(eq(team.organizationId, params.organizationId), eq(team.slug, candidate)),
+      )
+      .limit(1);
+    const [existing] = await query;
+    if (!existing) return candidate;
+    attempt += 1;
+    candidate = `${base}-${attempt}`;
+  }
+}
+
+export async function ensureTeamSlug(teamId: string): Promise<string | null> {
+  const [row] = await db
+    .select({
+      id: team.id,
+      organizationId: team.organizationId,
+      name: team.name,
+      slug: team.slug,
+    })
+    .from(team)
+    .where(eq(team.id, teamId))
+    .limit(1);
+  if (!row) return null;
+  if (row.slug && row.slug.trim().length > 0) return row.slug;
+
+  const slug = await buildUniqueTeamSlug({
+    organizationId: row.organizationId,
+    name: row.name,
+    excludeTeamId: row.id,
+  });
+
+  await db.update(team).set({ slug }).where(eq(team.id, row.id));
+  return slug;
+}
+
 /** Canonical MCP/ref prefix for a team: `orgSlug/slugify(teamName)` (no leading @). */
 export async function getTeamCanonicalOwnerRef(teamId: string): Promise<string | null> {
   const [row] = await db
     .select({
       orgSlug: organization.slug,
       teamName: team.name,
+      teamSlug: team.slug,
     })
     .from(team)
     .innerJoin(organization, eq(team.organizationId, organization.id))
     .where(eq(team.id, teamId))
     .limit(1);
   if (!row) return null;
-  return `${row.orgSlug}/${slugifyRegistrySegment(row.teamName)}`;
+  const slug = row.teamSlug && row.teamSlug.trim().length > 0
+    ? row.teamSlug
+    : await ensureTeamSlug(teamId);
+  return `${row.orgSlug}/${slug ?? slugifyRegistrySegment(row.teamName)}`;
 }
