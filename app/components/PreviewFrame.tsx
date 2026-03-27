@@ -30,6 +30,8 @@ export type PreviewFrameProps = {
   /** Default: true. */
   allowUpscale?: boolean;
   /** Default: center. */
+  alignX?: "left" | "center";
+  /** Default: center. */
   alignY?: "top" | "center";
   /**
    * How the stage (iframe layout size) maps into the container.
@@ -58,6 +60,7 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
       title,
       className,
       allowUpscale = true,
+      alignX = "center",
       alignY = "center",
       fitMode = "contain",
       minFillHeight = 0,
@@ -137,7 +140,7 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
 
       if (fitMode === "actual") {
         const scale = 1;
-        const tx = (cw - iw * scale) / 2;
+        const tx = alignX === "left" ? 0 : (cw - iw * scale) / 2;
         const ty = alignY === "top" ? 0 : (ch - ih * scale) / 2;
         return { scale, tx, ty };
       }
@@ -164,10 +167,11 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
           );
         }
       }
-      const tx = (cw - iw * scale) / 2;
+      const tx = alignX === "left" ? 0 : (cw - iw * scale) / 2;
       const ty = alignY === "top" ? 0 : (ch - ih * scale) / 2;
       return { scale, tx, ty };
     }, [
+      alignX,
       alignY,
       allowUpscale,
       containerSize.height,
@@ -193,18 +197,11 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
           loading="lazy"
           onLoad={() => setLoadedSrc(src)}
           style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            width: stageSize.width,
-            height: stageSize.height,
-            transformOrigin: "top left",
-            transform: `translate(${transform.tx}px, ${transform.ty}px) scale(${transform.scale})`,
+            width: "100%",
+            height: "100%",
             border: 0,
             background: "transparent",
             pointerEvents: interactive ? "auto" : "none",
-            opacity: loaded ? 1 : 0,
-            transition: "opacity 180ms ease-out",
           }}
         />
         {!loaded ? (

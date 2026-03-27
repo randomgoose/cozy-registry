@@ -7,6 +7,7 @@ This document defines the v1 technical specification for the Component Registry 
 ## Related Specs
 
 - [Registry Dependency Management Spec](./registry-dependency-management-spec.md): dependency declaration, graph resolution, and preview dependency behavior contract.
+- [Preview Build Performance Spec](./preview-build-performance-spec.md): request-path and build-path performance plan for preview generation.
 
 ---
 
@@ -509,4 +510,3 @@ Phase 3:
 - Prefer manifest path as default behavior.
 - Keep heuristic as compatibility fallback only.
 - Improve diagnostics to suggest exact `previewEntry` / `previewExport` values.
-

@@ -1159,11 +1159,9 @@ export function ComponentCard({
                         title={`${title} preview`}
                         className="h-full w-full min-h-[12rem] lg:min-h-0"
                         interactive
-                        alignY="center"
-                        fitMode="contain"
-                        allowUpscale={false}
-                        minFillHeight={0.84}
-                        maxFitScaleMultiplier={1.35}
+                        alignX="left"
+                        alignY="top"
+                        fitMode="actual"
                       />
                       {controllablePreviewFields.length > 0 ? (
                         <PreviewPropsDebugPanel
