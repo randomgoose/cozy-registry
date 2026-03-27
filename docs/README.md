@@ -48,6 +48,7 @@ Source of truth: yes
 - [`20-engineering/figma-make-mcp.md`](./20-engineering/figma-make-mcp.md)
 - [`20-engineering/team-data-model.md`](./20-engineering/team-data-model.md)
 - [`20-engineering/team-permission-matrix.md`](./20-engineering/team-permission-matrix.md)
+- [`20-engineering/team-publish-target-spec.md`](./20-engineering/team-publish-target-spec.md)
 - [`20-engineering/oauth-client-strategy.md`](./20-engineering/oauth-client-strategy.md)
 - [`20-engineering/install-protocol.md`](./20-engineering/install-protocol.md)
 - [`20-engineering/resource-types.md`](./20-engineering/resource-types.md)

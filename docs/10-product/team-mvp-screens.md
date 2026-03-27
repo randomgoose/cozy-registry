@@ -18,6 +18,7 @@ Source of truth: partial — 页面清单仍以本文为准；是否已交付见
 - [team-workspaces-plan.md](./team-workspaces-plan.md)
 - [team-data-model.md](../20-engineering/team-data-model.md)
 - [team-permission-matrix.md](../20-engineering/team-permission-matrix.md)
+- [team-publish-target-spec.md](../20-engineering/team-publish-target-spec.md)
 
 ---
 
@@ -167,6 +168,7 @@ MVP 中 team dashboard 上出现的发布入口，不应该只依赖“当前 ac
 
 - `activeTeamId` 可以提供默认发布上下文
 - 但最终的 publish 行为应支持显式目标 team
+- 该目标不应继续以内部 `teamId` 为主要用户输入，而应逐步转为可读的 `@org/team` target
 
 这样可以避免：
 

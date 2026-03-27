@@ -61,7 +61,10 @@ import {
   suggestRegistryDependenciesFromFiles,
   toRegistryCatalogEntries,
 } from "./registry-dependency-suggestions";
-import { getWritableTeamTargetForUser } from "./publish-target";
+import {
+  listWritablePublishTargetsForUser,
+  resolvePublishTargetForUser,
+} from "./publish-target";
 import {
   computeRegistryDependencyHealth,
   formatDependencyHealthForMcp,
@@ -238,6 +241,49 @@ export function createRegistryMcpServer(request?: Request) {
           {
             type: "text" as const,
             text: rows.length ? `Your collections (${rows.length}):\n\n${lines}` : "You have no collections yet.",
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "list_publish_targets",
+    {
+      title: "List publish targets",
+      description:
+        "List the personal scope and every team you can publish to. Use this before team publishing when you do not know the target yet. Prefer readable `targetRef` values like `@org/team` instead of internal teamId.",
+      inputSchema: z.object({}).describe("No input required"),
+      annotations: MCP_ANN.readClosed,
+    },
+    async () => {
+      const ctx = request ? await getAuthContextFromToken(request) : null;
+      const userId = ctx?.userId ?? null;
+      if (!userId) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Authentication required. Add Authorization: Bearer <token>.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const targets = await listWritablePublishTargetsForUser(userId);
+      const lines = targets.map((target) => {
+        if (target.kind === "user") return `- Personal -> ${target.targetRef}`;
+        return `- ${target.organizationName} / ${target.name} -> ${target.targetRef} (${target.role})`;
+      });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: lines.length
+              ? `Available publish targets:\n\n${lines.join("\n")}`
+              : "No publish targets are currently available.",
           },
         ],
       };
@@ -1937,13 +1983,31 @@ ${fileContent}
         .enum(["personal", "team"])
         .optional()
         .describe(
-          "Publish target. Defaults to personal. For team publishes, also provide teamId in this MVP.",
+          "Publish target. Defaults to personal. For team publishes, prefer `targetRef` like `@org/team`.",
+        ),
+      targetRef: z
+        .string()
+        .optional()
+        .describe(
+          "Readable team publish target, for example `@gate/trading`. Use `list_publish_targets` to discover valid values.",
+        ),
+      organizationSlug: z
+        .string()
+        .optional()
+        .describe(
+          "Optional organization slug for team publishing. Use together with `teamSlug` if you prefer split fields instead of `targetRef`.",
+        ),
+      teamSlug: z
+        .string()
+        .optional()
+        .describe(
+          "Optional team slug for team publishing. Use together with `organizationSlug`.",
         ),
       teamId: z
         .string()
         .optional()
         .describe(
-          "Explicit team publish target. Required for MCP team publishing in this MVP because MCP requests should not rely on an implicit browser active team.",
+          "Compatibility path for team publishing. Prefer readable `targetRef` instead of internal teamId when possible.",
         ),
       registryDependencies: z
         .unknown()
@@ -2210,36 +2274,42 @@ ${fileContent}
         };
       }
 
-      const requestedTeamId =
-        typeof args.teamId === "string" && args.teamId.trim().length > 0
-          ? args.teamId.trim()
-          : null;
-      const publishScope = args.publishScope === "team" || requestedTeamId ? "team" : "personal";
-      if (publishScope === "team" && !requestedTeamId) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: "Team publishing requires an explicit teamId in this MVP.",
-            },
-          ],
-          isError: true,
-        };
-      }
+      const publishScope =
+        args.publishScope === "team" ||
+        (typeof args.teamId === "string" && args.teamId.trim().length > 0) ||
+        (typeof args.targetRef === "string" && args.targetRef.trim().length > 0) ||
+        ((typeof args.organizationSlug === "string" &&
+          args.organizationSlug.trim().length > 0) &&
+          (typeof args.teamSlug === "string" && args.teamSlug.trim().length > 0))
+          ? "team"
+          : "personal";
 
-      const teamTarget =
-        requestedTeamId ? await getWritableTeamTargetForUser(userId, requestedTeamId) : null;
-      if (requestedTeamId && !teamTarget) {
+      const resolvedPublishTarget = await resolvePublishTargetForUser({
+        userId,
+        publishScope,
+        targetRef: typeof args.targetRef === "string" ? args.targetRef : null,
+        organizationSlug:
+          typeof args.organizationSlug === "string" ? args.organizationSlug : null,
+        teamSlug: typeof args.teamSlug === "string" ? args.teamSlug : null,
+        teamId: typeof args.teamId === "string" ? args.teamId : null,
+      });
+      if (!resolvedPublishTarget.ok) {
+        const text =
+          resolvedPublishTarget.code === "AMBIGUOUS_TEAM_TARGET"
+            ? `${resolvedPublishTarget.message} Call \`list_publish_targets\` and choose one explicitly using \`targetRef\`, for example \`@gate/trading\`.`
+            : resolvedPublishTarget.message;
         return {
           content: [
             {
               type: "text" as const,
-              text: "You do not have publish access to the selected team.",
+              text,
             },
           ],
           isError: true,
         };
       }
+      const teamTarget =
+        resolvedPublishTarget.target.kind === "team" ? resolvedPublishTarget.target : null;
 
       // 归一化 theme：若 type === registry:theme，优先将 content / files 中的 JSON 视为 tokens.json，
       // 并从中派生 theme.css。
@@ -2309,7 +2379,11 @@ ${fileContent}
           healthSuffix = formatDependencyHealthForMcp(health);
         }
         const teamRef =
-          teamTarget != null ? await getTeamCanonicalOwnerRef(teamTarget.id) : null;
+          teamTarget?.targetRef
+            ? teamTarget.targetRef.slice(1)
+            : teamTarget != null
+              ? await getTeamCanonicalOwnerRef(teamTarget.id)
+              : null;
         return {
           content: [
             {
@@ -2401,7 +2475,11 @@ ${fileContent}
         healthSuffixCreate = formatDependencyHealthForMcp(health);
       }
       const teamRefCreate =
-        teamTarget != null ? await getTeamCanonicalOwnerRef(teamTarget.id) : null;
+        teamTarget?.targetRef
+          ? teamTarget.targetRef.slice(1)
+          : teamTarget != null
+            ? await getTeamCanonicalOwnerRef(teamTarget.id)
+            : null;
       return {
         content: [
           {

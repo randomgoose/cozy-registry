@@ -16,6 +16,10 @@ Source of truth: partial — 表结构与分层仍以本文为准；已实现细
 - 支撑 Team dashboard / collections / settings
 - 为后续 team token / MCP scope 留扩展位
 
+相关补充：
+
+- [team-publish-target-spec.md](./team-publish-target-spec.md)
+
 这版设计默认：
 
 - **复用 Better Auth 的 organization / team / membership 能力**

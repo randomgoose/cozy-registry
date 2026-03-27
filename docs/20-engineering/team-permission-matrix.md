@@ -1,6 +1,6 @@
 Status: proposed
 Owner: engineering
-Last updated: 2026-03-26
+Last updated: 2026-03-27
 Source of truth: no
 
 # Team 权限矩阵（MVP）
@@ -26,6 +26,7 @@ Source of truth: no
 
 - [team-workspaces-plan.md](../10-product/team-workspaces-plan.md)
 - [team-data-model.md](./team-data-model.md)
+- [team-publish-target-spec.md](./team-publish-target-spec.md)
 
 ---
 
@@ -248,6 +249,7 @@ MVP 第一阶段可以先不开放 UI，但权限语义建议先定住。
 - 浏览上下文可以来自 `activeTeamId`
 - 但写入动作不应只依赖隐式 active scope
 - publish / update 后续应支持显式 team target，并最终解析成明确的 `team_id`
+- 推荐的显式目标与 fallback 规则见 [team-publish-target-spec.md](./team-publish-target-spec.md)
 
 ## 5.2 团队资源的读取
 

@@ -19,7 +19,7 @@ import { getUserIdFromToken } from "@/lib/auth-api";
 import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
 import { normalizePublishContract } from "@/lib/registry-publish-contract";
 import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
-import { getWritableTeamTargetForUser } from "@/lib/publish-target";
+import { resolvePublishTargetForUser } from "@/lib/publish-target";
 
 export async function POST(request: Request) {
   try {
@@ -36,6 +36,9 @@ export async function POST(request: Request) {
       previewProps?: unknown;
       previewExport?: unknown;
       publishScope?: "personal" | "team";
+      targetRef?: string | null;
+      organizationSlug?: string | null;
+      teamSlug?: string | null;
       teamId?: string | null;
     };
 
@@ -75,31 +78,44 @@ export async function POST(request: Request) {
       );
     }
 
-    const requestedScope = body.publishScope === "team" ? "team" : "personal";
-    const requestedTeamId =
-      typeof body.teamId === "string" && body.teamId.trim().length > 0
-        ? body.teamId.trim()
-        : null;
-    const activeTeamId = session?.session?.activeTeamId ?? null;
-    const effectiveTeamId =
-      requestedTeamId ?? (requestedScope === "team" ? activeTeamId : null);
-    const teamTarget = effectiveTeamId
-      ? await getWritableTeamTargetForUser(userId, effectiveTeamId)
-      : null;
+    const resolvedPublishTarget = await resolvePublishTargetForUser({
+      userId,
+      publishScope: body.publishScope === "team" ? "team" : "personal",
+      targetRef: typeof body.targetRef === "string" ? body.targetRef : null,
+      organizationSlug:
+        typeof body.organizationSlug === "string" ? body.organizationSlug : null,
+      teamSlug: typeof body.teamSlug === "string" ? body.teamSlug : null,
+      teamId: typeof body.teamId === "string" ? body.teamId : null,
+      activeTeamId: session?.session?.activeTeamId ?? null,
+    });
 
-    if (requestedScope === "team" && !effectiveTeamId) {
+    if (!resolvedPublishTarget.ok) {
+      const status =
+        resolvedPublishTarget.code === "AMBIGUOUS_TEAM_TARGET"
+          ? 400
+          : resolvedPublishTarget.code === "NO_TEAM_WRITE_ACCESS"
+            ? 403
+            : 400;
       return NextResponse.json(
-        { error: "A team publish target requires teamId or an active team scope" },
-        { status: 400 },
+        {
+          error: resolvedPublishTarget.message,
+          code: resolvedPublishTarget.code,
+          candidates: resolvedPublishTarget.candidates?.map((candidate) => ({
+            teamId: candidate.id,
+            teamName: candidate.name,
+            organizationName: candidate.organizationName,
+            organizationSlug: candidate.organizationSlug,
+            teamSlug: candidate.teamSlug,
+            targetRef: candidate.targetRef,
+            role: candidate.role,
+          })),
+        },
+        { status },
       );
     }
 
-    if (effectiveTeamId && !teamTarget) {
-      return NextResponse.json(
-        { error: "You do not have publish access to the selected team" },
-        { status: 403 },
-      );
-    }
+    const publishTarget = resolvedPublishTarget.target;
+    const teamTarget = publishTarget.kind === "team" ? publishTarget : null;
 
     const isTheme = normalizedType === REGISTRY_THEME_TYPE;
     if (!hasFiles) {
@@ -277,8 +293,17 @@ export async function POST(request: Request) {
       success: true,
       item,
       publishTarget: teamTarget
-        ? { kind: "team", teamId: teamTarget.id, teamName: teamTarget.name }
-        : { kind: "user", userId },
+        ? {
+            kind: "team",
+            teamId: teamTarget.id,
+            teamName: teamTarget.name,
+            organizationId: teamTarget.organizationId,
+            organizationName: teamTarget.organizationName,
+            organizationSlug: teamTarget.organizationSlug,
+            teamSlug: teamTarget.teamSlug,
+            targetRef: teamTarget.targetRef,
+          }
+        : { kind: "user", userId, targetRef: "personal" },
       hints,
       publishDiagnostics: {
         appliedRegistryDependencies: contract.value.appliedRegistryDependencies ?? depsToWrite,
