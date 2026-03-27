@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { FigmaAuthIcon } from "@/app/components/icons/FigmaAuthIcon";
 
-const DEFAULT_CALLBACK = "/onboarding/handle";
+const DEFAULT_CALLBACK = "/post-auth";
 
 function SignInForm() {
   const searchParams = useSearchParams();
