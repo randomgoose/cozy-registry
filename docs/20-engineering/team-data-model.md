@@ -1,7 +1,7 @@
-Status: proposed
+Status: living (schema + principles); implementation snapshot见 §十一
 Owner: engineering
-Last updated: 2026-03-26
-Source of truth: no
+Last updated: 2026-03-27
+Source of truth: partial — 表结构与分层仍以本文为准；已实现细节见代码与 §十一
 
 # Team 数据模型设计（MVP）
 
@@ -682,6 +682,25 @@ organization 在应用层更多是：
 - 足够支撑 team dashboard / collections / settings
 - 不会阻断后续 team token / MCP scope 扩展
 - 避免自己重复维护 organization / team / membership 表
+
+---
+
+## 十一、实现状态快照（2026-03-27）
+
+下列条目用于与本文设计对照；代码路径以仓库当前状态为准。
+
+| 设计点 | 状态 | 备注 |
+|--------|------|------|
+| Better Auth organization plugin + teams | 已落地 | `lib/auth.ts`；Drizzle 中 `organization`、`member`、`team`、`teamMember`、`invitation`；`session.activeOrganizationId` / `activeTeamId` |
+| `registry_items.team_id` 与个人 `user_id` 互斥 | 已落地 | 创建与校验见 `lib/registry.ts` |
+| `registry_collections.owner_team_id` 与 `owner_user_id` 互斥 | 已落地 | Collections API 按 `getCollectionScopeContext` 区分 scope |
+| `registry_api_key_policies.owner_team_id` | 已落地 | Team scope 下 Settings 策略与 API；**密钥仍绑定用户**，非独立 team 主体 `apikey` |
+| MCP publish 显式 `teamId` + 可选 session fallback | 已落地 | `app/api/registry/items/route.ts`；MCP 工具侧要求显式 `teamId` 的表述见 `lib/mcp-tools.ts` |
+| DB `CHECK` 约束（`num_nonnulls`） | 未强制依赖 | 逻辑在应用层；迁移中视情况收紧 |
+| 三段式 ref `@orgSlug/teamSlug/item` 与统一 resolver | **已落地（读取/安装/MCP）** | `parseRegistryDependencyRef` 支持三段式；`getRegistryItemByOwnerNameAndVersion` 的 `owner` 支持 `orgSlug/teamSlug`；`/api/r/{org}/{team}/{name}` 与 install-protocol；预览见 `/preview/{org}/{team}/{name}` |
+| 方案 B「MVP 不做 team token」 | **已演进** | 当前为「用户 API key + `owner_team_id` policy」承载 team 侧 MCP 策略；独立 `subject_type = team` 的 token 仍属后续 |
+
+与产品路线图 Phase A–D 的对照见 [team-workspaces-plan.md](../10-product/team-workspaces-plan.md)（文档 §「实现状态与长期路线图对照」）。
 
 ---
 

@@ -9,9 +9,16 @@ import {
 } from "@/lib/registry";
 import { getAuthContextFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
+import { getTeamCanonicalOwnerRef } from "@/lib/registry-team";
 import { getRegistryPolicyForApiKey } from "@/lib/registry-policy";
 
 function parseOwnerAndName(spec: string[]): { owner: string | null; name: string | null } {
+  if (spec.length >= 3) {
+    return {
+      owner: `${spec[0]}/${spec[1]}`,
+      name: spec.slice(2).join("/"),
+    };
+  }
   if (spec.length >= 2) {
     return { owner: spec[0] ?? null, name: spec.slice(1).join("/") };
   }
@@ -76,8 +83,9 @@ export async function GET(
   const installVersion =
     version && version.trim().length > 0 ? version.trim() : getCurrentVersion(item);
 
-  const canonicalOwner =
-    (await resolveOwner(item.userId ?? owner ?? "legacy"))?.handle ?? owner ?? "legacy";
+  const canonicalOwner = item.teamId
+    ? (await getTeamCanonicalOwnerRef(item.teamId)) ?? owner ?? "legacy"
+    : (await resolveOwner(item.userId ?? owner ?? "legacy"))?.handle ?? owner ?? "legacy";
   const header = `// cozy-registry: @${canonicalOwner}/${item.name} v${installVersion}\n`;
 
   const filesWithHeader = shadcnItem.files.map((f) => {

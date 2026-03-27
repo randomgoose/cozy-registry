@@ -97,13 +97,24 @@ export interface ParsedRegistryDependencyRef {
 }
 
 export function parseRegistryDependencyRef(dep: string): ParsedRegistryDependencyRef | null {
-  const m = dep.trim().match(/^@([^/@]+)\/([^@]+)(?:@(.+))?$/);
-  if (!m) return null;
+  const t = dep.trim();
+  // Team ref: @orgSlug/teamSegment/itemName[@version]
+  const m3 = t.match(/^@([^/@]+)\/([^/@]+)\/([^@]+)(?:@(.+))?$/);
+  if (m3) {
+    return {
+      raw: dep,
+      owner: `${m3[1]}/${m3[2]}`,
+      name: m3[3],
+      version: m3[4] ?? null,
+    };
+  }
+  const m2 = t.match(/^@([^/@]+)\/([^@]+)(?:@(.+))?$/);
+  if (!m2) return null;
   return {
     raw: dep,
-    owner: m[1],
-    name: m[2],
-    version: m[3] ?? null,
+    owner: m2[1],
+    name: m2[2],
+    version: m2[3] ?? null,
   };
 }
 

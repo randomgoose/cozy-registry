@@ -191,13 +191,11 @@ export async function GET(
   }
 
   let versionOptions: string[] = [];
-  if (item.userId) {
-    try {
-      const rows = await getRegistryItemVersions(item.userId, name, userId);
-      versionOptions = rows.map((r) => r.version);
-    } catch {
-      versionOptions = [];
-    }
+  try {
+    const rows = await getRegistryItemVersions(owner, name, userId);
+    versionOptions = rows.map((r) => r.version);
+  } catch {
+    versionOptions = [];
   }
   const currentVer = getCurrentVersion(item);
   if (versionOptions.length === 0) {

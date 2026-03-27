@@ -6,10 +6,17 @@ import {
   registryItemVersions,
   registryFileVersions,
   registryCollectionItems,
+  organization,
   team,
   user,
 } from "./db/schema";
 import { resolveOwner } from "@/lib/owner";
+import {
+  getTeamCanonicalOwnerRef,
+  isUserTeamMember,
+  parseTeamOwnerPath,
+  resolveTeamByOrgSlugAndTeamSegment,
+} from "@/lib/registry-team";
 import type { RegistryPolicy } from "@/lib/registry-policy";
 import {
   REGISTRY_BLOCK_TYPE,
@@ -147,13 +154,19 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
       .where(inArray(registryCollectionItems.collectionId, allowedCollectionIds));
   })();
 
+  const teamPolicyId = policy.ownerTeamId ?? null;
   const visibleClause = requestUserId
     ? or(
         eq(registryItems.visibility, "public"),
-        and(
-          eq(registryItems.visibility, "private"),
-          eq(registryItems.userId, requestUserId),
-        ),
+        and(eq(registryItems.visibility, "private"), eq(registryItems.userId, requestUserId)),
+        ...(teamPolicyId
+          ? [
+              and(
+                eq(registryItems.visibility, "private"),
+                eq(registryItems.teamId, teamPolicyId),
+              ),
+            ]
+          : []),
       )
     : eq(registryItems.visibility, "public");
 
@@ -161,7 +174,10 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
     .select({
       id: registryItems.id,
       userId: registryItems.userId,
+      teamId: registryItems.teamId,
       ownerHandle: user.handle,
+      orgSlug: organization.slug,
+      teamName: team.name,
       name: registryItems.name,
       type: registryItems.type,
       title: registryItems.title,
@@ -173,7 +189,9 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
       meta: registryItems.meta,
     })
     .from(registryItems)
-    .leftJoin(user, eq(registryItems.userId, user.id));
+    .leftJoin(user, eq(registryItems.userId, user.id))
+    .leftJoin(team, eq(registryItems.teamId, team.id))
+    .leftJoin(organization, eq(team.organizationId, organization.id));
 
   const clauses = [visibleClause] as ReturnType<typeof and>[];
 
@@ -182,11 +200,12 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
   }
 
   if (allowedOwners.length > 0) {
+    const byUser = or(
+      inArray(registryItems.userId, allowedOwners),
+      inArray(user.handle, allowedOwners),
+    );
     clauses.push(
-      or(
-        inArray(registryItems.userId, allowedOwners),
-        inArray(user.handle, allowedOwners),
-      ),
+      teamPolicyId ? or(byUser, eq(registryItems.teamId, teamPolicyId)) : byUser,
     );
   }
 
@@ -275,6 +294,20 @@ export async function getRegistryItemByTeamAndName(
   return { ...item, files };
 }
 
+async function getRegistryItemByTeamAndNameForViewer(
+  teamId: string,
+  name: string,
+  requestUserId?: string | null,
+) {
+  const item = await getRegistryItemByTeamAndName(teamId, name);
+  if (!item) return null;
+  if (item.visibility === "private") {
+    if (!requestUserId) return null;
+    if (!(await isUserTeamMember(requestUserId, teamId))) return null;
+  }
+  return item;
+}
+
 /**
  * Whether a registry item exists for dependency resolution and whether the caller may read it.
  */
@@ -283,6 +316,22 @@ export async function getRegistryDependencyAccessForRef(
   itemName: string,
   requestUserId?: string | null,
 ): Promise<"not_found" | "denied" | "ok"> {
+  const teamPath = parseTeamOwnerPath(ownerHandle);
+  if (teamPath) {
+    const resolvedTeam = await resolveTeamByOrgSlugAndTeamSegment(
+      teamPath.orgSlug,
+      teamPath.teamSegment,
+    );
+    if (!resolvedTeam) return "not_found";
+    const item = await getRegistryItemByTeamAndNameForViewer(
+      resolvedTeam.teamId,
+      itemName,
+      requestUserId,
+    );
+    if (!item) return "not_found";
+    return "ok";
+  }
+
   const resolved = await resolveOwner(ownerHandle);
   if (!resolved) return "not_found";
   const [row] = await db
@@ -415,31 +464,14 @@ function stripCozyHeader(content: string): string {
   return content;
 }
 
-/**
- * 按 owner/name 获取组件，可选指定版本。不传 version 或等于当前版本时返回最新快照。
- */
-export async function getRegistryItemByOwnerNameAndVersion(
-  ownerId: string,
-  name: string,
-  version: string | null | undefined,
-  requestUserId?: string | null
-) {
-  const resolved = await resolveOwner(ownerId);
-  if (!resolved) return null;
-  const base = await getRegistryItemByOwnerAndName(resolved.userId, name, requestUserId);
-  if (!base) return null;
-
-  const currentVer = getCurrentVersion(base);
-  if (!version || version === currentVer) return base;
-
+async function loadRegistryItemVersionSnapshot<
+  T extends { id: string; files: unknown[] },
+>(base: T, version: string) {
   const [itemVersion] = await db
     .select()
     .from(registryItemVersions)
     .where(
-      and(
-        eq(registryItemVersions.itemId, base.id),
-        eq(registryItemVersions.version, version)
-      )
+      and(eq(registryItemVersions.itemId, base.id), eq(registryItemVersions.version, version)),
     );
 
   if (!itemVersion) return null;
@@ -461,6 +493,47 @@ export async function getRegistryItemByOwnerNameAndVersion(
       type: f.type,
     })),
   };
+}
+
+/**
+ * 按 owner/name 获取组件，可选指定版本。不传 version 或等于当前版本时返回最新快照。
+ * owner 可为 user handle / id，或团队路径 `orgSlug/teamSlug`（teamSlug 为 slugify(team.name)）。
+ */
+export async function getRegistryItemByOwnerNameAndVersion(
+  ownerId: string,
+  name: string,
+  version: string | null | undefined,
+  requestUserId?: string | null,
+) {
+  const teamPath = parseTeamOwnerPath(ownerId);
+  if (teamPath) {
+    const resolvedTeam = await resolveTeamByOrgSlugAndTeamSegment(
+      teamPath.orgSlug,
+      teamPath.teamSegment,
+    );
+    if (!resolvedTeam) return null;
+    const base = await getRegistryItemByTeamAndNameForViewer(
+      resolvedTeam.teamId,
+      name,
+      requestUserId,
+    );
+    if (!base) return null;
+
+    const currentVer = getCurrentVersion(base);
+    if (!version || version === currentVer) return base;
+
+    return loadRegistryItemVersionSnapshot(base, version);
+  }
+
+  const resolved = await resolveOwner(ownerId);
+  if (!resolved) return null;
+  const base = await getRegistryItemByOwnerAndName(resolved.userId, name, requestUserId);
+  if (!base) return null;
+
+  const currentVer = getCurrentVersion(base);
+  if (!version || version === currentVer) return base;
+
+  return loadRegistryItemVersionSnapshot(base, version);
 }
 
 export async function getRegistryItemByOwnerNameAndVersionScoped(
@@ -486,10 +559,18 @@ export async function getRegistryItemByOwnerNameAndVersionScoped(
 
   const allowedOwners = (policy.allowedOwnerHandlesOrIds ?? []).filter(Boolean);
   if (allowedOwners.length > 0) {
-    const ownerHandle = (await resolveOwner(item.userId ?? "legacy"))?.handle ?? null;
+    const ownerHandle =
+      item.userId != null
+        ? ((await resolveOwner(item.userId))?.handle ?? null)
+        : null;
+    const teamRef = item.teamId != null ? await getTeamCanonicalOwnerRef(item.teamId) : null;
     const matches =
       (item.userId != null && allowedOwners.includes(item.userId)) ||
-      (ownerHandle != null && allowedOwners.includes(ownerHandle));
+      (ownerHandle != null && allowedOwners.includes(ownerHandle)) ||
+      (item.teamId != null &&
+        policy.ownerTeamId != null &&
+        item.teamId === policy.ownerTeamId) ||
+      (teamRef != null && allowedOwners.includes(teamRef));
     if (!matches) return null;
   }
 
@@ -520,19 +601,9 @@ export async function getRegistryItemByOwnerNameAndVersionScoped(
   return membership ? item : null;
 }
 
-/**
- * 获取组件的版本列表（用于版本选择器 / 升级提示）
- */
-export async function getRegistryItemVersions(
-  ownerId: string,
-  name: string,
-  requestUserId?: string | null,
-): Promise<
+async function getRegistryItemVersionsByItemId(itemId: string): Promise<
   { version: string; createdAt: Date; createdBy: string | null; message?: string | null }[]
 > {
-  const item = await getRegistryItemByOwnerAndName(ownerId, name, requestUserId);
-  if (!item) return [];
-
   const versions = await db
     .select({
       version: registryItemVersions.version,
@@ -541,7 +612,7 @@ export async function getRegistryItemVersions(
       meta: registryItemVersions.meta,
     })
     .from(registryItemVersions)
-    .where(eq(registryItemVersions.itemId, item.id))
+    .where(eq(registryItemVersions.itemId, itemId))
     .orderBy(desc(registryItemVersions.createdAt));
 
   return versions.map((v) => {
@@ -560,6 +631,41 @@ export async function getRegistryItemVersions(
       message,
     };
   });
+}
+
+/**
+ * 获取组件的版本列表（用于版本选择器 / 升级提示）
+ * ownerId 可为 user handle / id，或团队路径 `orgSlug/teamSlug`。
+ */
+export async function getRegistryItemVersions(
+  ownerId: string,
+  name: string,
+  requestUserId?: string | null,
+): Promise<
+  { version: string; createdAt: Date; createdBy: string | null; message?: string | null }[]
+> {
+  const teamPath = parseTeamOwnerPath(ownerId);
+  if (teamPath) {
+    const resolvedTeam = await resolveTeamByOrgSlugAndTeamSegment(
+      teamPath.orgSlug,
+      teamPath.teamSegment,
+    );
+    if (!resolvedTeam) return [];
+    const item = await getRegistryItemByTeamAndNameForViewer(
+      resolvedTeam.teamId,
+      name,
+      requestUserId,
+    );
+    if (!item) return [];
+    return getRegistryItemVersionsByItemId(item.id);
+  }
+
+  const resolved = await resolveOwner(ownerId);
+  if (!resolved) return [];
+  const item = await getRegistryItemByOwnerAndName(resolved.userId, name, requestUserId);
+  if (!item) return [];
+
+  return getRegistryItemVersionsByItemId(item.id);
 }
 
 /**
@@ -889,6 +995,58 @@ export async function getRegistryItemsByTeamId(teamId: string) {
     .orderBy(registryItems.name);
 
   return items;
+}
+
+/**
+ * List team-owned items for MCP / catalog: public, or private when caller is a team member.
+ */
+export async function getRegistryItemsForTeam(
+  teamId: string,
+  requestUserId: string | null,
+  pagination?: { limit?: number; offset?: number } | null,
+) {
+  const canSeePrivate =
+    requestUserId != null && (await isUserTeamMember(requestUserId, teamId));
+
+  const visibilityClause = canSeePrivate
+    ? eq(registryItems.teamId, teamId)
+    : and(eq(registryItems.teamId, teamId), eq(registryItems.visibility, "public"));
+
+  const base = db
+    .select({
+      id: registryItems.id,
+      userId: registryItems.userId,
+      teamId: registryItems.teamId,
+      ownerHandle: user.handle,
+      orgSlug: organization.slug,
+      teamName: team.name,
+      name: registryItems.name,
+      type: registryItems.type,
+      title: registryItems.title,
+      description: registryItems.description,
+      visibility: registryItems.visibility,
+      createdAt: registryItems.createdAt,
+      updatedAt: registryItems.updatedAt,
+      currentVersion: registryItems.currentVersion,
+      meta: registryItems.meta,
+    })
+    .from(registryItems)
+    .leftJoin(user, eq(registryItems.userId, user.id))
+    .leftJoin(team, eq(registryItems.teamId, team.id))
+    .leftJoin(organization, eq(team.organizationId, organization.id))
+    .where(visibilityClause)
+    .orderBy(registryItems.name);
+
+  if (pagination?.limit != null) {
+    if (pagination.offset != null && pagination.offset > 0) {
+      return base.limit(pagination.limit).offset(pagination.offset);
+    }
+    return base.limit(pagination.limit);
+  }
+  if (pagination?.offset != null && pagination.offset > 0) {
+    return base.offset(pagination.offset);
+  }
+  return base;
 }
 
 export async function createRegistryItem(data: {

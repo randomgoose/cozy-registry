@@ -4,6 +4,7 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import {
   getRegistryItemsScoped,
+  getRegistryItemsForTeam,
   getRegistryItemByName,
   getRegistryItemByTeamAndName,
   getRegistryItemByOwnerNameAndVersion,
@@ -24,6 +25,11 @@ import {
 } from "./validate-tsx";
 import { getAuthContextFromToken } from "./auth-api";
 import { resolveOwner } from "./owner";
+import {
+  getTeamCanonicalOwnerRef,
+  isUserTeamMember,
+  slugifyRegistrySegment,
+} from "./registry-team";
 import { getRegistryPolicyForApiKey } from "./registry-policy";
 import { db } from "./db";
 import { registryCollections } from "./db/schema";
@@ -104,9 +110,14 @@ export function createRegistryMcpServer(request?: Request) {
     return { ctx, userId, policy };
   }
 
-  async function getCanonicalOwner(owner: string | null | undefined) {
-    if (!owner) return "legacy";
-    return (await resolveOwner(owner))?.handle ?? owner;
+  async function getCanonicalRefOwnerForItem(
+    item: { userId?: string | null; teamId?: string | null },
+    fallbackOwner: string,
+  ) {
+    if (item.teamId) {
+      return (await getTeamCanonicalOwnerRef(item.teamId)) ?? fallbackOwner;
+    }
+    return (await resolveOwner(item.userId ?? fallbackOwner))?.handle ?? fallbackOwner;
   }
 
   async function getLatestVersionForItem(params: {
@@ -131,13 +142,16 @@ export function createRegistryMcpServer(request?: Request) {
     files?: { path: string }[];
   }) {
     const sourceBase = params.baseUrl ?? "";
-    const source = sourceBase
-      ? `${sourceBase}/api/r/${params.owner}/${params.name}?v=${params.version}`
+    const isTeam = params.owner.includes("/");
+    const sourcePath = isTeam
+      ? `/api/r/${params.owner.split("/")[0]}/${params.owner.split("/")[1]}/${params.name}?v=${params.version}`
       : `/api/r/${params.owner}/${params.name}?v=${params.version}`;
+    const source = sourceBase ? `${sourceBase}${sourcePath}` : sourcePath;
+    const coordinate = `@${params.owner}/${params.name}`;
     return {
       version: 1,
       items: {
-        [`@${params.owner}/${params.name}`]: {
+        [coordinate]: {
           type: params.type,
           version: params.version,
           source,
@@ -233,9 +247,15 @@ export function createRegistryMcpServer(request?: Request) {
   server.registerTool("list_components", {
     title: "List components",
     description:
-      "List components and modules available in the registry. Use this to discover what's available before fetching a specific component or before setting `registryDependencies` on publish. Registry dependencies MUST be explicit (see registry-dependency-management-spec §1.1): the system does not auto-link; use `suggest_registry_dependencies` + this list to choose refs. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>. For large registries, pass `limit` (and increase `offset` for the next page) to avoid huge responses—similar to paginated UI lists.",
+      "List components and modules available in the registry. Use this to discover what's available before fetching a specific component or before setting `registryDependencies` on publish. Registry dependencies MUST be explicit (see registry-dependency-management-spec §1.1): the system does not auto-link; use `suggest_registry_dependencies` + this list to choose refs. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>. For large registries, pass `limit` (and increase `offset` for the next page) to avoid huge responses—similar to paginated UI lists. For team-owned items, pass `teamId` (from your workspace or publish response) to list that team's catalog; refs use `@orgSlug/teamSlug/itemName`.",
     inputSchema: z
       .object({
+        teamId: z
+          .string()
+          .optional()
+          .describe(
+            "When set, list registry items owned by this team (requires Bearer token; team members see private items). Use explicit teamId from your organization/workspace context.",
+          ),
         collection: z
           .string()
           .optional()
@@ -262,7 +282,7 @@ export function createRegistryMcpServer(request?: Request) {
       })
       .describe("Optional collection scope and pagination"),
     annotations: MCP_ANN.readOpen,
-  }, async ({ collection, limit, offset: offsetArg }) => {
+  }, async ({ collection, limit, offset: offsetArg, teamId }) => {
     const ctx = request ? await getAuthContextFromToken(request) : null;
     const userId = ctx?.userId ?? null;
     const policyFromToken = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
@@ -272,19 +292,64 @@ export function createRegistryMcpServer(request?: Request) {
         : policyFromToken;
     const offset = offsetArg ?? 0;
     const fetchLimit = limit != null ? limit + 1 : undefined;
-    const items = await getRegistryItemsScoped({
-      requestUserId: userId,
-      policy,
-      listLimit: fetchLimit,
-      listOffset: limit != null ? offset : undefined,
-    });
+
+    let items: Awaited<ReturnType<typeof getRegistryItemsScoped>>;
+    if (teamId && teamId.trim().length > 0) {
+      if (!userId) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Authentication required to list team registry items. Add Authorization: Bearer <token>.",
+            },
+          ],
+          isError: true,
+        };
+      }
+      if (!(await isUserTeamMember(userId, teamId.trim()))) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "You are not a member of this team or teamId is invalid.",
+            },
+          ],
+          isError: true,
+        };
+      }
+      items = await getRegistryItemsForTeam(teamId.trim(), userId, {
+        limit: fetchLimit,
+        offset: limit != null ? offset : undefined,
+      });
+    } else {
+      items = await getRegistryItemsScoped({
+        requestUserId: userId,
+        policy,
+        listLimit: fetchLimit,
+        listOffset: limit != null ? offset : undefined,
+      });
+    }
+
     const hasMore = limit != null && items.length > limit;
     const page = limit != null ? items.slice(0, limit) : items;
     const summary = page
       .map(
         (i) => {
-          const owner = (i as { ownerHandle?: string | null; userId?: string | null }).ownerHandle ?? i.userId ?? "legacy";
-          return `- **@${owner}/${i.name}** (${i.type}): ${i.title}${i.description ? ` - ${i.description}` : ""}`;
+          const row = i as {
+            ownerHandle?: string | null;
+            userId?: string | null;
+            teamId?: string | null;
+            orgSlug?: string | null;
+            teamName?: string | null;
+          };
+          let ref: string;
+          if (row.teamId && row.orgSlug != null && row.teamName != null) {
+            ref = `@${row.orgSlug}/${slugifyRegistrySegment(row.teamName)}/${i.name}`;
+          } else {
+            const owner = row.ownerHandle ?? row.userId ?? "legacy";
+            ref = `@${owner}/${i.name}`;
+          }
+          return `- **${ref}** (${i.type}): ${i.title}${i.description ? ` - ${i.description}` : ""}`;
         }
       )
       .join("\n");
@@ -374,7 +439,7 @@ export function createRegistryMcpServer(request?: Request) {
           .string()
           .optional()
           .describe(
-            "Owner handle (preferred) or legacy userId (from list_components). Use when multiple components have the same name.",
+            "Personal: user handle or id. Team: `orgSlug/teamSlug` where teamSlug matches slugify(team.name) from list_components (e.g. acme/trading). Required when multiple components share the same name.",
           ),
       }),
       annotations: MCP_ANN.readOpen,
@@ -405,13 +470,14 @@ export function createRegistryMcpServer(request?: Request) {
           };
         }
 
-        const canonicalOwner = await getCanonicalOwner(
-          item.userId ?? owner ?? "legacy",
-        );
+        const canonicalOwner = await getCanonicalRefOwnerForItem(item, owner ?? "legacy");
         const currentVersion = getCurrentVersion(item);
+        const versionListOwner = item.teamId
+          ? canonicalOwner
+          : (item.userId ?? owner ?? "legacy");
         const latestVersion =
           (await getLatestVersionForItem({
-            owner: item.userId ?? "legacy",
+            owner: versionListOwner,
             name,
             userId,
           })) ?? currentVersion;
@@ -654,7 +720,7 @@ ${fileContent}
         owner: z
           .string()
           .describe(
-            "Owner userId (e.g. legacy, or from list_components). Required to disambiguate components with the same name.",
+            "Personal: user handle or id. Team: `orgSlug/teamSlug` (from list_components). Required to disambiguate components with the same name.",
           ),
       }),
       annotations: MCP_ANN.readOpen,
@@ -685,25 +751,8 @@ ${fileContent}
           };
         }
 
-        const resolvedOwner = await resolveOwner(owner);
-        if (!resolvedOwner) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Component owner "${owner}" not found.`,
-              },
-            ],
-            isError: true,
-          };
-        }
-
-        const canonicalOwner = resolvedOwner.handle ?? owner;
-        const versions = await getRegistryItemVersions(
-          resolvedOwner.userId,
-          name,
-          userId,
-        );
+        const canonicalOwner = await getCanonicalRefOwnerForItem(allowed, owner);
+        const versions = await getRegistryItemVersions(owner, name, userId);
         if (!versions.length) {
           return {
             content: [
@@ -809,7 +858,7 @@ ${fileContent}
           };
         }
 
-        const canonicalOwner = await getCanonicalOwner(item.userId ?? owner);
+        const canonicalOwner = await getCanonicalRefOwnerForItem(item, owner);
         const latestVersion = getCurrentVersion(item);
         const upgradable = installedVersion !== latestVersion;
         const payload = {
@@ -905,7 +954,7 @@ ${fileContent}
           };
         }
 
-        const canonicalOwner = await getCanonicalOwner(item.userId ?? owner);
+        const canonicalOwner = await getCanonicalRefOwnerForItem(item, owner);
         const selectedVersion = version?.trim() || getCurrentVersion(item);
         const shadcnItem = toShadcnRegistryItem(item);
         const baseUrl =
@@ -1055,7 +1104,7 @@ ${fileContent}
           };
         }
 
-        const canonicalOwner = await getCanonicalOwner(item.userId ?? owner);
+        const canonicalOwner = await getCanonicalRefOwnerForItem(item, owner);
         const latestVersion = getCurrentVersion(item);
         const targetVersion = toVersion?.trim() || latestVersion;
         const shadcnItem = toShadcnRegistryItem(item);
@@ -1169,7 +1218,7 @@ ${fileContent}
           };
         }
 
-        const canonicalOwner = await getCanonicalOwner(item.userId ?? owner);
+        const canonicalOwner = await getCanonicalRefOwnerForItem(item, owner);
         const selectedVersion = version?.trim() || getCurrentVersion(item);
         const shadcnItem = toShadcnRegistryItem(item);
         const coordinate = `@${canonicalOwner}/${item.name}` as RegistryCoordinate;
@@ -1567,7 +1616,9 @@ ${fileContent}
         name: z.string().describe("Component name in kebab-case, e.g. hero-section"),
         owner: z
           .string()
-          .describe("Owner handle (preferred) or legacy userId."),
+          .describe(
+            "Personal: user handle or id. Team: `orgSlug/teamSlug` matching slugify(team.name).",
+          ),
         version: z
           .string()
           .optional()
@@ -1598,21 +1649,22 @@ ${fileContent}
           };
         }
 
-        const canonicalOwner = await getCanonicalOwner(item.userId ?? owner);
+        const canonicalOwner = await getCanonicalRefOwnerForItem(item, owner);
         const selectedVersion = version?.trim() || getCurrentVersion(item);
         const shadcnItem = toShadcnRegistryItem(item);
         const baseUrl =
           process.env.NEXT_PUBLIC_APP_URL ??
           (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+        const rPath = canonicalOwner.includes("/")
+          ? `/api/r/${canonicalOwner.split("/")[0]}/${canonicalOwner.split("/")[1]}/${item.name}?v=${selectedVersion}`
+          : `/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`;
         const payload = {
           ok: true,
           item: {
             coordinate: `@${canonicalOwner}/${item.name}`,
             type: item.type,
             version: selectedVersion,
-            source: baseUrl
-              ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`
-              : `/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`,
+            source: baseUrl ? `${baseUrl}${rPath}` : rPath,
             files: shadcnItem?.files ?? [],
           },
           lockfileEntry: buildLockfileEntry({
@@ -2228,12 +2280,14 @@ ${fileContent}
           );
           healthSuffix = formatDependencyHealthForMcp(health);
         }
+        const teamRef =
+          teamTarget != null ? await getTeamCanonicalOwnerRef(teamTarget.id) : null;
         return {
           content: [
             {
               type: "text" as const,
               text: teamTarget
-                ? `Updated team component "${existing.title}" in ${teamTarget.name} to version v${result.version}.${healthSuffix}`
+                ? `Updated team component "${existing.title}" (@${teamRef}/${existing.name}) to v${result.version}.${healthSuffix}`
                 : `Updated "${existing.title}" (@${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}) to version v${result.version}. View at /registry/${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}${healthSuffix}`,
             },
           ],
@@ -2318,12 +2372,14 @@ ${fileContent}
         );
         healthSuffixCreate = formatDependencyHealthForMcp(health);
       }
+      const teamRefCreate =
+        teamTarget != null ? await getTeamCanonicalOwnerRef(teamTarget.id) : null;
       return {
         content: [
           {
             type: "text" as const,
             text: teamTarget
-              ? `Published new team component "${item.title}" to ${teamTarget.name}.${healthSuffixCreate}`
+              ? `Published new team component "${item.title}" (@${teamRefCreate}/${item.name}).${healthSuffixCreate}`
               : `Published new component "${item.title}" (@${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}). View at /registry/${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}${healthSuffixCreate}`,
           },
         ],

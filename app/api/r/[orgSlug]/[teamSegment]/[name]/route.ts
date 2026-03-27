@@ -11,11 +11,13 @@ import { resolveOwner } from "@/lib/owner";
 import { getTeamCanonicalOwnerRef } from "@/lib/registry-team";
 import { getRegistryPolicyForApiKey } from "@/lib/registry-policy";
 
+/** Team bundle: `/api/r/{orgSlug}/{teamSegment}/{name}` — teamSegment is slugify(team.name). */
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ owner: string; name: string }> },
+  { params }: { params: Promise<{ orgSlug: string; teamSegment: string; name: string }> },
 ) {
-  const { owner, name } = await params;
+  const { orgSlug, teamSegment, name } = await params;
+  const owner = `${orgSlug}/${teamSegment}`;
   const url = new URL(request.url);
   const version = url.searchParams.get("v") ?? undefined;
   const session = await auth.api.getSession({ headers: await headers() });
@@ -43,7 +45,6 @@ export async function GET(
     );
   }
 
-  // 计算当前安装的版本（显式 ?v 优先，其次为 currentVersion）
   const installVersion =
     version && version.trim().length > 0 ? version.trim() : getCurrentVersion(item);
 
@@ -52,7 +53,6 @@ export async function GET(
     : (await resolveOwner(item.userId ?? owner))?.handle ?? owner;
   const header = `// cozy-registry: @${canonicalOwner}/${item.name} v${installVersion}\n`;
 
-  // 为 TS/TSX/JS/JSX 文件注入注释头，方便后续工具或 AI 识别来源与版本
   const filesWithHeader = shadcnItem.files.map((f) => {
     const lower = f.path.toLowerCase();
     const isCodeFile =

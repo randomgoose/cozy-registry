@@ -1,7 +1,7 @@
-Status: proposed
+Status: living (screen inventory);对照见 §九
 Owner: product
-Last updated: 2026-03-26
-Source of truth: no
+Last updated: 2026-03-27
+Source of truth: partial — 页面清单仍以本文为准；是否已交付见 §九
 
 # Team MVP 页面清单
 
@@ -456,6 +456,22 @@ MVP 第一阶段不要求这些入口一次全部切完，但产品语义应先�
 作为紧跟其后的补强项。
 
 这样可以让产品尽快从“个人 registry”升级成“团队 registry”，同时避免一开始陷入过重的后台和管理系统建设。
+
+---
+
+## 九、实现状态对照（2026-03-27）
+
+与 §二「5 个页面/入口」及 §三 Phase 1 必做对齐（做法 A：同一路径，active scope 决定内容）。
+
+| 入口 / 页面 | 规划优先级 | 当前实现要点 |
+|-------------|------------|----------------|
+| Scope switcher | Phase 1 必做 | `WorkspaceScopeSwitcher`（Personal + 各 org 下 teams；创建 workspace / 创建 team；`set-active` / `set-active-team`） |
+| Team dashboard | Phase 1 必做 | `/dashboard` 在 active team 下列 `getRegistryItemsByTeamId`，文案为 Team space；统计与「最近更新」等有基础展示；与文档中「完整统计卡 / Figma 专用入口」的差异可按产品再收紧 |
+| Team collections | Phase 1 必做 | `/collections` 随 scope 使用 `owner_team_id`；列表与 CRUD 走统一 API |
+| Team settings | Phase 1.5 | `/settings` 在 team scope：团队名（owner）、协作说明；**team slug / avatar** 未单独作为与文档一致的一等字段 UI（若 Better Auth 支持需再对表单项） |
+| Team members | Phase 1.5 | `/settings` 内成员列表、邀请、待处理邀请、owner 移除成员；与文档「修改角色」是否完全覆盖取决于 organization 插件 API 暴露情况 |
+
+**路径**：已采用 §五 **做法 A**（`/dashboard`、`/collections`、`/settings` 不变）。
 
 ---
 

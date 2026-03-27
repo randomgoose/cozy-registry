@@ -3,7 +3,9 @@ import path from "path";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 import { sha256Utf8, type CozyProvenanceManifestV1 } from "@/lib/cozy-provenance";
 
-export type RegistryCoordinate = `@${string}/${string}`;
+export type RegistryCoordinate =
+  | `@${string}/${string}`
+  | `@${string}/${string}/${string}`;
 
 export type CozyLockfile = {
   version: 1;
@@ -634,7 +636,12 @@ async function materializeRegistryDependencies(params: {
     const parsed = parseRegistryDependencyRef(raw);
     if (!parsed) continue;
     const coordinate = `@${parsed.owner}/${parsed.name}` as RegistryCoordinate;
-    const source = new URL(`/api/r/${parsed.owner}/${parsed.name}`, base).toString();
+    const source = new URL(
+      parsed.owner.includes("/")
+        ? `/api/r/${parsed.owner.split("/")[0]}/${parsed.owner.split("/")[1]}/${parsed.name}`
+        : `/api/r/${parsed.owner}/${parsed.name}`,
+      base,
+    ).toString();
     const version =
       parsed.version ??
       (await fetchLatestVersion({
@@ -809,14 +816,18 @@ function normalizeLockfile(input: Partial<CozyLockfile>): CozyLockfile {
 
 function parseCoordinate(coordinate: RegistryCoordinate): { owner: string; name: string } {
   const trimmed = coordinate.trim();
-  const slash = trimmed.indexOf("/");
-  if (!trimmed.startsWith("@") || slash <= 1 || slash === trimmed.length - 1) {
+  if (!trimmed.startsWith("@")) {
     throw new Error(`Invalid registry coordinate: ${coordinate}`);
   }
-  return {
-    owner: trimmed.slice(1, slash),
-    name: trimmed.slice(slash + 1),
-  };
+  const rest = trimmed.slice(1);
+  const parts = rest.split("/");
+  if (parts.length === 3) {
+    return { owner: `${parts[0]}/${parts[1]}`, name: parts[2] };
+  }
+  if (parts.length === 2) {
+    return { owner: parts[0], name: parts[1] };
+  }
+  throw new Error(`Invalid registry coordinate: ${coordinate}`);
 }
 
 function getDefaultInstallDir(params: { owner: string; name: string }): string {
@@ -897,6 +908,13 @@ function buildVersionsUrl(params: {
   registryBaseUrl?: string;
 }): string {
   const base = resolveBaseUrl(params.source, params.registryBaseUrl);
+  if (params.owner.includes("/")) {
+    const [orgSlug, teamSeg] = params.owner.split("/");
+    return new URL(
+      `/api/registry/${orgSlug}/${teamSeg}/${params.name}/versions`,
+      base,
+    ).toString();
+  }
   return new URL(`/api/registry/${params.owner}/${params.name}/versions`, base).toString();
 }
 

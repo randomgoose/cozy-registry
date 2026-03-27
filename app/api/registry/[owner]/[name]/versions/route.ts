@@ -47,11 +47,7 @@ export async function GET(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const resolved = await resolveOwner(owner);
-  if (!resolved) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  const versions = await getRegistryItemVersions(resolved.userId, name, userId);
+  const versions = await getRegistryItemVersions(owner, name, userId);
   const currentVersion = getCurrentVersion(item);
 
   return NextResponse.json({

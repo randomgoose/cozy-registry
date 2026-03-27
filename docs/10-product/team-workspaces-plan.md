@@ -1,7 +1,7 @@
-Status: proposed
+Status: living (principles); implementation tracked in §十二与 engineering docs
 Owner: product
-Last updated: 2026-03-24
-Source of truth: no
+Last updated: 2026-03-27
+Source of truth: partial — 产品原则仍以本文为准；落地进度见 §十二
 
 # 团队功能规划
 
@@ -367,26 +367,26 @@ MVP 的 team settings 至少应包括：
 
 ---
 
-## 十一、当前建议的后续动作
+## 十一、当前建议的后续动作（历史）
 
-如果要从规划进入实现，建议下一步按这个顺序推进：
+以下条目在 2026-03 前用于「从规划进入实现」；工程设计稿、MVP 页面范围与首版 schema/API/UI 已按此方向落地。后续增量见 §十二。
 
-1. 先补一份工程设计稿
-   - 数据模型
-   - 权限检查点
-   - scope 切换方式
+---
 
-2. 再画 MVP 页面范围
-   - Team switcher
-   - Team dashboard
-   - Team collections
-   - Team settings
+## 十二、实现状态与长期路线图对照（2026-03-27）
 
-3. 最后再拆具体开发任务
-   - schema
-   - API
-   - UI
-   - MCP / token policy
+对照 §九 Phase A–D 的推荐顺序，当前代码库大致状态如下（用于规划评审，非逐条验收清单）。
+
+| 阶段 | 目标摘要 | 当前状态 |
+|------|----------|----------|
+| **Phase A：Team foundation** | team scope、资源可归 team、成员与角色、scope switcher | **已基本达成**：Better Auth organization + teams；`registry_items.team_id`、`registry_collections.owner_team_id`、会话 `activeOrganizationId` / `activeTeamId`；侧边栏 `WorkspaceScopeSwitcher`；`getWorkspaceContextForSession`；发布侧 `getWritableTeamTargetForUser`（owner/editor 可写）。 |
+| **Phase B：Team publishing flow** | Figma Make → team、Cursor/shadcn 从 team 安装、dashboard/collections 稳定 | **已基本收口（2026-03-27）**：dashboard/collections team scope；`publishScope: "team"` + `teamId`；MCP `list_components` 支持 `teamId`；`get_component` / `get_component_bundle` / `get_component_versions` 的 `owner` 支持 `orgSlug/teamSlug`；团队 ref `@orgSlug/teamSlug/itemName`、bundle 源 `/api/r/{org}/{team}/{name}` 与 install-protocol / lockfile 对齐；预览 `/preview/{org}/{team}/{name}` 重定向到统一预览；依赖解析 `getRegistryDependencyAccessForRef` 支持团队 owner 路径。剩余：按环境做端到端验收（Figma 连接器里显式传 `teamId`）。 |
+| **Phase C：Team AI scope** | team token、collection 级访问、AI 在 team+collection 内检索 | **部分达成**：`registry_api_key_policies.owner_team_id` + Settings 中按当前 team scope 配置策略，但 **API key 仍为用户名下密钥**（非独立「团队主体持有 token」）；collection 与类型限制可走 policy。**不等同**于独立的 team-scoped OAuth token 或只读/发布分级 token 的完整产品化。 |
+| **Phase D：Collaboration polish** | invites、活动/审计、更完整 admin UX | **部分达成**：组织/团队邀请流与 Settings 内成员列表、待处理邀请、owner 改名/移除成员等；**活动流、审计日志、完整 admin** 未作为 MVP 交付。 |
+
+**与 §八「暂不做」清单**：复杂组织层级、自定义角色引擎、审批流、账单、团队级 marketplace 等仍属延后项，与当前实现一致。
+
+**建议的下一批文档/产品动作**（在 §十二基础上）：为 Phase B 补「对外安装与 ref」验收标准；为 Phase C 明确「用户密钥 + team policy」与「未来 team 主体 token」的边界；Phase D 按需拆用户故事。
 
 ---
 

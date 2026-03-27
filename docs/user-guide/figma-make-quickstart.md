@@ -85,6 +85,20 @@ cozy-figma-make
 - 你已经在 Vibe coding 流程里产出组件
 - 想直接发布并继续迭代
 
+### 发布到团队（Team scope）
+
+MCP 的 `publish_component` 在团队场景下**必须**同时提供：
+
+- `publishScope: "team"`
+- `teamId`：目标团队的 id（在 app 里切换到该 team 后，可从会话/网络请求或团队设置上下文获得；不要用浏览器里的「当前 team」代替显式参数，以免 MCP 与网页会话不一致）。
+
+列出团队条目时使用 `list_components`，并传入同一个 `teamId`。获取或安装时使用：
+
+- `owner` = `{organizationSlug}/{teamSlug}`，其中 `teamSlug` 与团队名称的 slug 规则一致（小写、非字母数字转为 `-`，与 Workspace 里团队名对应）。
+- `name` = 组件 kebab-case 名称。
+
+锁文件与 install 协议中的坐标为 **`@orgSlug/teamSlug/itemName`**（三段式），bundle 源为 `/api/r/{orgSlug}/{teamSegment}/{name}`。
+
 ## 第三步：在 Figma Make 中安装
 
 当前推荐流程不是“直接让 AI 写项目文件”，而是：
