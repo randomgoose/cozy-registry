@@ -9,10 +9,19 @@ import {
 } from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
 import { buildPreviewBundle } from "@/lib/preview-build";
+import {
+  buildPreviewCacheKey,
+  getPreviewBuildCache,
+  hashFiles,
+  setPreviewBuildCache,
+  sha256,
+  stableStringify,
+} from "@/lib/preview-build-cache";
 import { extractDependencies } from "@/lib/validate-tsx";
 import {
-  resolveTransitiveComponentSourceFiles,
-  resolveTransitiveThemeCss,
+  collectThemeCssFromResolvedGraph,
+  materializeComponentSourceFilesFromResolvedGraph,
+  resolveRegistryDependencies,
 } from "@/lib/registry-resolver";
 import {
   RegistryDependencyCycleError,
@@ -165,31 +174,87 @@ function isBareModuleSpecifier(spec: string): boolean {
   );
 }
 
+type PreviewMode = "default" | "thumbnail";
+
+function createTimingTracker() {
+  const startedAt = performance.now();
+  const entries: Record<string, number> = {};
+
+  return {
+    mark(label: string, from: number) {
+      entries[label] = Math.round((performance.now() - from) * 100) / 100;
+    },
+    done(extra: Record<string, unknown>) {
+      return {
+        ...extra,
+        timingsMs: {
+          ...entries,
+          total: Math.round((performance.now() - startedAt) * 100) / 100,
+        },
+      };
+    },
+  };
+}
+
+function hashResolvedRegistryGraph(
+  ordered: Awaited<ReturnType<typeof resolveRegistryDependencies>>["ordered"],
+) {
+  const normalized = ordered.map(({ ref, item }) => ({
+    ref: ref.ref,
+    owner: ref.owner,
+    name: ref.name,
+    version: ref.version,
+    type: item.type,
+    currentVersion: item.currentVersion ?? null,
+    registryDependencies: [...((item.registryDependencies ?? []) as string[])].sort(),
+    meta:
+      item.meta && typeof item.meta === "object"
+        ? item.meta
+        : null,
+    files: (item.files ?? [])
+      .map((file) => ({
+        path: file.path,
+        type: file.type,
+        content: file.content,
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path)),
+  }));
+
+  return sha256(stableStringify(normalized));
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ owner: string; name: string }> },
 ) {
+  const timings = createTimingTracker();
   const { owner, name } = await params;
   const url = new URL(request.url);
   const version = url.searchParams.get("v") ?? null;
   const debugTheme = url.searchParams.get("debugTheme") === "1";
   const debugDeps = url.searchParams.get("debugDeps") === "1";
-  const previewMode =
+  const previewMode: PreviewMode =
     url.searchParams.get("thumbnail") === "1" ? "thumbnail" : "default";
 
+  let stepStartedAt = performance.now();
   const session = await auth.api.getSession({ headers: request.headers });
   const userId = session?.user?.id ?? (await getUserIdFromToken(request));
+  timings.mark("session", stepStartedAt);
+
+  stepStartedAt = performance.now();
   const item = await getRegistryItemByOwnerNameAndVersion(
     owner,
     name,
     version,
     userId,
   );
+  timings.mark("rootItemLoad", stepStartedAt);
 
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  stepStartedAt = performance.now();
   let versionOptions: string[] = [];
   try {
     const rows = await getRegistryItemVersions(owner, name, userId);
@@ -204,6 +269,7 @@ export async function GET(
     versionOptions.push(currentVer);
   }
   versionOptions = sortVersionsDesc([...new Set(versionOptions)]);
+  timings.mark("versionListLoad", stepStartedAt);
 
   const effectiveVersion = version ?? currentVer;
   const versionToolbarHtml = buildVersionToolbarHtml(
@@ -318,20 +384,45 @@ ${versionToolbarHtml}
   // 仅对裸模块依赖构建 import map / external；相对路径交给 esbuild 走本地文件
   const runtimeDependencies = allDependencies.filter(isBareModuleSpecifier);
 
-  // Materialize transitive component dependencies under `_deps/...` so stub files can re-export.
+  const rootFilesHash = hashFiles(files);
+  const previewPropsHash = sha256(stableStringify(previewProps ?? {}));
+  const runtimeDepsHash = sha256(stableStringify(runtimeDependencies));
+
   let componentDepSources: string[] = [];
+  let themeSources: string[] = [];
+  let themeCss = "";
+  let registryGraphHash = "";
+  let resolvedNodeCount = 1;
+
   try {
-    const resolved = await resolveTransitiveComponentSourceFiles({
+    stepStartedAt = performance.now();
+    const resolvedGraph = await resolveRegistryDependencies({
       owner,
       name,
       version,
       requestUserId: userId,
     });
-    componentDepSources = resolved.sources;
-    for (const [p, c] of Object.entries(resolved.files)) {
-      // do not overwrite root files
+    resolvedNodeCount = resolvedGraph.ordered.length;
+    timings.mark("dependencyResolution", stepStartedAt);
+
+    stepStartedAt = performance.now();
+    const materialized = materializeComponentSourceFilesFromResolvedGraph(
+      resolvedGraph.ordered,
+      { owner, name, version },
+    );
+    componentDepSources = materialized.sources;
+    for (const [p, c] of Object.entries(materialized.files)) {
       if (!(p in files)) files[p] = c;
     }
+    timings.mark("componentMaterialization", stepStartedAt);
+
+    stepStartedAt = performance.now();
+    const resolvedTheme = collectThemeCssFromResolvedGraph(resolvedGraph.ordered);
+    themeSources = resolvedTheme.sources;
+    themeCss = resolvedTheme.css;
+    timings.mark("themeCssDerivation", stepStartedAt);
+
+    registryGraphHash = hashResolvedRegistryGraph(resolvedGraph.ordered);
   } catch (err) {
     const code =
       err instanceof RegistryDependencyPermissionDeniedError
@@ -363,26 +454,56 @@ ${versionToolbarHtml}
     });
   }
 
-  const buildResult = await buildPreviewBundle(
-    {
-      name: item.name,
-      version: version ?? item.currentVersion ?? "0.1.0",
-      files,
-      // 传给 esbuild，用于 external 出所有运行时依赖
-      dependencies: runtimeDependencies,
-      previewExport,
-    },
-    previewProps,
-    { mode: previewMode },
-  );
+  const cacheKeySummary = {
+    owner,
+    name,
+    version: effectiveVersion,
+    mode: previewMode,
+    rootFilesHash,
+    previewExport: previewExport ?? null,
+    previewPropsHash,
+    runtimeDepsHash,
+    registryGraphHash,
+  } as const;
+  const previewCacheKey = buildPreviewCacheKey(cacheKeySummary);
 
-  if (!buildResult.ok) {
-    const err = buildResult.error;
-    const details =
-      err.file && err.line != null
-        ? `${err.file}:${err.line}:${err.column ?? 0}`
-        : "";
-    const html = `<!DOCTYPE html>
+  stepStartedAt = performance.now();
+  const cachedPreview = getPreviewBuildCache(previewCacheKey);
+  timings.mark("previewCacheLookup", stepStartedAt);
+
+  const cacheHit = cachedPreview != null;
+  let buildCode: string;
+  let buildCss: string | undefined;
+
+  if (cachedPreview) {
+    buildCode = cachedPreview.build.code;
+    buildCss = cachedPreview.build.css;
+    themeCss = cachedPreview.themeCss;
+    themeSources = cachedPreview.themeSources;
+    componentDepSources = cachedPreview.componentDepSources;
+  } else {
+    stepStartedAt = performance.now();
+    const buildResult = await buildPreviewBundle(
+      {
+        name: item.name,
+        version: version ?? item.currentVersion ?? "0.1.0",
+        files,
+        // 传给 esbuild，用于 external 出所有运行时依赖
+        dependencies: runtimeDependencies,
+        previewExport,
+      },
+      previewProps,
+      { mode: previewMode },
+    );
+    timings.mark("previewBuildExecution", stepStartedAt);
+
+    if (!buildResult.ok) {
+      const err = buildResult.error;
+      const details =
+        err.file && err.line != null
+          ? `${err.file}:${err.line}:${err.column ?? 0}`
+          : "";
+      const html = `<!DOCTYPE html>
 <html lang="en" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}">
   <head>
     <meta charset="UTF-8" />
@@ -392,15 +513,26 @@ ${versionToolbarHtml}
   <body style="margin:0;padding:24px;font-family:system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;background:#fef2f2;color:#b91c1c;">
     <h1 style="font-size:16px;margin:0 0 8px;">Preview build failed</h1>
     <pre style="white-space:pre-wrap;font-size:13px;background:#fff;border-radius:8px;border:1px solid #fecaca;padding:12px;color:#991b1b;">${err.message}${details ? "\\n" + details : ""
-      }</pre>
+        }</pre>
   </body>
 </html>`;
 
-    return new NextResponse(html, {
-      status: 500,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-      },
+      return new NextResponse(html, {
+        status: 500,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+        },
+      });
+    }
+
+    buildCode = buildResult.code;
+    buildCss = buildResult.css;
+    setPreviewBuildCache(previewCacheKey, {
+      build: { code: buildCode, css: buildCss },
+      themeCss,
+      themeSources,
+      componentDepSources,
+      cacheKeySummary: { ...cacheKeySummary },
     });
   }
 
@@ -434,26 +566,11 @@ ${versionToolbarHtml}
 
   const importMapJson = JSON.stringify({ imports: importMap }, null, 2);
 
-  // 按 SPEC §5.5：递归解析 registryDependencies，先注入所有 theme CSS（Tailwind 之后、preview.js 之前）
-  let themeStyles = "";
-  let themeSources: string[] = [];
-  let themeResolveError: string | null = null;
-  try {
-    const { css, sources } = await resolveTransitiveThemeCss({
-      owner,
-      name,
-      version,
-      requestUserId: userId,
-    });
-    themeSources = sources;
-    if (css && css.trim().length > 0) {
-      themeStyles = `\n    <style>${escapeHtmlCss(css)}</style>`;
-    }
-  } catch (err) {
-    // Theme deps failure should not block preview rendering.
-    themeResolveError = err instanceof Error ? err.message : String(err);
-    themeStyles = "";
-  }
+  const themeResolveError: string | null = null;
+  const themeStyles =
+    themeCss.trim().length > 0
+      ? `\n    <style>${escapeHtmlCss(themeCss)}</style>`
+      : "";
   const themeDebug =
     debugTheme
       ? JSON.stringify(
@@ -484,6 +601,12 @@ ${versionToolbarHtml}
             materializedComponentDepSources: componentDepSources,
             themeResolveError,
             resolvedThemeSources: themeSources,
+            previewCache: {
+              hit: cacheHit,
+              key: previewCacheKey,
+              keySummary: cacheKeySummary,
+            },
+            timings: timings.done({}),
           },
           null,
           2,
@@ -493,9 +616,26 @@ ${versionToolbarHtml}
     ? `\n    <script>\nwindow.__COZY_DEPS_DEBUG__ = ${depsDebug};\nconsole.info("[preview:deps-debug]", window.__COZY_DEPS_DEBUG__);\n</script>`
     : "";
   const bundleStyles =
-    buildResult.css != null && buildResult.css !== ""
-      ? `\n    <style>${escapeHtmlCss(buildResult.css)}</style>`
+    buildCss != null && buildCss !== ""
+      ? `\n    <style>${escapeHtmlCss(buildCss)}</style>`
       : "";
+
+  console.info(
+    "[preview] request",
+    timings.done({
+      owner,
+      name,
+      version: effectiveVersion,
+      mode: previewMode,
+      cacheHit,
+      cacheKey: previewCacheKey,
+      resolvedNodes: resolvedNodeCount,
+      materializedDependencyFiles: Object.keys(files).filter((filePath) =>
+        filePath.startsWith("_deps/"),
+      ).length,
+      runtimeBareDependencies: runtimeDependencies.length,
+    }),
+  );
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -513,7 +653,7 @@ ${versionToolbarHtml}
     <div id="root"></div>
 ${themeDebugScript}${depsDebugScript}
     <script type="module">
-${buildResult.code}
+${buildCode}
     </script>
   </body>
 </html>`;

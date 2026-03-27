@@ -22,6 +22,11 @@ export type ResolvedRegistryItem = Awaited<
   ReturnType<typeof getRegistryItemByOwnerNameAndVersion>
 >;
 
+export type ResolvedRegistryDependencyNode = {
+  ref: ResolvedRegistryRef;
+  item: NonNullable<ResolvedRegistryItem>;
+};
+
 export {
   RegistryDependencyCycleError,
   RegistryDependencyNotFoundError,
@@ -44,10 +49,9 @@ export async function resolveRegistryDependencies(params: {
   requestUserId?: string | null;
 }): Promise<{
   /** Includes the root item as the last element. */
-  ordered: Array<{ ref: ResolvedRegistryRef; item: NonNullable<ResolvedRegistryItem> }>;
+  ordered: ResolvedRegistryDependencyNode[];
 }> {
-  const ordered: Array<{ ref: ResolvedRegistryRef; item: NonNullable<ResolvedRegistryItem> }> =
-    [];
+  const ordered: ResolvedRegistryDependencyNode[] = [];
   const visited = new Set<string>();
   const stack: string[] = [];
 
@@ -115,23 +119,7 @@ export async function resolveTransitiveThemeCss(params: {
   requestUserId?: string | null;
 }): Promise<{ css: string; sources: string[] }> {
   const { ordered } = await resolveRegistryDependencies(params);
-  const seen = new Set<string>();
-  const chunks: string[] = [];
-  const sources: string[] = [];
-
-  for (const { ref, item } of ordered) {
-    if (item.type !== "registry:theme") continue;
-    const key = `${ref.owner}/${ref.name}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const css = getThemeEntryCss(item);
-    if (css && css.trim().length > 0) {
-      chunks.push(css);
-      sources.push(ref.ref);
-    }
-  }
-
-  return { css: chunks.join("\n\n"), sources };
+  return collectThemeCssFromResolvedGraph(ordered);
 }
 
 function pickDependencyEntryPath(files: { path: string; content: string }[]): string | null {
@@ -154,6 +142,39 @@ export async function resolveTransitiveComponentSourceFiles(params: {
   requestUserId?: string | null;
 }): Promise<{ files: Record<string, string>; sources: string[] }> {
   const { ordered } = await resolveRegistryDependencies(params);
+  return materializeComponentSourceFilesFromResolvedGraph(ordered, {
+    owner: params.owner,
+    name: params.name,
+    version: params.version,
+  });
+}
+
+export function collectThemeCssFromResolvedGraph(
+  ordered: ResolvedRegistryDependencyNode[],
+): { css: string; sources: string[] } {
+  const seen = new Set<string>();
+  const chunks: string[] = [];
+  const sources: string[] = [];
+
+  for (const { ref, item } of ordered) {
+    if (item.type !== "registry:theme") continue;
+    const key = `${ref.owner}/${ref.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const css = getThemeEntryCss(item);
+    if (css && css.trim().length > 0) {
+      chunks.push(css);
+      sources.push(ref.ref);
+    }
+  }
+
+  return { css: chunks.join("\n\n"), sources };
+}
+
+export function materializeComponentSourceFilesFromResolvedGraph(
+  ordered: ResolvedRegistryDependencyNode[],
+  root: { owner: string; name: string; version: string | null },
+): { files: Record<string, string>; sources: string[] } {
   const out: Record<string, string> = {};
   const sources: string[] = [];
   const seen = new Set<string>();
@@ -161,7 +182,13 @@ export async function resolveTransitiveComponentSourceFiles(params: {
   for (const { ref, item } of ordered) {
     if (item.type === "registry:theme") continue;
     // Skip root (we only want dependencies)
-    if (ref.owner === params.owner && ref.name === params.name && ref.version === params.version) continue;
+    if (
+      ref.owner === root.owner &&
+      ref.name === root.name &&
+      ref.version === root.version
+    ) {
+      continue;
+    }
     const key = `${ref.owner}/${ref.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -188,4 +215,3 @@ export async function resolveTransitiveComponentSourceFiles(params: {
 
   return { files: out, sources };
 }
-
