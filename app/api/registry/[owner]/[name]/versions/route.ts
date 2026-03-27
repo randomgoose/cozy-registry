@@ -15,6 +15,8 @@ import { validateComponentBundle, validateTsx } from "@/lib/validate-tsx";
 import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
 import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
 import { normalizePublishContract } from "@/lib/registry-publish-contract";
+import { getWritableTeamTargetForUser } from "@/lib/publish-target";
+import { parseTeamOwnerPath, resolveTeamByOrgSlugAndTeamSegment } from "@/lib/registry-team";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -81,8 +83,12 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const { content, files, bump, message } = body;
-  const resolved = await resolveOwner(owner);
-  if (!resolved) {
+  const teamPath = parseTeamOwnerPath(owner);
+  const resolvedTeam = teamPath
+    ? await resolveTeamByOrgSlugAndTeamSegment(teamPath.orgSlug, teamPath.teamSegment)
+    : null;
+  const resolved = !resolvedTeam ? await resolveOwner(owner) : null;
+  if (!resolvedTeam && !resolved) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -94,6 +100,16 @@ export async function POST(request: Request, { params }: Params) {
   );
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (resolvedTeam) {
+    const writableTeam = await getWritableTeamTargetForUser(userId, resolvedTeam.teamId);
+    if (!writableTeam) {
+      return NextResponse.json(
+        { error: "You do not have publish access to the selected team." },
+        { status: 403 },
+      );
+    }
   }
 
   const normalizedType = normalizeRegistryItemType(item.type);
@@ -231,7 +247,8 @@ export async function POST(request: Request, { params }: Params) {
       content: finalFiles ? null : finalContent,
     });
     const result = await createRegistryItemVersion({
-      ownerId: resolved.userId,
+      ownerId: resolved?.userId,
+      teamId: resolvedTeam?.teamId,
       name,
       content: finalContent,
       files: contract.value.filesToWrite ?? finalFiles,

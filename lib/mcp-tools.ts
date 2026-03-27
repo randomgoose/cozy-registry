@@ -145,10 +145,7 @@ export function createRegistryMcpServer(request?: Request) {
     files?: { path: string }[];
   }) {
     const sourceBase = params.baseUrl ?? "";
-    const isTeam = params.owner.includes("/");
-    const sourcePath = isTeam
-      ? `/api/r/${params.owner.split("/")[0]}/${params.owner.split("/")[1]}/${params.name}?v=${params.version}`
-      : `/api/r/${params.owner}/${params.name}?v=${params.version}`;
+    const sourcePath = `/api/r/${encodeURIComponent(params.owner)}/${params.name}?v=${params.version}`;
     const source = sourceBase ? `${sourceBase}${sourcePath}` : sourcePath;
     const coordinate = `@${params.owner}/${params.name}`;
     return {
@@ -1659,9 +1656,7 @@ ${fileContent}
         const baseUrl =
           process.env.NEXT_PUBLIC_APP_URL ??
           (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
-        const rPath = canonicalOwner.includes("/")
-          ? `/api/r/${canonicalOwner.split("/")[0]}/${canonicalOwner.split("/")[1]}/${item.name}?v=${selectedVersion}`
-          : `/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`;
+        const rPath = `/api/r/${encodeURIComponent(canonicalOwner)}/${item.name}?v=${selectedVersion}`;
         const payload = {
           ok: true,
           item: {

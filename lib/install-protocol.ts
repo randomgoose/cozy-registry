@@ -637,9 +637,7 @@ async function materializeRegistryDependencies(params: {
     if (!parsed) continue;
     const coordinate = `@${parsed.owner}/${parsed.name}` as RegistryCoordinate;
     const source = new URL(
-      parsed.owner.includes("/")
-        ? `/api/r/${parsed.owner.split("/")[0]}/${parsed.owner.split("/")[1]}/${parsed.name}`
-        : `/api/r/${parsed.owner}/${parsed.name}`,
+      `/api/r/${encodeURIComponent(parsed.owner)}/${parsed.name}`,
       base,
     ).toString();
     const version =
@@ -908,14 +906,10 @@ function buildVersionsUrl(params: {
   registryBaseUrl?: string;
 }): string {
   const base = resolveBaseUrl(params.source, params.registryBaseUrl);
-  if (params.owner.includes("/")) {
-    const [orgSlug, teamSeg] = params.owner.split("/");
-    return new URL(
-      `/api/registry/${orgSlug}/${teamSeg}/${params.name}/versions`,
-      base,
-    ).toString();
-  }
-  return new URL(`/api/registry/${params.owner}/${params.name}/versions`, base).toString();
+  return new URL(
+    `/api/registry/${encodeURIComponent(params.owner)}/${params.name}/versions`,
+    base,
+  ).toString();
 }
 
 function buildVersionedSourceUrl(params: {

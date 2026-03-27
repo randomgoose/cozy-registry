@@ -17,6 +17,7 @@ function shouldShowAppNav(pathname: string, email: string | null) {
   return (
     pathname === "/dashboard" ||
     pathname === "/collections" ||
+    pathname === "/workspace" ||
     pathname === "/settings" ||
     pathname === "/docs"
   );
@@ -25,6 +26,7 @@ function shouldShowAppNav(pathname: string, email: string | null) {
 const APP_NAV_ITEMS = [
   { href: "/dashboard", label: "My items" },
   { href: "/collections", label: "Collections" },
+  { href: "/workspace", label: "Workspace" },
   { href: "/settings", label: "Settings" },
   { href: "/docs", label: "Docs" },
 ];

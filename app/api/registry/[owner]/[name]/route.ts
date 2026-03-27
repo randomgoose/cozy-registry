@@ -2,12 +2,16 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import {
+  deleteTeamRegistryItem,
   deleteRegistryItem,
+  getRegistryItemByOwnerNameAndVersion,
   getRegistryItemByOwnerAndName,
+  updateTeamRegistryItemVisibility,
   updateRegistryItemVisibility,
 } from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
+import { parseTeamOwnerPath, resolveTeamByOrgSlugAndTeamSegment } from "@/lib/registry-team";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -30,6 +34,24 @@ export async function DELETE(request: Request, { params }: Params) {
   }
 
   try {
+    const teamPath = parseTeamOwnerPath(owner);
+    if (teamPath) {
+      const resolvedTeam = await resolveTeamByOrgSlugAndTeamSegment(
+        teamPath.orgSlug,
+        teamPath.teamSegment,
+      );
+      if (!resolvedTeam) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      await deleteTeamRegistryItem({
+        teamId: resolvedTeam.teamId,
+        name,
+        requestUserId: userId,
+        ownerRef: owner,
+      });
+      return NextResponse.json({ success: true });
+    }
+
     const resolved = await resolveOwner(owner);
     if (!resolved) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -67,6 +89,25 @@ export async function GET(_request: Request, { params }: Params) {
   // Optional auth: allow owner to read their private items
   const session = await auth.api.getSession({ headers: await headers() });
   const requestUserId = session?.user?.id ?? null;
+  const teamPath = parseTeamOwnerPath(owner);
+  if (teamPath) {
+    const item = await getRegistryItemByOwnerNameAndVersion(
+      owner,
+      name,
+      null,
+      requestUserId,
+    );
+    if (!item) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({
+      name: item.name,
+      title: item.title,
+      description: item.description,
+      type: item.type,
+      visibility: item.visibility,
+    });
+  }
   const resolved = await resolveOwner(owner);
   if (!resolved) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -113,6 +154,30 @@ export async function PATCH(request: Request, { params }: Params) {
       : "public";
 
   try {
+    const teamPath = parseTeamOwnerPath(owner);
+    if (teamPath) {
+      const resolvedTeam = await resolveTeamByOrgSlugAndTeamSegment(
+        teamPath.orgSlug,
+        teamPath.teamSegment,
+      );
+      if (!resolvedTeam) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+
+      const updated = await updateTeamRegistryItemVisibility({
+        teamId: resolvedTeam.teamId,
+        name,
+        requestUserId: userId,
+        visibility,
+      });
+
+      return NextResponse.json({
+        success: true,
+        visibility: updated.visibility,
+        updatedAt: updated.updatedAt,
+      });
+    }
+
     const resolved = await resolveOwner(owner);
     if (!resolved) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });

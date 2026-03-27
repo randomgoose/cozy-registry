@@ -33,6 +33,19 @@ stub 扫描与显式声明合并后写入 `registryDependencies`，形成隐式�
 
 **规范**：[Registry Dependency Management Spec](./registry-dependency-management-spec.md) §3.5.2。
 
+### 已知后续风险（2026-03-26 复盘）
+
+1. **`_deps` 目录尚未按版本隔离**
+   - 当前 install/materialize 仍写入 `_deps/<owner>/<name>/...`。
+   - 这与 [Install Protocol](./install-protocol.md) 中“建议包含版本以避免升级冲突”的方向不一致。
+   - 风险：根组件升级或依赖浮动时，旧 stub 可能在不知情的情况下指向新实现。
+   - 结论：当前不阻塞主线，但应作为后续补强项优先排期。
+
+2. **`suggest_registry_dependencies` 对相对导入命中的建议偏激进**
+   - 当前若 `./Button` 解析到本地 `Button.tsx`，且 catalog 中恰有 `button`，会给出高置信度建议。
+   - 风险：当该文件只是 bundle 内部局部文件，而非真正应抽成 registry dependency 时，suggest 结果可能偏吵或误导。
+   - 结论：因为建议不会自动写入 `registryDependencies`，风险可控；后续可通过下调置信度、增加理由或引入更多结构信号来缓和。
+
 ---
 
 ## P2 — 依赖类型语义：从扁平 `string[]` 到结构化声明

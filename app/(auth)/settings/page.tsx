@@ -489,10 +489,21 @@ export default function SettingsPage() {
         <section className="mt-8 rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-              Team workspace
+              Team settings
             </h2>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-              Review the current workspace context and update the team name if you own this team.
+              Review the current team context and update the active team name if you own this team.
+            </p>
+            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+              Workspace-level actions like renaming or deleting the organization
+              now live in{" "}
+              <Link
+                href="/workspace"
+                className="font-medium text-zinc-900 hover:underline dark:text-zinc-100"
+              >
+                Workspace
+              </Link>
+              .
             </p>
           </div>
 
@@ -543,13 +554,13 @@ export default function SettingsPage() {
                 </form>
               ) : (
                 <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-                  Only team owners can update workspace details in this MVP.
+                  Only team owners can update team details in this MVP.
                 </p>
               )}
             </div>
           ) : (
             <p className="mt-4 text-sm text-zinc-500">
-              Team workspace details are unavailable right now.
+              Team settings are unavailable right now.
             </p>
           )}
         </section>

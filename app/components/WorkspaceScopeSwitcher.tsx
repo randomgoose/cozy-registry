@@ -52,11 +52,10 @@ export function WorkspaceScopeSwitcher({
     [workspace.activeOrganization, workspace.organizations],
   );
 
-  const activeLabel = workspace.activeTeam
-    ? workspace.activeOrganization
-      ? `${workspace.activeOrganization.name} / ${workspace.activeTeam.name}`
-      : workspace.activeTeam.name
-    : "Personal";
+  const activePrimaryLabel = workspace.activeTeam?.name ?? "Personal";
+  const activeSecondaryLabel = workspace.activeTeam
+    ? workspace.activeOrganization?.name ?? "Team workspace"
+    : "Your own registry";
 
   async function postJson(path: string, body: Record<string, string | null>) {
     const response = await fetch(path, {
@@ -255,11 +254,18 @@ export function WorkspaceScopeSwitcher({
             <button
               type="button"
               disabled={pending}
-              className="inline-flex w-full items-center justify-between rounded-2xl border border-zinc-200/80 bg-zinc-100/88 px-3 py-2.5 text-left text-[13px] font-semibold text-zinc-950 shadow-[0_10px_24px_rgba(15,23,42,0.06),inset_0_1px_0_rgba(255,255,255,0.55)] transition-colors hover:bg-zinc-100 disabled:cursor-wait disabled:opacity-70 dark:border-white/12 dark:bg-white/[0.08] dark:text-zinc-50 dark:shadow-[0_12px_28px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.08)] dark:hover:bg-white/[0.1]"
+              className="inline-flex w-full items-center justify-between rounded-2xl border border-zinc-200/80 bg-zinc-100/88 px-3 py-2.5 text-left shadow-[0_10px_24px_rgba(15,23,42,0.06),inset_0_1px_0_rgba(255,255,255,0.55)] transition-colors hover:bg-zinc-100 disabled:cursor-wait disabled:opacity-70 dark:border-white/12 dark:bg-white/[0.08] dark:shadow-[0_12px_28px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.08)] dark:hover:bg-white/[0.1]"
             />
           }
         >
-          <span className="truncate">{activeLabel}</span>
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-semibold text-zinc-950 dark:text-zinc-50">
+              {activePrimaryLabel}
+            </div>
+            <div className="truncate pt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+              {activeSecondaryLabel}
+            </div>
+          </div>
           <ChevronDown className="ml-2 size-4 shrink-0 opacity-70" />
         </DropdownMenuTrigger>
 
@@ -269,7 +275,7 @@ export function WorkspaceScopeSwitcher({
           className="w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/60 bg-white/88 p-2 shadow-[0_20px_40px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/90 dark:shadow-[0_24px_44px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]"
         >
           <div className="px-2 pb-1 pt-0 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-            Scope
+            Current scope
           </div>
           <DropdownMenuItem
             className="rounded-xl px-3 py-2 text-sm text-zinc-700 focus:bg-black/[0.06] focus:text-zinc-950 dark:text-zinc-300 dark:focus:bg-black/30 dark:focus:text-zinc-50"
@@ -295,8 +301,19 @@ export function WorkspaceScopeSwitcher({
           <div className="max-h-[18rem] overflow-auto">
             {workspace.organizations.map((organization) => (
               <div key={organization.id} className="mb-2 last:mb-0">
-                <div className="px-2 pb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                  {organization.name}
+                <div className="px-2 pb-1">
+                  <div className="truncate text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                    Workspace
+                  </div>
+                  <div className="truncate pt-1 text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">
+                    {organization.name}
+                  </div>
+                  <div className="truncate pt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    @{organization.slug}
+                  </div>
+                </div>
+                <div className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                  Teams
                 </div>
                 <div className="space-y-1">
                   {organization.teams.map((team) => (
@@ -309,7 +326,11 @@ export function WorkspaceScopeSwitcher({
                         <div className="min-w-0">
                           <div className="truncate font-medium">{team.name}</div>
                           <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-                            {organization.slug}
+                            {organization.role === "owner"
+                              ? "Owner access"
+                              : organization.role === "editor"
+                                ? "Editor access"
+                                : "Viewer access"}
                           </div>
                         </div>
                         {team.isActive ? (
@@ -324,6 +345,9 @@ export function WorkspaceScopeSwitcher({
           </div>
 
           <DropdownMenuSeparator className="my-2 bg-zinc-200/80 dark:bg-zinc-800/80" />
+          <div className="px-2 pb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+            Actions
+          </div>
           <div className="px-1">
             <button
               type="button"
@@ -345,7 +369,7 @@ export function WorkspaceScopeSwitcher({
       >
         {error ??
           (workspace.activeTeam
-            ? "Switch registry scope by team."
+            ? "You are viewing this team's registry scope."
             : "You are viewing your personal scope.")}
       </p>
     </div>

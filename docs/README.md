@@ -75,6 +75,7 @@ Source of truth: yes
 
 - [`40-delivery/now.md`](./40-delivery/now.md)
 - [`40-delivery/todo.md`](./40-delivery/todo.md)
+- [`40-delivery/team-mvp-acceptance-checklist.md`](./40-delivery/team-mvp-acceptance-checklist.md)
 
 ### `50-decisions`
 
