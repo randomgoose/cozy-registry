@@ -45,6 +45,7 @@ Source of truth: yes
 当前文件：
 
 - [`20-engineering/component-preview-runtime.md`](./20-engineering/component-preview-runtime.md)
+- [`20-engineering/ai-publish-token-efficiency-spec.md`](./20-engineering/ai-publish-token-efficiency-spec.md)
 - [`20-engineering/figma-make-mcp.md`](./20-engineering/figma-make-mcp.md)
 - [`20-engineering/team-data-model.md`](./20-engineering/team-data-model.md)
 - [`20-engineering/team-permission-matrix.md`](./20-engineering/team-permission-matrix.md)

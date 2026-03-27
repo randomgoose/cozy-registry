@@ -2,6 +2,8 @@
 
 This document defines the dependency management contract for registry items (theme/ui/block), including declaration, validation, graph resolution, preview behavior, and operational observability.
 
+This spec also defines the near-term direction for **registry sync**: the product should evolve from a defensive provenance system into a **divergence-aware system** that can classify local instances, explain drift, and generate safe update plans. It does **not** yet standardize automatic merge/migration.
+
 ---
 
 ## Related Specs
@@ -25,11 +27,14 @@ The system must provide:
    - theme dependencies (CSS injection),
    - component dependencies (future source-level composition).
 5. **Actionable diagnostics** for missing refs, cycles, permission issues, and silent drops.
+6. **Divergence-aware install metadata** so local instances can be classified as clean / modified / forked.
+7. **Sync planning primitives** that help tools decide whether a new upstream version is safe to apply automatically or needs review.
 
 Non-goals (for this version):
 
 - npm package dependency solving (handled by `dependencies` / bare import extraction).
 - lockfile-level install protocol redesign.
+- fully automatic AST-level migration / merge of local forks.
 
 ---
 
@@ -41,7 +46,7 @@ These principles govern **product and agent behavior** alongside the technical c
    The persisted graph (`registryDependencies` per §2.3) is the source of truth. Nothing may silently add or remove registry edges without a user-visible write.
 
 2. **Dependencies SHOULD be version-pinned for reproducibility**  
-   Refs MAY use `@owner/name` (floating) or `@owner/name@version` (pinned); see §7. Pinned refs are recommended for stable, debuggable builds. Stricter “no floating” policies are a future policy flag, not required by Contract v1.
+   Refs MAY use either personal form `@user/name` or team form `@org/team/name`, with optional version pinning (`@...@version`); see §7. Pinned refs are recommended for stable, debuggable builds. Stricter “no floating” policies are a future policy flag, not required by Contract v1.
 
 3. **The system MAY suggest; it MUST NOT auto-decide**  
    Code analysis or catalog matching MAY produce **suggestions** (§3.6). Persisted `registryDependencies` MUST only change when the user/agent **explicitly** confirms them in the publish payload (or equivalent confirmed action). No automatic linking, no automatic import rewrites, no silent DB writes.
@@ -55,6 +60,12 @@ These principles govern **product and agent behavior** alongside the technical c
 6. **Outdated-dependency signals MUST be non-blocking by default**  
    Health or version-drift warnings (§3.7) MUST NOT block publish or auto-upgrade refs unless a separate, explicit policy is introduced later.
 
+7. **Divergence MUST be modeled, not treated as exceptional by default**  
+   Local edits to installed registry source are expected. The system SHOULD classify divergence and surface consequences. It MUST NOT assume every dirty file is an error; it also MUST NOT silently collapse all divergence into “still clean”.
+
+8. **Dirty is a signal; fork is a state**  
+   A byte/content mismatch only proves that local content changed. Tooling MAY classify a local instance as `modified` or `forked`, but MUST NOT equate “dirty” with “forked” without additional heuristics or explicit user intent.
+
 ---
 
 ## 2. Core Data Model
@@ -62,7 +73,7 @@ These principles govern **product and agent behavior** alongside the technical c
 ## 2.1 Dependency Kinds
 
 - `dependencies`: npm/bare module dependencies (e.g. `react`, `lucide-react`).
-- `registryDependencies`: registry item references (e.g. `@owner/theme`, `@owner/button@1.2.0`).
+- `registryDependencies`: registry item references (e.g. `@alice/theme`, `@gate/design-system/button@1.2.0`).
 
 These two fields have different semantics and must never be mixed.
 
@@ -70,12 +81,16 @@ These two fields have different semantics and must never be mixed.
 
 Accepted format:
 
-- `@<owner>/<name>`
-- `@<owner>/<name>@<version>`
+- `@<user>/<name>`
+- `@<user>/<name>@<version>`
+- `@<org>/<team>/<name>`
+- `@<org>/<team>/<name>@<version>`
 
 Where:
 
-- `owner`: canonical owner identifier used by resolver.
+- `user`: canonical personal owner identifier used by resolver.
+- `org`: canonical organization / workspace slug for team-owned items.
+- `team`: canonical team slug within the organization.
 - `name`: registry item name (kebab-case).
 - `version`: optional semver-like version string.
 
@@ -92,6 +107,35 @@ Invariant:
 
 - for current version `v_current`, `registry_items.registry_dependencies` must match
   `registry_item_versions.registry_dependencies` of `v_current`.
+
+## 2.4 Install-instance metadata (MVP direction)
+
+Dependency storage (§2.3) records the **registry graph**. Sync requires additional metadata for **local installed instances**.
+
+At install/upgrade time, tooling SHOULD persist enough metadata to identify a local instance of a registry item:
+
+- upstream ref (`@user/name` or `@org/team/name`)
+- installed version
+- install root/path
+- original fingerprint captured at install time
+- current observed fingerprint (recomputed during status/sync analysis)
+- instance status (`clean | modified | forked`)
+
+This metadata MAY live in the project lockfile, a sidecar state file, or a future dedicated install-state file. The exact storage location is implementation-defined for v1, but the semantics are normative for sync/status tooling.
+
+## 2.5 Instance status model (normative for sync/status tooling)
+
+When evaluating a local installed instance against its upstream source/version, tooling SHOULD classify it as:
+
+- `clean`: local fingerprint matches installed upstream baseline.
+- `modified`: local fingerprint differs, but lineage is still recognized and the instance is still considered eligible for review-based sync.
+- `forked`: divergence is significant enough that the instance should no longer be treated as safely auto-updatable without explicit merge/rebase intent.
+
+Notes:
+
+- `dirty` is an implementation-level detection result, not a user-facing lifecycle state.
+- `forked` MAY be inferred heuristically or set explicitly by the user/tooling.
+- Status classification rules may evolve, but `clean` MUST remain a strict equality/baseline match.
 
 ---
 
@@ -168,7 +212,7 @@ Example shape:
 ```json
 {
   "schemaVersion": 1,
-  "root": { "ref": "@alice/dialog", "version": "0.4.0" },
+  "root": { "ref": "@acme/marketing/dialog", "version": "0.4.0" },
   "files": [
     {
       "path": "Dialog.tsx",
@@ -177,7 +221,7 @@ Example shape:
     {
       "path": "components/Button.tsx",
       "source": "registry",
-      "ref": "@alice/button@1.2.0",
+      "ref": "@acme/design-system/button@1.2.0",
       "originalPath": "Button.tsx",
       "contentHash": "sha256:..."
     }
@@ -188,13 +232,13 @@ Example shape:
 Fields:
 
 - `schemaVersion`: integer, required.
-- `root.ref`: canonical ref of the edited root item (`@owner/name`).
+- `root.ref`: canonical ref of the edited root item (`@user/name` or `@org/team/name`).
 - `root.version`: the installed/present root version (optional but recommended).
 - `files[]`:
   - `path`: relative path in local workspace.
   - `source`: `"root" | "registry" | "generated"`.
   - if `source === "registry"`:
-    - `ref`: dependency ref used to fetch (`@owner/name@version` recommended pinned).
+    - `ref`: dependency ref used to fetch (`@user/name@version` or `@org/team/name@version`; pinned recommended).
     - `originalPath`: path within the dependency bundle.
     - `contentHash` (optional): hash of the installed content at expansion time (used for dirty detection). If omitted/unknown, strict mode may skip dirty detection.
 
@@ -246,25 +290,30 @@ Notes:
 
 Materialized dependency directory:
 
-- `_deps/<owner>/<name>/...`
+- `_deps/<namespace>/<name>/...`
 - includes the dependency’s source files and a synthetic `index.tsx` that re-exports from a chosen entry file.
 
 Version pinning:
 
-- If the dependency ref includes a version (`@owner/name@x.y.z`), materialization SHOULD use that version.
-- If ref is floating (`@owner/name`), materialization uses the current resolved version at build/install time.
+- If the dependency ref includes a version (`@user/name@x.y.z` or `@org/team/name@x.y.z`), materialization SHOULD use that version.
+- If ref is floating (`@user/name` or `@org/team/name`), materialization uses the current resolved version at build/install time.
 
 ### 3.3.4 Editing Dependency Files (Conflict Policy)
 
 If a file with `source: "registry"` has a modified content hash at publish time (dirty):
 
-The system MUST choose an explicit policy; the default should be strict:
+The system MUST choose an explicit policy. In current publish flows, the default may remain strict, but product direction should treat this as **divergence classification**, not merely “error prevention”:
 
 - **Strict (default)**: block root publish; instruct user to publish the dependency item instead, or revert changes.
 - **Split publish**: publish updated dependency item(s) first, then publish root with updated pinned refs.
 - **Inline vendor (explicit opt-in)**: allow vendoring dependencies into root (duplicate code) but must be recorded and discouraged.
 
 The chosen policy must be user-visible and logged.
+
+Normative clarification:
+
+- dirty detection alone MUST NOT be described as “fork detection”.
+- strict publish rejection is acceptable for registry integrity, but tooling SHOULD additionally expose whether the local copy appears `modified` vs `forked` for follow-up workflows.
 
 ### 3.3.5 Preview Semantics with Provenance
 
@@ -410,7 +459,7 @@ Tools MAY expose suggestions using a structure equivalent to:
 type DependencySuggestion = {
   /** Local symbol or file-level hint, e.g. "Button" */
   name: string;
-  /** Canonical ref, e.g. "@cozy/button" */
+  /** Canonical ref, e.g. "@cozy/button" or "@acme/design-system/button" */
   registryItem: string;
   /** Resolved latest or chosen catalog version */
   latestVersion: string;
@@ -459,7 +508,7 @@ Flow: **extract → suggest → user confirms → finalize `registryDependencies
 
 ### 3.7.1 Trigger
 
-On publish or republish, tooling MAY compare each **pinned** registry dependency (`@owner/name@version`) against the **latest** resolvable version visible to the publisher.
+On publish or republish, tooling MAY compare each **pinned** registry dependency (`@user/name@version` or `@org/team/name@version`) against the **latest** resolvable version visible to the publisher.
 
 ### 3.7.2 Status
 
@@ -478,6 +527,76 @@ Informative status per edge:
   - **Upgrade to latest** (explicit opt-in; new pin written in the same publish or a follow-up).
 
 Optional enhancements (non-normative): trigger preview rebuild, show diff.
+
+---
+
+## 3.8 Fingerprints and divergence detection
+
+### 3.8.1 Purpose
+
+The system needs a stable way to answer:
+
+- Has this installed instance changed since install/upgrade?
+- If yes, is it still a light modification or effectively a fork?
+
+### 3.8.2 Baseline requirement (MVP)
+
+At install time, tooling MUST capture an **original fingerprint** for each installed registry instance.
+
+At status/sync time, tooling MUST recompute a **current fingerprint** and compare it with the baseline.
+
+Minimum viable implementation:
+
+- fingerprint algorithm: content hash over the installed source bundle as written locally
+- comparison output: `same | changed`
+
+### 3.8.3 Evolution path
+
+Recommended progression:
+
+1. v1: file/content-level fingerprint (stable hash)
+2. v1.5: normalized bundle fingerprint (ignore ordering / trivial formatting where practical)
+3. v2+: structure-aware fingerprint (e.g. AST-aware hashing)
+
+The spec does not require AST-aware hashing for the MVP.
+
+### 3.8.4 Classification guidance
+
+Fingerprint mismatch indicates **divergence**. It does not by itself determine whether the instance is `modified` or `forked`.
+
+Tooling MAY use additional heuristics, such as:
+
+- changed file count / changed export surface
+- significant path/layout rewrites
+- inability to align with upstream entry structure
+- explicit user “detach/fork” action
+
+---
+
+## 3.9 Change metadata (minimal contract)
+
+Snapshot/version storage alone is insufficient for meaningful sync decisions. Tooling SHOULD support minimal change metadata describing upgrade intent/risk.
+
+Suggested shape:
+
+```json
+{
+  "changes": [
+    {
+      "type": "style | structure | behavior",
+      "impact": "safe | risky | breaking",
+      "description": "human-readable summary"
+    }
+  ]
+}
+```
+
+Rules:
+
+- This metadata MAY be system-generated, user-authored, or both.
+- MVP implementations MAY omit it for older versions.
+- Absence of change metadata MUST NOT block publish or resolution.
+- Tooling SHOULD prefer coarse, reliable summaries over speculative precision.
 
 ---
 
@@ -502,6 +621,23 @@ Resolver must return structured errors for:
 - invalid ref,
 - cycle detected,
 - permission denied for private dependency.
+
+## 4.4 Instance-level usage graph (directional, MVP-first)
+
+`registryDependencies` defines the **declared item graph**. Sync workflows additionally need a **local instance graph** describing where and how installed items are used.
+
+MVP expectation:
+
+- track which installed local instance maps to which upstream registry ref/version
+- track which local files belong to that instance
+- surface whether the instance is `clean | modified | forked`
+
+Future enhancement:
+
+- record finer-grained file/import usage edges between project files and installed registry instances
+- support richer impact analysis for selective sync
+
+The MVP does **not** require a runtime execution graph.
 
 At preview/runtime call sites, failure policy may be strict or soft by dependency class (see section 5).
 
@@ -563,8 +699,8 @@ Server logs should include:
 
 Support two modes:
 
-- floating ref: `@owner/name` (tracks current version)
-- pinned ref: `@owner/name@x.y.z` (immutable target)
+- floating ref: `@user/name` or `@org/team/name` (tracks current version)
+- pinned ref: `@user/name@x.y.z` or `@org/team/name@x.y.z` (immutable target)
 
 Policy recommendation:
 
@@ -581,7 +717,7 @@ Future enhancement:
 
 This spec defines **Contract v1** as the current public surface:
 
-- `registryDependencies: string[]` using `@owner/name[@version]`
+- `registryDependencies: string[]` using `@user/name[@version]` or `@org/team/name[@version]`
 - `dependencies: string[]` for npm/bare imports (separate concern)
 
 ### 7.1.1 Compatibility Rules
@@ -605,7 +741,7 @@ Proposed v2 field (draft):
 {
   "registryDeps": [
     {
-      "ref": "@alice/button@1.2.0",
+      "ref": "@acme/design-system/button@1.2.0",
       "kind": "ui",
       "optional": false,
       "scope": "runtime"
@@ -616,7 +752,7 @@ Proposed v2 field (draft):
 
 Fields:
 
-- `ref` (required): `@owner/name[@version]`
+- `ref` (required): `@user/name[@version]` or `@org/team/name[@version]`
 - `kind` (optional): `"theme" | "ui" | "block" | "unknown"` (used for validation and preview behavior)
 - `optional` (optional): if true, resolver failures may downgrade to warnings in non-strict contexts
 - `scope` (optional): `"runtime" | "preview" | "build"` (default `"runtime"`)
@@ -682,6 +818,19 @@ Phase 3:
 - implement component dependency composition in preview build.
 - define strict policy modes (pinned-only, private dependency gating).
 
+Phase 4 (sync MVP):
+
+- persist install-time fingerprints for local instances.
+- add instance status classification (`clean | modified | forked`).
+- add CLI/MCP status command that reports divergence and upstream version drift.
+- generate a sync/update plan instead of directly replacing local files.
+
+Phase 5 (selective sync):
+
+- add change metadata summaries for published versions.
+- distinguish safe auto-apply candidates from review-required instances.
+- explore structured merge/migration for high-confidence cases only.
+
 ---
 
 ## 11. Module Boundaries (Implementation Guidance)
@@ -735,6 +884,23 @@ Responsibilities:
 - expose opt-in debug payloads (`debugTheme`, future `debugDeps`),
 - log normalized inputs and applied writes,
 - ensure “silent drops” are visible (`REGDEP_WRITE_DROPPED` / `PROV_*`).
+
+### 11.5 Sync Planning (new boundary)
+
+Responsibilities:
+
+- compare installed-instance baseline vs current fingerprint
+- classify `clean | modified | forked`
+- compare installed upstream version vs latest/target version
+- produce an update plan:
+  - safe to auto-apply
+  - review required
+  - effectively detached/forked
+
+Important:
+
+- sync planning MUST be advisory-first for the MVP.
+- “replace file” is not a sufficient mental model; the output should describe a migration/review plan, even when the implementation path initially remains file-based.
 
 ---
 
