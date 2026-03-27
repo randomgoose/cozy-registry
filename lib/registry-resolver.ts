@@ -33,8 +33,86 @@ export {
   RegistryDependencyPermissionDeniedError,
 };
 
+type RegistryDependencyAccessResult = Awaited<
+  ReturnType<typeof getRegistryDependencyAccessForRef>
+>;
+
+export type RegistryResolverMemo = {
+  access: Map<string, Promise<RegistryDependencyAccessResult>>;
+  item: Map<string, Promise<ResolvedRegistryItem>>;
+};
+
+export function createRegistryResolverMemo(): RegistryResolverMemo {
+  return {
+    access: new Map(),
+    item: new Map(),
+  };
+}
+
 function toRef(owner: string, name: string, version: string | null): string {
   return version ? `@${owner}/${name}@${version}` : `@${owner}/${name}`;
+}
+
+function toAccessMemoKey(
+  owner: string,
+  name: string,
+  requestUserId?: string | null,
+) {
+  return stableMemoKey(owner, name, null, requestUserId);
+}
+
+function toItemMemoKey(
+  owner: string,
+  name: string,
+  version: string | null,
+  requestUserId?: string | null,
+) {
+  return stableMemoKey(owner, name, version, requestUserId);
+}
+
+function stableMemoKey(
+  owner: string,
+  name: string,
+  version: string | null,
+  requestUserId?: string | null,
+) {
+  return [owner, name, version ?? "", requestUserId ?? ""].join("\0");
+}
+
+async function memoizedGetDependencyAccess(
+  memo: RegistryResolverMemo,
+  owner: string,
+  name: string,
+  requestUserId?: string | null,
+) {
+  const key = toAccessMemoKey(owner, name, requestUserId);
+  const existing = memo.access.get(key);
+  if (existing) return existing;
+
+  const created = getRegistryDependencyAccessForRef(owner, name, requestUserId);
+  memo.access.set(key, created);
+  return created;
+}
+
+async function memoizedGetRegistryItem(
+  memo: RegistryResolverMemo,
+  owner: string,
+  name: string,
+  version: string | null,
+  requestUserId?: string | null,
+) {
+  const key = toItemMemoKey(owner, name, version, requestUserId);
+  const existing = memo.item.get(key);
+  if (existing) return existing;
+
+  const created = getRegistryItemByOwnerNameAndVersion(
+    owner,
+    name,
+    version,
+    requestUserId,
+  );
+  memo.item.set(key, created);
+  return created;
 }
 
 /**
@@ -47,10 +125,12 @@ export async function resolveRegistryDependencies(params: {
   name: string;
   version: string | null;
   requestUserId?: string | null;
+  memo?: RegistryResolverMemo;
 }): Promise<{
   /** Includes the root item as the last element. */
   ordered: ResolvedRegistryDependencyNode[];
 }> {
+  const memo = params.memo ?? createRegistryResolverMemo();
   const ordered: ResolvedRegistryDependencyNode[] = [];
   const visited = new Set<string>();
   const stack: string[] = [];
@@ -65,7 +145,8 @@ export async function resolveRegistryDependencies(params: {
 
     stack.push(ref);
 
-    const access = await getRegistryDependencyAccessForRef(
+    const access = await memoizedGetDependencyAccess(
+      memo,
       owner,
       name,
       params.requestUserId,
@@ -79,7 +160,8 @@ export async function resolveRegistryDependencies(params: {
       throw new RegistryDependencyPermissionDeniedError(ref);
     }
 
-    const item = await getRegistryItemByOwnerNameAndVersion(
+    const item = await memoizedGetRegistryItem(
+      memo,
       owner,
       name,
       version,
@@ -117,6 +199,7 @@ export async function resolveTransitiveThemeCss(params: {
   name: string;
   version: string | null;
   requestUserId?: string | null;
+  memo?: RegistryResolverMemo;
 }): Promise<{ css: string; sources: string[] }> {
   const { ordered } = await resolveRegistryDependencies(params);
   return collectThemeCssFromResolvedGraph(ordered);
@@ -140,6 +223,7 @@ export async function resolveTransitiveComponentSourceFiles(params: {
   name: string;
   version: string | null;
   requestUserId?: string | null;
+  memo?: RegistryResolverMemo;
 }): Promise<{ files: Record<string, string>; sources: string[] }> {
   const { ordered } = await resolveRegistryDependencies(params);
   return materializeComponentSourceFilesFromResolvedGraph(ordered, {

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { resolveRegistryDependencies } from "@/lib/registry-resolver";
+import {
+  createRegistryResolverMemo,
+  resolveRegistryDependencies,
+} from "@/lib/registry-resolver";
 import {
   RegistryDependencyCycleError,
   RegistryDependencyPermissionDeniedError,
@@ -85,5 +88,45 @@ describe("resolveRegistryDependencies", () => {
         requestUserId: "other",
       }),
     ).rejects.toBeInstanceOf(RegistryDependencyPermissionDeniedError);
+  });
+
+  it("memoizes repeated access and item fetches within a request", async () => {
+    const memo = createRegistryResolverMemo();
+
+    mockGetItem.mockImplementation(async (_owner: string, name: string) => {
+      if (name === "root") {
+        return {
+          ...minimalItem(),
+          name: "root",
+          registryDependencies: ["@alice/shared-a", "@alice/shared-b"],
+        };
+      }
+      if (name === "shared-a" || name === "shared-b") {
+        return {
+          ...minimalItem(),
+          name,
+          registryDependencies: ["@alice/leaf"],
+        };
+      }
+      if (name === "leaf") {
+        return {
+          ...minimalItem(),
+          name: "leaf",
+          registryDependencies: [],
+        };
+      }
+      return null;
+    });
+
+    await resolveRegistryDependencies({
+      owner: "alice",
+      name: "root",
+      version: null,
+      requestUserId: "u1",
+      memo,
+    });
+
+    expect(mockAccess).toHaveBeenCalledTimes(4);
+    expect(mockGetItem).toHaveBeenCalledTimes(4);
   });
 });

@@ -11,6 +11,7 @@ import { getUserIdFromToken } from "@/lib/auth-api";
 import { buildPreviewBundle } from "@/lib/preview-build";
 import {
   buildPreviewCacheKey,
+  buildPreviewWorkspaceKey,
   getPreviewBuildCache,
   hashFiles,
   setPreviewBuildCache,
@@ -20,6 +21,7 @@ import {
 import { extractDependencies } from "@/lib/validate-tsx";
 import {
   collectThemeCssFromResolvedGraph,
+  createRegistryResolverMemo,
   materializeComponentSourceFilesFromResolvedGraph,
   resolveRegistryDependencies,
 } from "@/lib/registry-resolver";
@@ -263,6 +265,7 @@ export async function GET(
     versionOptions = [];
   }
   const currentVer = getCurrentVersion(item);
+  const resolverMemo = createRegistryResolverMemo();
   if (versionOptions.length === 0) {
     versionOptions = [currentVer];
   } else if (!versionOptions.includes(currentVer)) {
@@ -401,6 +404,7 @@ ${versionToolbarHtml}
       name,
       version,
       requestUserId: userId,
+      memo: resolverMemo,
     });
     resolvedNodeCount = resolvedGraph.ordered.length;
     timings.mark("dependencyResolution", stepStartedAt);
@@ -466,6 +470,16 @@ ${versionToolbarHtml}
     registryGraphHash,
   } as const;
   const previewCacheKey = buildPreviewCacheKey(cacheKeySummary);
+  const previewWorkspaceKey = buildPreviewWorkspaceKey({
+    owner,
+    name,
+    version: effectiveVersion,
+    mode: previewMode,
+    rootFilesHash,
+    previewExport: previewExport ?? null,
+    runtimeDepsHash,
+    registryGraphHash,
+  });
 
   stepStartedAt = performance.now();
   const cachedPreview = getPreviewBuildCache(previewCacheKey);
@@ -493,7 +507,7 @@ ${versionToolbarHtml}
         previewExport,
       },
       previewProps,
-      { mode: previewMode },
+      { mode: previewMode, workspaceKey: previewWorkspaceKey },
     );
     timings.mark("previewBuildExecution", stepStartedAt);
 
@@ -606,6 +620,10 @@ ${versionToolbarHtml}
               key: previewCacheKey,
               keySummary: cacheKeySummary,
             },
+            resolverMemo: {
+              accessEntries: resolverMemo.access.size,
+              itemEntries: resolverMemo.item.size,
+            },
             timings: timings.done({}),
           },
           null,
@@ -630,6 +648,8 @@ ${versionToolbarHtml}
       cacheHit,
       cacheKey: previewCacheKey,
       resolvedNodes: resolvedNodeCount,
+      resolverMemoAccessEntries: resolverMemo.access.size,
+      resolverMemoItemEntries: resolverMemo.item.size,
       materializedDependencyFiles: Object.keys(files).filter((filePath) =>
         filePath.startsWith("_deps/"),
       ).length,

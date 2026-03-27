@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import { createHash } from "node:crypto";
 
 type EsbuildModule = typeof import("esbuild");
 
@@ -130,6 +131,17 @@ export type PreviewBuildResult =
       };
     };
 
+type PreviewWorkspaceState = {
+  dir: string;
+  fileHashes: Map<string, string>;
+};
+
+const previewWorkspaceRoot = path.join(
+  os.tmpdir(),
+  "cozy-registry-preview-workspaces",
+);
+const previewWorkspaceStates = new Map<string, PreviewWorkspaceState>();
+
 /**
  * Build a browser-ready ESM preview bundle from a ComponentBundle.
  * Uses a temporary on-disk project and esbuild, following the
@@ -138,24 +150,23 @@ export type PreviewBuildResult =
 export async function buildPreviewBundle(
   bundle: ComponentBundle,
   previewProps: unknown,
-  options?: { mode?: "default" | "thumbnail" },
+  options?: { mode?: "default" | "thumbnail"; workspaceKey?: string },
 ): Promise<PreviewBuildResult> {
   // 注意：为了避免 Next.js 在服务器 bundle 时把 esbuild 的可执行文件等一起打包，
   // 我们只在运行时动态引入它，而不是作为顶层静态依赖。
   // 这有助于绕过 Turbopack 对 README / bin 等非 JS 资源的解析问题。
   const esbuild: EsbuildModule = await import("esbuild");
 
-  const tmpDir = await fs.mkdtemp(
-    path.join(os.tmpdir(), "cozy-registry-preview-"),
-  );
+  const workspace = await getPreviewWorkspace(options?.workspaceKey);
+  const tmpDir = workspace.dir;
 
   try {
-    // Write all source files to the temp directory, preserving relative paths.
-    for (const [relPath, content] of Object.entries(bundle.files)) {
-      const filePath = path.join(tmpDir, relPath);
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.writeFile(filePath, content, "utf8");
-    }
+    const desiredFiles = new Map<string, string>(
+      Object.entries(bundle.files).map(([relPath, content]) => [
+        normalizeWorkspacePath(relPath),
+        content,
+      ]),
+    );
 
     // Ensure an index.tsx entry file exists. If not, create a shallow wrapper
     // that re-exports a sensible default from the first TSX file:
@@ -196,12 +207,10 @@ export async function buildPreviewBundle(
         indexContent = `export { ${pickedName} as default } from "${importPath}";\n`;
       }
 
-      const indexPath = path.join(tmpDir, "index.tsx");
-      await fs.writeFile(indexPath, indexContent, "utf8");
+      desiredFiles.set("index.tsx", indexContent);
     }
 
     // Generate preview-entry.tsx that renders the default export with props.
-    const previewEntryPath = path.join(tmpDir, "preview-entry.tsx");
     let serializedProps = "{}";
     try {
       serializedProps = JSON.stringify(previewProps ?? {});
@@ -409,7 +418,9 @@ const root = createRoot(container);
 root.render(<App />);
 `;
 
-    await fs.writeFile(previewEntryPath, previewEntryContent, "utf8");
+    desiredFiles.set("preview-entry.tsx", previewEntryContent);
+    await syncWorkspaceFiles(workspace, desiredFiles);
+    const previewEntryPath = path.join(tmpDir, "preview-entry.tsx");
 
     // 收集组件 bundle 内 import 的 .css 文件，单独产出供 Preview 注入（STYLE_AND_THEME_SPEC §3.2）
     const collectedCss: string[] = [];
@@ -508,7 +519,9 @@ root.render(<App />);
       },
     };
   } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    if (!options?.workspaceKey) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
   }
 }
 
@@ -524,4 +537,61 @@ function isEsbuildBuildError(err: unknown): err is EsbuildBuildErrorLike {
   const rec = err as Record<string, unknown>;
   if (!Array.isArray(rec.errors)) return false;
   return true;
+}
+
+async function getPreviewWorkspace(
+  workspaceKey?: string,
+): Promise<PreviewWorkspaceState> {
+  if (!workspaceKey) {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cozy-registry-preview-"));
+    return {
+      dir,
+      fileHashes: new Map(),
+    };
+  }
+
+  const existing = previewWorkspaceStates.get(workspaceKey);
+  if (existing) return existing;
+
+  const dir = path.join(previewWorkspaceRoot, workspaceKey);
+  await fs.mkdir(dir, { recursive: true });
+  const created = {
+    dir,
+    fileHashes: new Map<string, string>(),
+  };
+  previewWorkspaceStates.set(workspaceKey, created);
+  return created;
+}
+
+async function syncWorkspaceFiles(
+  workspace: PreviewWorkspaceState,
+  desiredFiles: Map<string, string>,
+) {
+  await fs.mkdir(workspace.dir, { recursive: true });
+
+  for (const [relPath, content] of desiredFiles) {
+    const nextHash = hashContent(content);
+    const prevHash = workspace.fileHashes.get(relPath);
+    if (prevHash === nextHash) continue;
+
+    const filePath = path.join(workspace.dir, relPath);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, content, "utf8");
+    workspace.fileHashes.set(relPath, nextHash);
+  }
+
+  for (const relPath of [...workspace.fileHashes.keys()]) {
+    if (desiredFiles.has(relPath)) continue;
+    const filePath = path.join(workspace.dir, relPath);
+    await fs.rm(filePath, { force: true }).catch(() => {});
+    workspace.fileHashes.delete(relPath);
+  }
+}
+
+function normalizeWorkspacePath(relPath: string) {
+  return relPath.replace(/^\/+/, "");
+}
+
+function hashContent(content: string) {
+  return createHash("sha256").update(content).digest("hex");
 }

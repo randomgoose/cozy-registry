@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildPreviewCacheKey,
+  buildPreviewWorkspaceKey,
   clearPreviewBuildCache,
   getPreviewBuildCache,
   getPreviewBuildCacheSize,
@@ -66,6 +67,24 @@ describe("preview-build-cache", () => {
     });
 
     expect(first).not.toBe(second);
+  });
+
+  it("buildPreviewWorkspaceKey ignores preview props changes", () => {
+    const base = {
+      owner: "alice",
+      name: "dialog",
+      version: "1.2.0",
+      mode: "default" as const,
+      rootFilesHash: "sha256:root",
+      previewExport: "Dialog",
+      runtimeDepsHash: "sha256:deps",
+      registryGraphHash: "sha256:graph",
+    };
+
+    const first = buildPreviewWorkspaceKey(base);
+    const second = buildPreviewWorkspaceKey({ ...base });
+
+    expect(first).toBe(second);
   });
 
   it("keeps most recently used entries", () => {

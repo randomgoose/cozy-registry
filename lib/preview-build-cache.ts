@@ -12,6 +12,8 @@ type PreviewCacheKeyInput = {
   registryGraphHash: string;
 };
 
+type PreviewWorkspaceKeyInput = Omit<PreviewCacheKeyInput, "previewPropsHash">;
+
 export type PreviewBuildCacheEntry = {
   build: {
     code: string;
@@ -42,6 +44,10 @@ export function hashFiles(files: Record<string, string>): string {
 }
 
 export function buildPreviewCacheKey(input: PreviewCacheKeyInput) {
+  return sha256(stableStringify(input));
+}
+
+export function buildPreviewWorkspaceKey(input: PreviewWorkspaceKeyInput) {
   return sha256(stableStringify(input));
 }
 
