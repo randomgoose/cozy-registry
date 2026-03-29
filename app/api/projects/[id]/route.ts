@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { getCollectionScopeContext } from "@/lib/collection-scope";
-import { registryCollections } from "@/lib/db/schema";
+import { getProjectScopeContext } from "@/lib/project-scope";
+import {
+  getProjectIfAccessible,
+  roleCanEditProject,
+  getUserProjectRole,
+} from "@/lib/project-permissions";
+import { registryProjects } from "@/lib/db/schema";
 
 function isKebab(s: string): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s);
@@ -12,11 +17,20 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId, activeTeamId } = await getCollectionScopeContext(request);
+  const { userId } = await getProjectScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
   const { id } = await params;
+
+  const project = await getProjectIfAccessible(userId, id);
+  if (!project) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const role = await getUserProjectRole(userId, id, project.ownerUserId);
+  if (!roleCanEditProject(role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const body = (await request.json().catch(() => null)) as
     | {
@@ -32,14 +46,11 @@ export async function PATCH(
   }
 
   if (body.slug != null && !isKebab(body.slug)) {
-    return NextResponse.json(
-      { error: "slug must be kebab-case" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "slug must be kebab-case" }, { status: 400 });
   }
 
   const [updated] = await db
-    .update(registryCollections)
+    .update(registryProjects)
     .set({
       ...(body.slug != null ? { slug: body.slug } : {}),
       ...(body.title != null ? { title: body.title } : {}),
@@ -49,42 +60,37 @@ export async function PATCH(
         : {}),
       updatedAt: new Date(),
     })
-    .where(
-      and(
-        eq(registryCollections.id, id),
-        activeTeamId
-          ? eq(registryCollections.ownerTeamId, activeTeamId)
-          : eq(registryCollections.ownerUserId, userId),
-      ),
-    )
+    .where(eq(registryProjects.id, id))
     .returning();
 
   if (!updated) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json({ collection: updated });
+  return NextResponse.json({ project: updated });
 }
 
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId, activeTeamId } = await getCollectionScopeContext(request);
+  const { userId } = await getProjectScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
   const { id } = await params;
 
+  const project = await getProjectIfAccessible(userId, id);
+  if (!project) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const role = await getUserProjectRole(userId, id, project.ownerUserId);
+  if (role !== "owner" && role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const [deleted] = await db
-    .delete(registryCollections)
-    .where(
-      and(
-        eq(registryCollections.id, id),
-        activeTeamId
-          ? eq(registryCollections.ownerTeamId, activeTeamId)
-          : eq(registryCollections.ownerUserId, userId),
-      ),
-    )
+    .delete(registryProjects)
+    .where(eq(registryProjects.id, id))
     .returning();
 
   if (!deleted) {

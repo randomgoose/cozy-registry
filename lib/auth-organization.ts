@@ -4,7 +4,6 @@ export const organizationAccessControl = createAccessControl({
   organization: ["update", "delete"],
   member: ["create", "update", "delete"],
   invitation: ["create", "cancel"],
-  team: ["create", "update", "delete"],
   ac: ["create", "read", "update", "delete"],
 });
 
@@ -13,11 +12,8 @@ export const organizationRoles = {
     organization: ["update", "delete"],
     member: ["create", "update", "delete"],
     invitation: ["create", "cancel"],
-    team: ["create", "update", "delete"],
     ac: ["create", "read", "update", "delete"],
   }),
-  // For the initial integration, editor/viewer are org-level roles without
-  // management permissions. Cozy's team/resource permissions will layer on top.
   editor: role({}),
   viewer: role({}),
 } as const;

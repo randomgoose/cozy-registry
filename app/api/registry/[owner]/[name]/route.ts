@@ -2,16 +2,19 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import {
-  deleteTeamRegistryItem,
+  deleteOrganizationRegistryItem,
   deleteRegistryItem,
   getRegistryItemByOwnerNameAndVersion,
-  getRegistryItemByOwnerAndName,
-  updateTeamRegistryItemVisibility,
+  updateOrganizationRegistryItemVisibility,
   updateRegistryItemVisibility,
 } from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
-import { parseTeamOwnerPath, resolveTeamByOrgSlugAndTeamSegment } from "@/lib/registry-team";
+import { parseTeamOwnerPath } from "@/lib/registry-team";
+import {
+  resolveOrganizationBySlug,
+  resolveOrganizationIdFromLegacyOwnerPath,
+} from "@/lib/registry-organization";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -36,15 +39,15 @@ export async function DELETE(request: Request, { params }: Params) {
   try {
     const teamPath = parseTeamOwnerPath(owner);
     if (teamPath) {
-      const resolvedTeam = await resolveTeamByOrgSlugAndTeamSegment(
+      const organizationId = await resolveOrganizationIdFromLegacyOwnerPath(
         teamPath.orgSlug,
         teamPath.teamSegment,
       );
-      if (!resolvedTeam) {
+      if (!organizationId) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      await deleteTeamRegistryItem({
-        teamId: resolvedTeam.teamId,
+      await deleteOrganizationRegistryItem({
+        organizationId,
         name,
         requestUserId: userId,
         ownerRef: owner,
@@ -52,17 +55,29 @@ export async function DELETE(request: Request, { params }: Params) {
       return NextResponse.json({ success: true });
     }
 
-    const resolved = await resolveOwner(owner);
-    if (!resolved) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const resolvedUser = await resolveOwner(owner);
+    if (resolvedUser) {
+      await deleteRegistryItem({
+        ownerId: resolvedUser.userId,
+        name,
+        requestUserId: userId,
+        ownerRef: owner,
+      });
+      return NextResponse.json({ success: true });
     }
-    await deleteRegistryItem({
-      ownerId: resolved.userId,
-      name,
-      requestUserId: userId,
-      ownerRef: owner,
-    });
-    return NextResponse.json({ success: true });
+
+    const org = await resolveOrganizationBySlug(owner);
+    if (org) {
+      await deleteOrganizationRegistryItem({
+        organizationId: org.id,
+        name,
+        requestUserId: userId,
+        ownerRef: owner,
+      });
+      return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to delete";
     if (msg.includes("not found") || msg.includes("no access")) {
@@ -86,35 +101,13 @@ export async function DELETE(request: Request, { params }: Params) {
  */
 export async function GET(_request: Request, { params }: Params) {
   const { owner, name } = await params;
-  // Optional auth: allow owner to read their private items
   const session = await auth.api.getSession({ headers: await headers() });
   const requestUserId = session?.user?.id ?? null;
-  const teamPath = parseTeamOwnerPath(owner);
-  if (teamPath) {
-    const item = await getRegistryItemByOwnerNameAndVersion(
-      owner,
-      name,
-      null,
-      requestUserId,
-    );
-    if (!item) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-    return NextResponse.json({
-      name: item.name,
-      title: item.title,
-      description: item.description,
-      type: item.type,
-      visibility: item.visibility,
-    });
-  }
-  const resolved = await resolveOwner(owner);
-  if (!resolved) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  const item = await getRegistryItemByOwnerAndName(
-    resolved.userId,
+
+  const item = await getRegistryItemByOwnerNameAndVersion(
+    owner,
     name,
+    null,
     requestUserId,
   );
   if (!item) {
@@ -156,16 +149,32 @@ export async function PATCH(request: Request, { params }: Params) {
   try {
     const teamPath = parseTeamOwnerPath(owner);
     if (teamPath) {
-      const resolvedTeam = await resolveTeamByOrgSlugAndTeamSegment(
+      const organizationId = await resolveOrganizationIdFromLegacyOwnerPath(
         teamPath.orgSlug,
         teamPath.teamSegment,
       );
-      if (!resolvedTeam) {
+      if (!organizationId) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
 
-      const updated = await updateTeamRegistryItemVisibility({
-        teamId: resolvedTeam.teamId,
+      const updated = await updateOrganizationRegistryItemVisibility({
+        organizationId,
+        name,
+        requestUserId: userId,
+        visibility,
+      });
+
+      return NextResponse.json({
+        success: true,
+        visibility: updated?.visibility,
+        updatedAt: updated?.updatedAt,
+      });
+    }
+
+    const resolvedUser = await resolveOwner(owner);
+    if (resolvedUser) {
+      const updated = await updateRegistryItemVisibility({
+        ownerId: resolvedUser.userId,
         name,
         requestUserId: userId,
         visibility,
@@ -178,23 +187,23 @@ export async function PATCH(request: Request, { params }: Params) {
       });
     }
 
-    const resolved = await resolveOwner(owner);
-    if (!resolved) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const org = await resolveOrganizationBySlug(owner);
+    if (org) {
+      const updated = await updateOrganizationRegistryItemVisibility({
+        organizationId: org.id,
+        name,
+        requestUserId: userId,
+        visibility,
+      });
+
+      return NextResponse.json({
+        success: true,
+        visibility: updated?.visibility,
+        updatedAt: updated?.updatedAt,
+      });
     }
 
-    const updated = await updateRegistryItemVisibility({
-      ownerId: resolved.userId,
-      name,
-      requestUserId: userId,
-      visibility,
-    });
-
-    return NextResponse.json({
-      success: true,
-      visibility: updated.visibility,
-      updatedAt: updated.updatedAt,
-    });
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to update";
     if (msg.includes("not found") || msg.includes("no access")) {

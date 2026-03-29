@@ -1,22 +1,22 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import {
-  deleteTeamRegistryItem,
-  getRegistryItemsScoped,
-  getRegistryItemsForTeam,
-  getRegistryItemByName,
-  getRegistryItemByTeamAndName,
-  getRegistryItemByOwnerNameAndVersion,
-  getRegistryItemByOwnerNameAndVersionScoped,
-  getRegistryItemVersions,
-  getCurrentVersion,
   createRegistryItem,
   createRegistryItemVersion,
+  deleteOrganizationRegistryItem,
   deleteRegistryItem,
+  getCurrentVersion,
+  getRegistryItemByName,
+  getRegistryItemByOrganizationAndName,
+  getRegistryItemByOwnerNameAndVersion,
+  getRegistryItemByOwnerNameAndVersionScoped,
+  getRegistryItemsForOrganization,
+  getRegistryItemsScoped,
+  getRegistryItemVersions,
   toShadcnRegistryItem,
-} from "./registry";
+} from "@/lib/registry";
 import {
   validateTsx,
   extractDependencies,
@@ -24,18 +24,21 @@ import {
   isRelativeImport,
   validateComponentBundle,
 } from "./validate-tsx";
-import { getAuthContextFromToken } from "./auth-api";
-import { resolveOwner } from "./owner";
+import { getAuthContextFromToken } from "@/lib/auth-api";
+import { resolveOwner } from "@/lib/owner";
 import {
-  getTeamCanonicalOwnerRef,
-  isUserTeamMember,
-  parseTeamOwnerPath,
-  resolveTeamByOrgSlugAndTeamSegment,
-  slugifyRegistrySegment,
-} from "./registry-team";
-import { getRegistryPolicyForApiKey } from "./registry-policy";
-import { db } from "./db";
-import { registryCollections } from "./db/schema";
+  getOrganizationCanonicalOwnerRef,
+  isUserOrganizationMember,
+  resolveOrganizationBySlug,
+  resolveOrganizationIdFromLegacyOwnerPath,
+} from "@/lib/registry-organization";
+import { parseTeamOwnerPath } from "@/lib/registry-team";
+import { getRegistryPolicyForApiKey } from "@/lib/registry-policy";
+import { findAccessibleRegistryProjectBySlug } from "@/lib/registry-project-access";
+import { createRegistryProject } from "@/lib/registry-project-create";
+import { linkRegistryItemToProject } from "@/lib/registry-project-link-item";
+import { db } from "@/lib/db";
+import { registryProjectMembers, registryProjects } from "@/lib/db/schema";
 import { parseTokensFromJson, tokensToRootCss } from "./theme-tokens";
 import {
   checkInstalledItemUpdate,
@@ -47,28 +50,28 @@ import {
   type ProjectRegistryStatusItem,
   type RegistryCoordinate,
 } from "./install-protocol";
-import { getBaseUrl } from "./oauth";
-import type { RegistryPolicy } from "./registry-policy";
+import { getBaseUrl } from "@/lib/oauth";
+import type { RegistryPolicy } from "@/lib/registry-policy";
 import {
   LEGACY_REGISTRY_COMPONENT_TYPE,
   REGISTRY_BLOCK_TYPE,
   REGISTRY_THEME_TYPE,
   REGISTRY_UI_TYPE,
   normalizeRegistryItemType,
-} from "./registry-types";
-import { normalizePublishContract } from "./registry-publish-contract";
+} from "@/lib/registry-types";
+import { normalizePublishContract } from "@/lib/registry-publish-contract";
 import {
   suggestRegistryDependenciesFromFiles,
   toRegistryCatalogEntries,
-} from "./registry-dependency-suggestions";
+} from "@/lib/registry-dependency-suggestions";
 import {
   listWritablePublishTargetsForUser,
   resolvePublishTargetForUser,
-} from "./publish-target";
+} from "@/lib/publish-target";
 import {
   computeRegistryDependencyHealth,
   formatDependencyHealthForMcp,
-} from "./registry-dependency-health";
+} from "@/lib/registry-dependency-health";
 
 /** MCP Tool.annotations (hints for clients; not a security boundary). */
 const MCP_ANN = {
@@ -117,11 +120,11 @@ export function createRegistryMcpServer(request?: Request) {
   }
 
   async function getCanonicalRefOwnerForItem(
-    item: { userId?: string | null; teamId?: string | null },
+    item: { userId?: string | null; organizationId?: string | null },
     fallbackOwner: string,
   ) {
-    if (item.teamId) {
-      return (await getTeamCanonicalOwnerRef(item.teamId)) ?? fallbackOwner;
+    if (item.organizationId) {
+      return (await getOrganizationCanonicalOwnerRef(item.organizationId)) ?? fallbackOwner;
     }
     return (await resolveOwner(item.userId ?? fallbackOwner))?.handle ?? fallbackOwner;
   }
@@ -181,31 +184,44 @@ export function createRegistryMcpServer(request?: Request) {
     };
   }
 
-  async function getAdhocPolicyForCollectionSlug(collectionSlug: string, requestUserId: string) {
-    const [row] = await db
-      .select({ id: registryCollections.id })
-      .from(registryCollections)
-      .where(and(eq(registryCollections.ownerUserId, requestUserId), eq(registryCollections.slug, collectionSlug)))
-      .limit(1);
-    if (!row?.id) return null;
-
+  async function getAdhocPolicyForProjectSlug(projectSlug: string, requestUserId: string) {
+    const project = await findAccessibleRegistryProjectBySlug(requestUserId, projectSlug);
+    if (!project) return null;
     const policy: RegistryPolicy = {
       apiKeyId: "__adhoc__",
       ownerUserId: requestUserId,
-      allowedCollectionIds: [row.id],
+      allowedProjectIds: [project.id],
       allowedTypes: [],
       allowedOwnerHandlesOrIds: [],
-      allowPublicOutsideCollections: false,
+      allowPublicOutsideProjects: false,
     };
     return policy;
+  }
+
+  async function attachPublishedItemToProjectBySlug(
+    userId: string,
+    projectSlug: string | undefined,
+    itemId: string,
+  ): Promise<{ ok: true; note: string } | { ok: false; error: string }> {
+    const slug = projectSlug?.trim() ?? "";
+    if (!slug) return { ok: true, note: "" };
+    const project = await findAccessibleRegistryProjectBySlug(userId, slug);
+    if (!project) {
+      return { ok: false, error: `Project "${slug}" not found or you have no access.` };
+    }
+    const linked = await linkRegistryItemToProject({ userId, projectId: project.id, itemId });
+    if (!linked.ok) {
+      return { ok: false, error: linked.error };
+    }
+    return { ok: true, note: `Linked to registry project "${slug}".` };
   }
 
   server.registerTool(
     "list_collections",
     {
-      title: "List collections",
+      title: "List projects",
       description:
-        "List your Collections (slug + title). Use this to decide a scope like 'dashboard-blocks' before listing or fetching components within that collection.",
+        "List your projects (slug + title). Use this to decide a scope like 'dashboard-blocks' before listing or fetching components within that project. (Tool id remains list_collections for compatibility.)",
       inputSchema: z.object({}).describe("No input required"),
       annotations: MCP_ANN.readClosed,
     },
@@ -224,23 +240,113 @@ export function createRegistryMcpServer(request?: Request) {
         };
       }
 
+      const memberRows = await db
+        .select({ projectId: registryProjectMembers.projectId })
+        .from(registryProjectMembers)
+        .where(eq(registryProjectMembers.userId, userId));
+      const memberIds = memberRows.map((r) => r.projectId);
+      const ownerClause = eq(registryProjects.ownerUserId, userId);
+      const whereClause =
+        memberIds.length > 0 ? or(ownerClause, inArray(registryProjects.id, memberIds)) : ownerClause;
+
       const rows = await db
         .select({
-          id: registryCollections.id,
-          slug: registryCollections.slug,
-          title: registryCollections.title,
-          visibility: registryCollections.visibility,
+          id: registryProjects.id,
+          slug: registryProjects.slug,
+          title: registryProjects.title,
+          visibility: registryProjects.visibility,
         })
-        .from(registryCollections)
-        .where(eq(registryCollections.ownerUserId, userId))
-        .orderBy(registryCollections.slug);
+        .from(registryProjects)
+        .where(whereClause)
+        .orderBy(registryProjects.slug);
 
       const lines = rows.map((c) => `- **${c.slug}**: ${c.title} (${c.visibility})`).join("\n");
       return {
         content: [
           {
             type: "text" as const,
-            text: rows.length ? `Your collections (${rows.length}):\n\n${lines}` : "You have no collections yet.",
+            text: rows.length ? `Your projects (${rows.length}):\n\n${lines}` : "You have no projects yet.",
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "create_project",
+    {
+      title: "Create registry project",
+      description:
+        "Create a Cozy registry project to group registry items (blocks, UI, themes). Default scope is personal. For an organization project, set publishScope to organization and pass targetRef (e.g. @acme) or organizationSlug — same as publish_component. Typical flow: create_project → publish_component with the same `project` slug to publish and auto-link items into this project. Requires Bearer token.",
+      inputSchema: z.object({
+        title: z.string().describe("Display name, e.g. Marketing blocks"),
+        description: z.string().optional().describe("Optional description"),
+        slug: z
+          .string()
+          .optional()
+          .describe(
+            "Optional kebab-case slug; if omitted, a unique slug is generated from the title in the target scope.",
+          ),
+        visibility: z
+          .enum(["public", "private"])
+          .optional()
+          .describe("Defaults to private."),
+        publishScope: z
+          .enum(["personal", "organization", "team"])
+          .optional()
+          .describe(
+            "personal (default) or organization (use with targetRef / organizationSlug). Legacy team is treated as organization.",
+          ),
+        targetRef: z
+          .string()
+          .optional()
+          .describe("Organization target e.g. @acme. Use list_publish_targets to discover values."),
+        organizationSlug: z
+          .string()
+          .optional()
+          .describe("Alternative to targetRef when creating under an organization."),
+      }),
+      annotations: MCP_ANN.writeRegistry,
+    },
+    async (args) => {
+      const ctx = request ? await getAuthContextFromToken(request) : null;
+      const userId = ctx?.userId ?? null;
+      if (!userId) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Authentication required. Add Authorization: Bearer <token>.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const result = await createRegistryProject({
+        userId,
+        title: args.title,
+        description: args.description ?? null,
+        slug: args.slug ?? null,
+        visibility: args.visibility,
+        publishScope: args.publishScope,
+        targetRef: args.targetRef ?? null,
+        organizationSlug: args.organizationSlug ?? null,
+      });
+
+      if (!result.ok) {
+        return {
+          content: [{ type: "text" as const, text: result.error }],
+          isError: true,
+        };
+      }
+
+      const p = result.project;
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Created project "${p.title}" (slug: **${p.slug}**, id: \`${p.id}\`, ${p.visibility}). Use \`publish_component\` with \`project: "${p.slug}"\` (and matching publish target) to publish components into this project.`,
           },
         ],
       };
@@ -252,7 +358,7 @@ export function createRegistryMcpServer(request?: Request) {
     {
       title: "List publish targets",
       description:
-        "List the personal scope and every team you can publish to. Use this before team publishing when you do not know the target yet. Prefer readable `targetRef` values like `@org/team` instead of internal teamId.",
+        "List the personal scope and every organization you can publish to. Use this before organization publishing when you do not know the target yet. Prefer readable `targetRef` values like `@org-slug`.",
       inputSchema: z.object({}).describe("No input required"),
       annotations: MCP_ANN.readClosed,
     },
@@ -274,7 +380,7 @@ export function createRegistryMcpServer(request?: Request) {
       const targets = await listWritablePublishTargetsForUser(userId);
       const lines = targets.map((target) => {
         if (target.kind === "user") return `- Personal -> ${target.targetRef}`;
-        return `- ${target.organizationName} / ${target.name} -> ${target.targetRef} (${target.role})`;
+        return `- ${target.name} (${target.slug}) -> ${target.targetRef} (${target.role})`;
       });
 
       return {
@@ -293,21 +399,25 @@ export function createRegistryMcpServer(request?: Request) {
   server.registerTool("list_components", {
     title: "List components",
     description:
-      "List components and modules available in the registry. Use this to discover what's available before fetching a specific component or before setting `registryDependencies` on publish. Registry dependencies MUST be explicit (see registry-dependency-management-spec §1.1): the system does not auto-link; use `suggest_registry_dependencies` + this list to choose refs. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>. For large registries, pass `limit` (and increase `offset` for the next page) to avoid huge responses—similar to paginated UI lists. For team-owned items, pass `teamId` (from your workspace or publish response) to list that team's catalog; refs use `@orgSlug/teamSlug/itemName`.",
+      "List components and modules available in the registry. Use this to discover what's available before fetching a specific component or before setting `registryDependencies` on publish. Registry dependencies MUST be explicit (see registry-dependency-management-spec §1.1): the system does not auto-link; use `suggest_registry_dependencies` + this list to choose refs. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>. For large registries, pass `limit` (and increase `offset` for the next page) to avoid huge responses—similar to paginated UI lists. For organization-owned items, pass `organizationSlug` (e.g. from `list_publish_targets`); org members see private items. Refs use `@orgSlug/itemName`. Legacy `orgSlug/teamSegment` owner paths still resolve to the parent organization.",
     inputSchema: z
       .object({
-        teamId: z
+        organizationSlug: z
           .string()
           .optional()
           .describe(
-            "When set, list registry items owned by this team (requires Bearer token; team members see private items). Use explicit teamId from your organization/workspace context.",
+            "When set, list registry items owned by this organization (requires Bearer token; members with access see private items). Use the organization slug from your workspace or publish targets.",
+          ),
+        project: z
+          .string()
+          .optional()
+          .describe(
+            "Optional project slug to scope results to items linked to that project (e.g. dashboard-blocks). Ad-hoc scope for this call (not API key policy).",
           ),
         collection: z
           .string()
           .optional()
-          .describe(
-            "Optional collection slug to scope results (e.g. dashboard-blocks). This is an ad-hoc scope for this call (not token policy).",
-          ),
+          .describe("Deprecated alias for `project` (same behavior)."),
         limit: z
           .number()
           .int()
@@ -326,44 +436,58 @@ export function createRegistryMcpServer(request?: Request) {
             "Skip this many items (0-based). Only applies when `limit` is set; use the suggested next offset when the response indicates more results.",
           ),
       })
-      .describe("Optional collection scope and pagination"),
+      .describe("Optional project scope, organization catalog, and pagination"),
     annotations: MCP_ANN.readOpen,
-  }, async ({ collection, limit, offset: offsetArg, teamId }) => {
+  }, async ({ project, collection, limit, offset: offsetArg, organizationSlug }) => {
+    const projectSlug = (project ?? collection)?.trim() ?? "";
     const ctx = request ? await getAuthContextFromToken(request) : null;
     const userId = ctx?.userId ?? null;
     const policyFromToken = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
     const policy =
-      collection && userId
-        ? await getAdhocPolicyForCollectionSlug(collection, userId)
+      projectSlug && userId
+        ? await getAdhocPolicyForProjectSlug(projectSlug, userId)
         : policyFromToken;
     const offset = offsetArg ?? 0;
     const fetchLimit = limit != null ? limit + 1 : undefined;
 
     let items: Awaited<ReturnType<typeof getRegistryItemsScoped>>;
-    if (teamId && teamId.trim().length > 0) {
+    const orgSlug = organizationSlug?.trim() ?? "";
+    if (orgSlug.length > 0) {
       if (!userId) {
         return {
           content: [
             {
               type: "text" as const,
-              text: "Authentication required to list team registry items. Add Authorization: Bearer <token>.",
+              text: "Authentication required to list organization registry items. Add Authorization: Bearer <token>.",
             },
           ],
           isError: true,
         };
       }
-      if (!(await isUserTeamMember(userId, teamId.trim()))) {
+      const org = await resolveOrganizationBySlug(orgSlug);
+      if (!org) {
         return {
           content: [
             {
               type: "text" as const,
-              text: "You are not a member of this team or teamId is invalid.",
+              text: `Organization "${orgSlug}" not found.`,
             },
           ],
           isError: true,
         };
       }
-      items = await getRegistryItemsForTeam(teamId.trim(), userId, {
+      if (!(await isUserOrganizationMember(userId, org.id))) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "You are not a member of this organization or the slug is invalid.",
+            },
+          ],
+          isError: true,
+        };
+      }
+      items = await getRegistryItemsForOrganization(org.id, userId, {
         limit: fetchLimit,
         offset: limit != null ? offset : undefined,
       });
@@ -384,14 +508,12 @@ export function createRegistryMcpServer(request?: Request) {
           const row = i as {
             ownerHandle?: string | null;
             userId?: string | null;
-            teamId?: string | null;
+            organizationId?: string | null;
             orgSlug?: string | null;
-            teamSlug?: string | null;
-            teamName?: string | null;
           };
           let ref: string;
-          if (row.teamId && row.orgSlug != null && row.teamName != null) {
-            ref = `@${row.orgSlug}/${row.teamSlug ?? slugifyRegistrySegment(row.teamName)}/${i.name}`;
+          if (row.organizationId && row.orgSlug) {
+            ref = `@${row.orgSlug}/${i.name}`;
           } else {
             const owner = row.ownerHandle ?? row.userId ?? "legacy";
             ref = `@${owner}/${i.name}`;
@@ -426,15 +548,17 @@ export function createRegistryMcpServer(request?: Request) {
         .describe(
           "Multi-file bundle map, e.g. { \"index.tsx\": \"...\", \"Button.tsx\": \"...\" }.",
         ),
+      project: z
+        .string()
+        .optional()
+        .describe("Optional project slug to scope the catalog (same as list_components `project`)."),
       collection: z
         .string()
         .optional()
-        .describe(
-          "Optional collection slug to scope the catalog (same as list_components).",
-        ),
+        .describe("Deprecated alias for `project`."),
     }),
     annotations: MCP_ANN.readOpen,
-  }, async ({ files, collection }) => {
+  }, async ({ files, project, collection }) => {
     const ctx = request ? await getAuthContextFromToken(request) : null;
     const userId = ctx?.userId ?? null;
     if (!userId) {
@@ -449,9 +573,10 @@ export function createRegistryMcpServer(request?: Request) {
       };
     }
     const policyFromToken = ctx ? await getRegistryPolicyForApiKey(ctx.apiKeyId) : null;
+    const projectSlug = (project ?? collection)?.trim() ?? "";
     const policy =
-      collection && userId
-        ? await getAdhocPolicyForCollectionSlug(collection, userId)
+      projectSlug && userId
+        ? await getAdhocPolicyForProjectSlug(projectSlug, userId)
         : policyFromToken;
     const catalogRows = await getRegistryItemsScoped({
       requestUserId: userId,
@@ -486,7 +611,7 @@ export function createRegistryMcpServer(request?: Request) {
           .string()
           .optional()
           .describe(
-            "Personal: user handle or id. Team: `orgSlug/teamSlug` where teamSlug matches slugify(team.name) from list_components (e.g. acme/trading). Required when multiple components share the same name.",
+            "Personal: user handle or id. Organization: organization slug (e.g. `acme`) for `@acme/item`. Legacy `orgSlug/teamSegment` paths still resolve to the org. Required when multiple components share the same name.",
           ),
       }),
       annotations: MCP_ANN.readOpen,
@@ -519,12 +644,9 @@ export function createRegistryMcpServer(request?: Request) {
 
         const canonicalOwner = await getCanonicalRefOwnerForItem(item, owner ?? "legacy");
         const currentVersion = getCurrentVersion(item);
-        const versionListOwner = item.teamId
-          ? canonicalOwner
-          : (item.userId ?? owner ?? "legacy");
         const latestVersion =
           (await getLatestVersionForItem({
-            owner: versionListOwner,
+            owner: canonicalOwner,
             name,
             userId,
           })) ?? currentVersion;
@@ -611,15 +733,19 @@ ${fileContent}
     },
   );
 
-  // Scoped variant: force the component to be in a specific collection (by slug)
+  // Scoped variant: force the component to be linked to a specific project (by slug). Tool id kept for MCP compatibility.
   server.registerTool(
     "get_component_in_collection",
     {
-      title: "Get component (scoped to collection)",
+      title: "Get component (scoped to project)",
       description:
-        "Get a specific component, but ONLY if it belongs to the given collection slug. Use this when you want to build a page using only components from a certain collection (e.g. dashboard-blocks).",
+        "Get a specific component, but ONLY if it belongs to the given project slug (via registry project membership). Use this when you want to build a page using only components from a certain project (e.g. dashboard-blocks).",
       inputSchema: z.object({
-        collection: z.string().describe("Collection slug, e.g. dashboard-blocks"),
+        project: z.string().optional().describe("Project slug, e.g. dashboard-blocks"),
+        collection: z
+          .string()
+          .optional()
+          .describe("Deprecated alias for `project` (provide one of project or collection)."),
         name: z.string().describe("Component name, e.g. hero-section, faq"),
         owner: z
           .string()
@@ -628,7 +754,7 @@ ${fileContent}
       }),
       annotations: MCP_ANN.readOpen,
     },
-    async ({ collection, name, owner }) => {
+    async ({ project, collection, name, owner }) => {
       const { userId } = await getScopedToolContext();
       if (!userId) {
         return {
@@ -642,10 +768,23 @@ ${fileContent}
         };
       }
 
-      const adhoc = await getAdhocPolicyForCollectionSlug(collection, userId);
+      const projectSlug = (project ?? collection)?.trim() ?? "";
+      if (!projectSlug) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Missing project slug: pass `project` (or deprecated `collection`).",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const adhoc = await getAdhocPolicyForProjectSlug(projectSlug, userId);
       if (!adhoc) {
         return {
-          content: [{ type: "text" as const, text: `Collection "${collection}" not found.` }],
+          content: [{ type: "text" as const, text: `Project "${projectSlug}" not found or no access.` }],
           isError: true,
         };
       }
@@ -671,7 +810,7 @@ ${fileContent}
           content: [
             {
               type: "text" as const,
-              text: `Component "${name}" not found in collection "${collection}" (or not allowed).`,
+              text: `Component "${name}" not found in project "${projectSlug}" (or not allowed).`,
             },
           ],
           isError: true,
@@ -679,15 +818,11 @@ ${fileContent}
       }
 
       // Reuse existing get_component rendering by delegating to the same conversion logic
-      const canonicalOwner =
-        (await resolveOwner(item.userId ?? owner ?? "legacy"))?.handle ??
-        item.userId ??
-        owner ??
-        "legacy";
+      const canonicalOwner = await getCanonicalRefOwnerForItem(item, owner ?? "legacy");
       const currentVersion = getCurrentVersion(item);
       const latestVersion =
         (await getLatestVersionForItem({
-          owner: item.userId ?? "legacy",
+          owner: canonicalOwner,
           name,
           userId,
         })) ?? currentVersion;
@@ -730,7 +865,7 @@ ${fileContent}
         "",
         `- Current version: v${currentVersion}`,
         `- Latest available: v${latestVersion}`,
-        `- Scoped to collection: ${collection}`,
+        `- Scoped to project: ${projectSlug}`,
         "",
       ];
 
@@ -767,7 +902,7 @@ ${fileContent}
         owner: z
           .string()
           .describe(
-            "Personal: user handle or id. Team: `orgSlug/teamSlug` (from list_components). Required to disambiguate components with the same name.",
+            "Personal: user handle or id. Organization: org slug or legacy `orgSlug/teamSegment` (from list_components). Required to disambiguate components with the same name.",
           ),
       }),
       annotations: MCP_ANN.readOpen,
@@ -1664,7 +1799,7 @@ ${fileContent}
         owner: z
           .string()
           .describe(
-            "Personal: user handle or id. Team: `orgSlug/teamSlug` matching slugify(team.name).",
+            "Personal: user handle or id. Organization: org slug or legacy `orgSlug/teamSegment`.",
           ),
         version: z
           .string()
@@ -1819,43 +1954,53 @@ ${fileContent}
       }
 
       const ownerId = owner ?? userId;
-      const teamPath = parseTeamOwnerPath(ownerId);
+      const legacyTeamPath = parseTeamOwnerPath(ownerId);
 
       let canonicalOwner: string;
-      if (teamPath) {
-        const resolvedTeam = await resolveTeamByOrgSlugAndTeamSegment(
-          teamPath.orgSlug,
-          teamPath.teamSegment,
+      if (legacyTeamPath) {
+        const organizationId = await resolveOrganizationIdFromLegacyOwnerPath(
+          legacyTeamPath.orgSlug,
+          legacyTeamPath.teamSegment,
         );
-        if (!resolvedTeam) {
+        if (!organizationId) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: `Team owner "${ownerId}" not found.`,
+                text: `Organization owner "${ownerId}" not found.`,
               },
             ],
             isError: true,
           };
         }
         canonicalOwner =
-          (await getTeamCanonicalOwnerRef(resolvedTeam.teamId)) ?? ownerId;
-        await deleteTeamRegistryItem({
-          teamId: resolvedTeam.teamId,
+          (await getOrganizationCanonicalOwnerRef(organizationId)) ?? ownerId;
+        await deleteOrganizationRegistryItem({
+          organizationId,
           name,
           requestUserId: userId,
           ownerRef: canonicalOwner,
         });
       } else {
-        canonicalOwner =
-          (await resolveOwner(ownerId))?.handle ?? ownerId;
-
-        await deleteRegistryItem({
-          ownerId,
-          name,
-          requestUserId: userId,
-          ownerRef: canonicalOwner,
-        });
+        const orgOnly = await resolveOrganizationBySlug(ownerId);
+        if (orgOnly) {
+          canonicalOwner =
+            (await getOrganizationCanonicalOwnerRef(orgOnly.id)) ?? ownerId;
+          await deleteOrganizationRegistryItem({
+            organizationId: orgOnly.id,
+            name,
+            requestUserId: userId,
+            ownerRef: canonicalOwner,
+          });
+        } else {
+          canonicalOwner = (await resolveOwner(ownerId))?.handle ?? ownerId;
+          await deleteRegistryItem({
+            ownerId,
+            name,
+            requestUserId: userId,
+            ownerRef: canonicalOwner,
+          });
+        }
       }
 
       return {
@@ -1912,7 +2057,7 @@ ${fileContent}
   server.registerTool("publish_component", {
     title: "Publish or update component",
     description:
-      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token. New components default to private visibility unless `visibility` is explicitly set to public.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.\n\nRegistry dependencies (`registryDependencies`): Optional refs `@owner/name` or `@owner/name@version`. MUST be explicit—the system does not auto-link to other registry items (registry-dependency-management-spec §1.1). Use `list_components` and read-only `suggest_registry_dependencies` to discover candidates, then set refs in this payload. Successful responses may append informational dependency health (e.g. outdated vs latest); it does not block publish (§3.7).\n\nPreview props (`previewProps`): Optional. The registry preview still works without it (sensible defaults). Provide `previewProps` when you want designers and reviewers to see representative component states in the browser—variants, labels, disabled/open, sample content—without reading source. Stored in meta.previewProps for the /preview page.",
+      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token. New components default to private visibility unless `visibility` is explicitly set to public.\n\nRegistry project: Optional `project` (registry project slug, same as list_collections / create_project). When set, after a successful publish or version bump the component is linked to that project if you have edit access and the item owner matches the project scope (personal item → personal project; org item → org project in the same organization). Omit if you only need to publish without linking.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.\n\nRegistry dependencies (`registryDependencies`): Optional refs `@owner/name` or `@owner/name@version`. MUST be explicit—the system does not auto-link to other registry items (registry-dependency-management-spec §1.1). Use `list_components` and read-only `suggest_registry_dependencies` to discover candidates, then set refs in this payload. Successful responses may append informational dependency health (e.g. outdated vs latest); it does not block publish (§3.7).\n\nPreview props (`previewProps`): Optional. The registry preview still works without it (sensible defaults). Provide `previewProps` when you want designers and reviewers to see representative component states in the browser—variants, labels, disabled/open, sample content—without reading source. Stored in meta.previewProps for the /preview page.",
     annotations: MCP_ANN.writeRegistry,
     inputSchema: z.object({
       name: z
@@ -1980,35 +2125,41 @@ ${fileContent}
           "When updating an existing component, how to bump the version. Defaults to patch.",
         ),
       publishScope: z
-        .enum(["personal", "team"])
+        .enum(["personal", "organization", "team"])
         .optional()
         .describe(
-          "Publish target. Defaults to personal. For team publishes, prefer `targetRef` like `@org/team`.",
+          "Publish target. Defaults to personal. Use `organization` (or legacy `team`) to publish under an org workspace. Prefer `targetRef` like `@org-slug`.",
         ),
       targetRef: z
         .string()
         .optional()
         .describe(
-          "Readable team publish target, for example `@gate/trading`. Use `list_publish_targets` to discover valid values.",
+          "Readable organization publish target, for example `@acme`. Use `list_publish_targets` to discover valid values.",
         ),
       organizationSlug: z
         .string()
         .optional()
         .describe(
-          "Optional organization slug for team publishing. Use together with `teamSlug` if you prefer split fields instead of `targetRef`.",
+          "Optional organization slug when publishing to an organization (alternative to `targetRef`).",
         ),
       teamSlug: z
         .string()
         .optional()
-        .describe(
-          "Optional team slug for team publishing. Use together with `organizationSlug`.",
-        ),
+        .describe("Ignored (legacy). Use `organizationSlug` or `targetRef`."),
       teamId: z
         .string()
         .optional()
+        .describe("Ignored (legacy Better Auth team id). Use `targetRef` / `organizationSlug`."),
+      project: z
+        .string()
+        .optional()
         .describe(
-          "Compatibility path for team publishing. Prefer readable `targetRef` instead of internal teamId when possible.",
+          "Optional registry project slug (from create_project / list_collections). After publish, links this component to that project when scopes match and you can edit the project.",
         ),
+      collection: z
+        .string()
+        .optional()
+        .describe("Deprecated alias for `project`."),
       registryDependencies: z
         .unknown()
         .optional()
@@ -2061,6 +2212,12 @@ ${fileContent}
 
     try {
       const { name, title, description, visibility, bump } = args;
+      const projectLinkSlug =
+        typeof args.project === "string" && args.project.trim()
+          ? args.project
+          : typeof args.collection === "string" && args.collection.trim()
+            ? args.collection
+            : undefined;
       const type = normalizeRegistryItemType(args.type);
       const isTheme = type === REGISTRY_THEME_TYPE;
 
@@ -2274,15 +2431,13 @@ ${fileContent}
         };
       }
 
-      const publishScope =
+      const wantsOrganization =
         args.publishScope === "team" ||
-        (typeof args.teamId === "string" && args.teamId.trim().length > 0) ||
+        args.publishScope === "organization" ||
         (typeof args.targetRef === "string" && args.targetRef.trim().length > 0) ||
-        ((typeof args.organizationSlug === "string" &&
-          args.organizationSlug.trim().length > 0) &&
-          (typeof args.teamSlug === "string" && args.teamSlug.trim().length > 0))
-          ? "team"
-          : "personal";
+        (typeof args.organizationSlug === "string" && args.organizationSlug.trim().length > 0);
+
+      const publishScope = wantsOrganization ? "organization" : "personal";
 
       const resolvedPublishTarget = await resolvePublishTargetForUser({
         userId,
@@ -2290,13 +2445,11 @@ ${fileContent}
         targetRef: typeof args.targetRef === "string" ? args.targetRef : null,
         organizationSlug:
           typeof args.organizationSlug === "string" ? args.organizationSlug : null,
-        teamSlug: typeof args.teamSlug === "string" ? args.teamSlug : null,
-        teamId: typeof args.teamId === "string" ? args.teamId : null,
       });
       if (!resolvedPublishTarget.ok) {
         const text =
-          resolvedPublishTarget.code === "AMBIGUOUS_TEAM_TARGET"
-            ? `${resolvedPublishTarget.message} Call \`list_publish_targets\` and choose one explicitly using \`targetRef\`, for example \`@gate/trading\`.`
+          resolvedPublishTarget.code === "AMBIGUOUS_ORG_TARGET"
+            ? `${resolvedPublishTarget.message} Call \`list_publish_targets\` and choose one explicitly using \`targetRef\`, for example \`@acme\`.`
             : resolvedPublishTarget.message;
         return {
           content: [
@@ -2308,16 +2461,18 @@ ${fileContent}
           isError: true,
         };
       }
-      const teamTarget =
-        resolvedPublishTarget.target.kind === "team" ? resolvedPublishTarget.target : null;
+      const orgTarget =
+        resolvedPublishTarget.target.kind === "organization"
+          ? resolvedPublishTarget.target
+          : null;
 
       // 归一化 theme：若 type === registry:theme，优先将 content / files 中的 JSON 视为 tokens.json，
       // 并从中派生 theme.css。
       const normalizedTheme = normalizeThemeArgs(args);
 
       // 如果当前用户已经有同名组件，则视为「发布新版本」，而不是创建新组件。
-      const existing = teamTarget
-        ? await getRegistryItemByTeamAndName(teamTarget.id, name).catch(() => null)
+      const existing = orgTarget
+        ? await getRegistryItemByOrganizationAndName(orgTarget.id, name).catch(() => null)
         : await getRegistryItemByOwnerNameAndVersion(
             userId,
             name,
@@ -2354,8 +2509,8 @@ ${fileContent}
         }
         const bumpType = bump ?? "patch";
         const result = await createRegistryItemVersion({
-          ownerId: teamTarget ? undefined : userId,
-          teamId: teamTarget?.id,
+          ownerId: orgTarget ? undefined : userId,
+          organizationId: orgTarget?.id,
           name,
           content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
           files: contract.value.filesToWrite ?? (normalizedTheme.files ?? files),
@@ -2378,21 +2533,35 @@ ${fileContent}
           );
           healthSuffix = formatDependencyHealthForMcp(health);
         }
-        const teamRef =
-          teamTarget?.targetRef
-            ? teamTarget.targetRef.slice(1)
-            : teamTarget != null
-              ? await getTeamCanonicalOwnerRef(teamTarget.id)
+        const orgRef =
+          orgTarget?.targetRef
+            ? orgTarget.targetRef.slice(1)
+            : orgTarget != null
+              ? (await getOrganizationCanonicalOwnerRef(orgTarget.id)) ?? orgTarget.slug
               : null;
+        const baseText = orgTarget
+          ? `Updated organization component "${existing.title}" (@${orgRef}/${existing.name}) to v${result.version}.${healthSuffix}`
+          : `Updated "${existing.title}" (@${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}) to version v${result.version}. View at /registry/${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}${healthSuffix}`;
+
+        if (projectLinkSlug) {
+          const attach = await attachPublishedItemToProjectBySlug(
+            userId,
+            projectLinkSlug,
+            existing.id,
+          );
+          if (!attach.ok) {
+            return {
+              content: [{ type: "text" as const, text: `${baseText}\n\n${attach.error}` }],
+              isError: true,
+            };
+          }
+          const note = attach.note ? `\n\n${attach.note}` : "";
+          return {
+            content: [{ type: "text" as const, text: `${baseText}${note}` }],
+          };
+        }
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: teamTarget
-                ? `Updated team component "${existing.title}" (@${teamRef}/${existing.name}) to v${result.version}.${healthSuffix}`
-                : `Updated "${existing.title}" (@${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}) to version v${result.version}. View at /registry/${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}${healthSuffix}`,
-            },
-          ],
+          content: [{ type: "text" as const, text: baseText }],
         };
       }
 
@@ -2455,8 +2624,8 @@ ${fileContent}
         description: description || null,
         content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
         files: contract.value.filesToWrite ?? (normalizedTheme.files ?? files),
-        userId: teamTarget ? null : userId,
-        teamId: teamTarget?.id ?? null,
+        userId: orgTarget ? null : userId,
+        organizationId: orgTarget?.id ?? null,
         visibility: visibility === "public" ? "public" : "private",
         dependencies,
         registryDependencies: contract.value.registryDependenciesToWrite ?? [],
@@ -2474,21 +2643,35 @@ ${fileContent}
         );
         healthSuffixCreate = formatDependencyHealthForMcp(health);
       }
-      const teamRefCreate =
-        teamTarget?.targetRef
-          ? teamTarget.targetRef.slice(1)
-          : teamTarget != null
-            ? await getTeamCanonicalOwnerRef(teamTarget.id)
+      const orgRefCreate =
+        orgTarget?.targetRef
+          ? orgTarget.targetRef.slice(1)
+          : orgTarget != null
+            ? (await getOrganizationCanonicalOwnerRef(orgTarget.id)) ?? orgTarget.slug
             : null;
+      const baseTextCreate = orgTarget
+        ? `Published new organization component "${item.title}" (@${orgRefCreate}/${item.name}).${healthSuffixCreate}`
+        : `Published new component "${item.title}" (@${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}). View at /registry/${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}${healthSuffixCreate}`;
+
+      if (projectLinkSlug) {
+        const attach = await attachPublishedItemToProjectBySlug(
+          userId,
+          projectLinkSlug,
+          item.id,
+        );
+        if (!attach.ok) {
+          return {
+            content: [{ type: "text" as const, text: `${baseTextCreate}\n\n${attach.error}` }],
+            isError: true,
+          };
+        }
+        const note = attach.note ? `\n\n${attach.note}` : "";
+        return {
+          content: [{ type: "text" as const, text: `${baseTextCreate}${note}` }],
+        };
+      }
       return {
-        content: [
-          {
-            type: "text" as const,
-            text: teamTarget
-              ? `Published new team component "${item.title}" (@${teamRefCreate}/${item.name}).${healthSuffixCreate}`
-              : `Published new component "${item.title}" (@${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}). View at /registry/${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}${healthSuffixCreate}`,
-          },
-        ],
+        content: [{ type: "text" as const, text: baseTextCreate }],
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

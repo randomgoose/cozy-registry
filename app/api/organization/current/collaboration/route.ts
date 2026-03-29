@@ -1,33 +1,31 @@
 import { NextResponse } from "next/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { invitation, member, organization, team, teamMember, user } from "@/lib/db/schema";
+import { invitation, member, organization, user } from "@/lib/db/schema";
 
 export async function GET() {
   const session = await auth.api.getSession({ headers: await headers() });
   const userId = session?.user?.id ?? null;
   const activeOrganizationId = session?.session?.activeOrganizationId ?? null;
-  const activeTeamId = session?.session?.activeTeamId ?? null;
 
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
 
-  if (!activeOrganizationId || !activeTeamId) {
+  if (!activeOrganizationId) {
     return NextResponse.json({
       activeOrganizationId: null,
-      activeTeamId: null,
       role: null,
-      team: null,
+      organization: null,
       members: [],
       invitations: [],
     });
   }
 
-  const [[roleRow], [teamRow], memberRows, invitationRows] = await Promise.all([
+  const [[roleRow], [orgRow], memberRows, invitationRows] = await Promise.all([
     db
       .select({ role: member.role })
       .from(member)
@@ -35,14 +33,12 @@ export async function GET() {
       .limit(1),
     db
       .select({
-        id: team.id,
-        name: team.name,
-        organizationId: team.organizationId,
-        organizationName: organization.name,
+        id: organization.id,
+        name: organization.name,
+        slug: organization.slug,
       })
-      .from(team)
-      .innerJoin(organization, eq(team.organizationId, organization.id))
-      .where(and(eq(team.id, activeTeamId), eq(team.organizationId, activeOrganizationId)))
+      .from(organization)
+      .where(eq(organization.id, activeOrganizationId))
       .limit(1),
     db
       .select({
@@ -52,15 +48,11 @@ export async function GET() {
         email: user.email,
         image: user.image,
         role: member.role,
-        joinedAt: teamMember.createdAt,
+        joinedAt: member.createdAt,
       })
-      .from(teamMember)
-      .innerJoin(user, eq(teamMember.userId, user.id))
-      .innerJoin(
-        member,
-        and(eq(member.userId, teamMember.userId), eq(member.organizationId, activeOrganizationId)),
-      )
-      .where(eq(teamMember.teamId, activeTeamId))
+      .from(member)
+      .innerJoin(user, eq(member.userId, user.id))
+      .where(eq(member.organizationId, activeOrganizationId))
       .orderBy(asc(user.name), asc(user.email)),
     db
       .select({
@@ -75,7 +67,7 @@ export async function GET() {
       .where(
         and(
           eq(invitation.organizationId, activeOrganizationId),
-          eq(invitation.teamId, activeTeamId),
+          isNull(invitation.teamId),
           eq(invitation.status, "pending"),
         ),
       )
@@ -84,9 +76,8 @@ export async function GET() {
 
   return NextResponse.json({
     activeOrganizationId,
-    activeTeamId,
     role: roleRow?.role ?? null,
-    team: teamRow ?? null,
+    organization: orgRow ?? null,
     members: memberRows,
     invitations: invitationRows,
   });

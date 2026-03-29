@@ -9,7 +9,7 @@ import {
 } from "@/lib/registry";
 import { getAuthContextFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
-import { getTeamCanonicalOwnerRef } from "@/lib/registry-team";
+import { getOrganizationCanonicalOwnerRef } from "@/lib/registry-organization";
 import { getRegistryPolicyForApiKey } from "@/lib/registry-policy";
 
 function parseOwnerAndName(spec: string[]): { owner: string | null; name: string | null } {
@@ -83,8 +83,8 @@ export async function GET(
   const installVersion =
     version && version.trim().length > 0 ? version.trim() : getCurrentVersion(item);
 
-  const canonicalOwner = item.teamId
-    ? (await getTeamCanonicalOwnerRef(item.teamId)) ?? owner ?? "legacy"
+  const canonicalOwner = item.organizationId
+    ? (await getOrganizationCanonicalOwnerRef(item.organizationId)) ?? owner ?? "legacy"
     : (await resolveOwner(item.userId ?? owner ?? "legacy"))?.handle ?? owner ?? "legacy";
   const header = `// cozy-registry: @${canonicalOwner}/${item.name} v${installVersion}\n`;
 

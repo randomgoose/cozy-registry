@@ -2,20 +2,20 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { apiKey, registryApiKeyPolicies } from "@/lib/db/schema";
-import { getCollectionScopeContext } from "@/lib/collection-scope";
+import { getProjectScopeContext } from "@/lib/project-scope";
 
 type PolicyBody = {
-  allowedCollectionIds?: string[];
+  allowedProjectIds?: string[];
   allowedTypes?: string[];
   allowedOwnerHandlesOrIds?: string[];
-  allowPublicOutsideCollections?: boolean;
+  allowPublicOutsideProjects?: boolean;
 };
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId, activeTeamId } = await getCollectionScopeContext(request);
+  const { userId, activeOrganizationId } = await getProjectScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
@@ -36,8 +36,8 @@ export async function GET(
     .where(
       and(
         eq(registryApiKeyPolicies.apiKeyId, id),
-        activeTeamId
-          ? eq(registryApiKeyPolicies.ownerTeamId, activeTeamId)
+        activeOrganizationId
+          ? eq(registryApiKeyPolicies.ownerOrganizationId, activeOrganizationId)
           : eq(registryApiKeyPolicies.ownerUserId, userId),
       ),
     )
@@ -45,14 +45,14 @@ export async function GET(
 
   return NextResponse.json({
     policy: policy
-        ? {
+      ? {
           apiKeyId: policy.apiKeyId,
           ownerUserId: policy.ownerUserId,
-          ownerTeamId: policy.ownerTeamId,
-          allowedCollectionIds: (policy.allowedCollectionIds ?? []) as string[],
+          ownerOrganizationId: policy.ownerOrganizationId,
+          allowedProjectIds: (policy.allowedProjectIds ?? []) as string[],
           allowedTypes: (policy.allowedTypes ?? []) as string[],
           allowedOwnerHandlesOrIds: (policy.allowedOwnerHandlesOrIds ?? []) as string[],
-          allowPublicOutsideCollections: !!policy.allowPublicOutsideCollections,
+          allowPublicOutsideProjects: !!policy.allowPublicOutsideProjects,
         }
       : null,
   });
@@ -62,7 +62,7 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId, activeTeamId } = await getCollectionScopeContext(request);
+  const { userId, activeOrganizationId } = await getProjectScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
@@ -82,8 +82,8 @@ export async function PUT(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const allowedCollectionIds = Array.isArray(body.allowedCollectionIds)
-    ? body.allowedCollectionIds.filter((x) => typeof x === "string" && x.length > 0)
+  const allowedProjectIds = Array.isArray(body.allowedProjectIds)
+    ? body.allowedProjectIds.filter((x) => typeof x === "string" && x.length > 0)
     : [];
   const allowedTypes = Array.isArray(body.allowedTypes)
     ? body.allowedTypes.filter((x) => typeof x === "string" && x.length > 0)
@@ -91,7 +91,7 @@ export async function PUT(
   const allowedOwnerHandlesOrIds = Array.isArray(body.allowedOwnerHandlesOrIds)
     ? body.allowedOwnerHandlesOrIds.filter((x) => typeof x === "string" && x.length > 0)
     : [];
-  const allowPublicOutsideCollections = !!body.allowPublicOutsideCollections;
+  const allowPublicOutsideProjects = !!body.allowPublicOutsideProjects;
 
   const [existing] = await db
     .select({ apiKeyId: registryApiKeyPolicies.apiKeyId })
@@ -99,8 +99,8 @@ export async function PUT(
     .where(
       and(
         eq(registryApiKeyPolicies.apiKeyId, id),
-        activeTeamId
-          ? eq(registryApiKeyPolicies.ownerTeamId, activeTeamId)
+        activeOrganizationId
+          ? eq(registryApiKeyPolicies.ownerOrganizationId, activeOrganizationId)
           : eq(registryApiKeyPolicies.ownerUserId, userId),
       ),
     )
@@ -110,17 +110,17 @@ export async function PUT(
     const [updated] = await db
       .update(registryApiKeyPolicies)
       .set({
-        allowedCollectionIds,
+        allowedProjectIds,
         allowedTypes,
         allowedOwnerHandlesOrIds,
-        allowPublicOutsideCollections,
+        allowPublicOutsideProjects,
         updatedAt: new Date(),
       })
       .where(
         and(
           eq(registryApiKeyPolicies.apiKeyId, id),
-          activeTeamId
-            ? eq(registryApiKeyPolicies.ownerTeamId, activeTeamId)
+          activeOrganizationId
+            ? eq(registryApiKeyPolicies.ownerOrganizationId, activeOrganizationId)
             : eq(registryApiKeyPolicies.ownerUserId, userId),
         ),
       )
@@ -133,12 +133,12 @@ export async function PUT(
     .insert(registryApiKeyPolicies)
     .values({
       apiKeyId: id,
-      ownerUserId: activeTeamId ? null : userId,
-      ownerTeamId: activeTeamId,
-      allowedCollectionIds,
+      ownerUserId: activeOrganizationId ? null : userId,
+      ownerOrganizationId: activeOrganizationId,
+      allowedProjectIds,
       allowedTypes,
       allowedOwnerHandlesOrIds,
-      allowPublicOutsideCollections,
+      allowPublicOutsideProjects,
     })
     .returning();
 
@@ -149,7 +149,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId, activeTeamId } = await getCollectionScopeContext(request);
+  const { userId, activeOrganizationId } = await getProjectScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
@@ -169,8 +169,8 @@ export async function DELETE(
     .where(
       and(
         eq(registryApiKeyPolicies.apiKeyId, id),
-        activeTeamId
-          ? eq(registryApiKeyPolicies.ownerTeamId, activeTeamId)
+        activeOrganizationId
+          ? eq(registryApiKeyPolicies.ownerOrganizationId, activeOrganizationId)
           : eq(registryApiKeyPolicies.ownerUserId, userId),
       ),
     );

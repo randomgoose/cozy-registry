@@ -35,11 +35,10 @@ export async function POST(request: Request) {
       registryDependencies?: unknown;
       previewProps?: unknown;
       previewExport?: unknown;
-      publishScope?: "personal" | "team";
+      publishScope?: "personal" | "organization";
       targetRef?: string | null;
       organizationSlug?: string | null;
-      teamSlug?: string | null;
-      teamId?: string | null;
+      organizationId?: string | null;
     };
 
     const hasFiles =
@@ -80,20 +79,19 @@ export async function POST(request: Request) {
 
     const resolvedPublishTarget = await resolvePublishTargetForUser({
       userId,
-      publishScope: body.publishScope === "team" ? "team" : "personal",
+      publishScope: body.publishScope === "organization" ? "organization" : "personal",
       targetRef: typeof body.targetRef === "string" ? body.targetRef : null,
       organizationSlug:
         typeof body.organizationSlug === "string" ? body.organizationSlug : null,
-      teamSlug: typeof body.teamSlug === "string" ? body.teamSlug : null,
-      teamId: typeof body.teamId === "string" ? body.teamId : null,
-      activeTeamId: session?.session?.activeTeamId ?? null,
+      organizationId: typeof body.organizationId === "string" ? body.organizationId : null,
+      activeOrganizationId: session?.session?.activeOrganizationId ?? null,
     });
 
     if (!resolvedPublishTarget.ok) {
       const status =
-        resolvedPublishTarget.code === "AMBIGUOUS_TEAM_TARGET"
+        resolvedPublishTarget.code === "AMBIGUOUS_ORG_TARGET"
           ? 400
-          : resolvedPublishTarget.code === "NO_TEAM_WRITE_ACCESS"
+          : resolvedPublishTarget.code === "NO_ORG_WRITE_ACCESS"
             ? 403
             : 400;
       return NextResponse.json(
@@ -101,11 +99,9 @@ export async function POST(request: Request) {
           error: resolvedPublishTarget.message,
           code: resolvedPublishTarget.code,
           candidates: resolvedPublishTarget.candidates?.map((candidate) => ({
-            teamId: candidate.id,
-            teamName: candidate.name,
-            organizationName: candidate.organizationName,
-            organizationSlug: candidate.organizationSlug,
-            teamSlug: candidate.teamSlug,
+            organizationId: candidate.id,
+            organizationName: candidate.name,
+            organizationSlug: candidate.slug,
             targetRef: candidate.targetRef,
             role: candidate.role,
           })),
@@ -115,7 +111,7 @@ export async function POST(request: Request) {
     }
 
     const publishTarget = resolvedPublishTarget.target;
-    const teamTarget = publishTarget.kind === "team" ? publishTarget : null;
+    const orgTarget = publishTarget.kind === "organization" ? publishTarget : null;
 
     const isTheme = normalizedType === REGISTRY_THEME_TYPE;
     if (!hasFiles) {
@@ -280,8 +276,8 @@ export async function POST(request: Request) {
       description: description || null,
       content: filesToWrite ? undefined : normalizedContent,
       files: filesToWrite,
-      userId: teamTarget ? null : userId,
-      teamId: teamTarget?.id ?? null,
+      userId: orgTarget ? null : userId,
+      organizationId: orgTarget?.id ?? null,
       visibility: validVisibility,
       dependencies,
       registryDependencies: depsToWrite,
@@ -292,16 +288,13 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       item,
-      publishTarget: teamTarget
+      publishTarget: orgTarget
         ? {
-            kind: "team",
-            teamId: teamTarget.id,
-            teamName: teamTarget.name,
-            organizationId: teamTarget.organizationId,
-            organizationName: teamTarget.organizationName,
-            organizationSlug: teamTarget.organizationSlug,
-            teamSlug: teamTarget.teamSlug,
-            targetRef: teamTarget.targetRef,
+            kind: "organization",
+            organizationId: orgTarget.id,
+            organizationName: orgTarget.name,
+            organizationSlug: orgTarget.slug,
+            targetRef: orgTarget.targetRef,
           }
         : { kind: "user", userId, targetRef: "personal" },
       hints,

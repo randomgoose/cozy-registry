@@ -58,10 +58,6 @@ export const auth = betterAuth({
       ac: organizationAccessControl,
       roles: organizationRoles,
       creatorRole: "owner",
-      teams: {
-        enabled: true,
-        defaultTeam: { enabled: true },
-      },
       sendInvitationEmail: async (data) => {
         await sendOrganizationInvitationEmail({
           id: data.id,

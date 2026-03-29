@@ -18,9 +18,9 @@ type HomeUserMenuProps = {
 };
 
 const MENU_ITEMS = [
-  { href: "/dashboard", label: "My items" },
-  { href: "/collections", label: "Collections" },
-  { href: "/settings", label: "Settings" },
+  { href: "/me", label: "My items" },
+  { href: "/me/projects", label: "Projects" },
+  { href: "/me/settings", label: "Settings" },
 ];
 
 export function HomeUserMenu({ fullName, username }: HomeUserMenuProps) {

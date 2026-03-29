@@ -6,7 +6,6 @@ import {
   createRegistryItemVersion,
   getCurrentVersion,
 } from "@/lib/registry";
-import { resolveOwner } from "@/lib/owner";
 import {
   REGISTRY_THEME_TYPE,
   normalizeRegistryItemType,
@@ -15,8 +14,7 @@ import { validateComponentBundle, validateTsx } from "@/lib/validate-tsx";
 import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
 import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
 import { normalizePublishContract } from "@/lib/registry-publish-contract";
-import { getWritableTeamTargetForUser } from "@/lib/publish-target";
-import { parseTeamOwnerPath, resolveTeamByOrgSlugAndTeamSegment } from "@/lib/registry-team";
+import { getWritableOrganizationTargetForUser } from "@/lib/publish-target";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -83,14 +81,6 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const { content, files, bump, message } = body;
-  const teamPath = parseTeamOwnerPath(owner);
-  const resolvedTeam = teamPath
-    ? await resolveTeamByOrgSlugAndTeamSegment(teamPath.orgSlug, teamPath.teamSegment)
-    : null;
-  const resolved = !resolvedTeam ? await resolveOwner(owner) : null;
-  if (!resolvedTeam && !resolved) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
 
   const item = await getRegistryItemByOwnerNameAndVersion(
     owner,
@@ -102,14 +92,16 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  if (resolvedTeam) {
-    const writableTeam = await getWritableTeamTargetForUser(userId, resolvedTeam.teamId);
-    if (!writableTeam) {
+  if (item.organizationId) {
+    const writable = await getWritableOrganizationTargetForUser(userId, item.organizationId);
+    if (!writable) {
       return NextResponse.json(
-        { error: "You do not have publish access to the selected team." },
+        { error: "You do not have publish access to this organization registry." },
         { status: 403 },
       );
     }
+  } else if (item.userId !== userId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const normalizedType = normalizeRegistryItemType(item.type);
@@ -247,8 +239,8 @@ export async function POST(request: Request, { params }: Params) {
       content: finalFiles ? null : finalContent,
     });
     const result = await createRegistryItemVersion({
-      ownerId: resolved?.userId,
-      teamId: resolvedTeam?.teamId,
+      ownerId: item.userId ?? undefined,
+      organizationId: item.organizationId ?? undefined,
       name,
       content: finalContent,
       files: contract.value.filesToWrite ?? finalFiles,

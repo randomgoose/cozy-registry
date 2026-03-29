@@ -43,7 +43,7 @@ function AcceptInvitationContent() {
         return;
       }
 
-      router.replace("/dashboard");
+      router.replace("/me");
       router.refresh();
     })();
 
@@ -58,7 +58,7 @@ function AcceptInvitationContent() {
         <p className="text-sm text-red-600 dark:text-red-400">
           This invitation link is missing required information.
         </p>
-        <Link href="/dashboard" className="mt-4 text-sm text-blue-600 hover:underline dark:text-blue-400">
+        <Link href="/me" className="mt-4 text-sm text-blue-600 hover:underline dark:text-blue-400">
           Go to dashboard
         </Link>
       </div>
@@ -104,7 +104,7 @@ function AcceptInvitationContent() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
       <p className="max-w-md text-center text-sm text-red-600 dark:text-red-400">{message}</p>
-      <Link href="/dashboard" className="mt-4 text-sm text-blue-600 hover:underline dark:text-blue-400">
+      <Link href="/me" className="mt-4 text-sm text-blue-600 hover:underline dark:text-blue-400">
         Go to dashboard
       </Link>
     </div>

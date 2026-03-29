@@ -5,11 +5,11 @@ import { eq } from "drizzle-orm";
 export type RegistryPolicy = {
   apiKeyId: string;
   ownerUserId: string | null;
-  ownerTeamId?: string | null;
-  allowedCollectionIds: string[];
+  ownerOrganizationId?: string | null;
+  allowedProjectIds: string[];
   allowedTypes: string[];
   allowedOwnerHandlesOrIds: string[];
-  allowPublicOutsideCollections: boolean;
+  allowPublicOutsideProjects: boolean;
 };
 
 export async function getRegistryPolicyForApiKey(
@@ -25,10 +25,10 @@ export async function getRegistryPolicyForApiKey(
   return {
     apiKeyId: row.apiKeyId,
     ownerUserId: row.ownerUserId ?? null,
-    ownerTeamId: row.ownerTeamId ?? null,
-    allowedCollectionIds: (row.allowedCollectionIds ?? []) as string[],
+    ownerOrganizationId: row.ownerOrganizationId ?? null,
+    allowedProjectIds: (row.allowedProjectIds ?? []) as string[],
     allowedTypes: (row.allowedTypes ?? []) as string[],
     allowedOwnerHandlesOrIds: (row.allowedOwnerHandlesOrIds ?? []) as string[],
-    allowPublicOutsideCollections: !!row.allowPublicOutsideCollections,
+    allowPublicOutsideProjects: !!row.allowPublicOutsideProjects,
   };
 }

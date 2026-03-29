@@ -1,21 +1,14 @@
 import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { member, organization, team, teamMember } from "@/lib/db/schema";
-import {
-  ensureTeamSlug,
-  parseTeamOwnerPath,
-  resolveTeamByOrgSlugAndTeamSegment,
-} from "@/lib/registry-team";
+import { member, organization } from "@/lib/db/schema";
+import { resolveOrganizationBySlug } from "@/lib/registry-organization";
 
-export type WritableTeamTarget = {
-  kind: "team";
+export type WritableOrganizationTarget = {
+  kind: "organization";
   id: string;
   name: string;
-  organizationId: string;
-  organizationName: string;
-  organizationSlug: string;
-  teamSlug: string;
+  slug: string;
   role: string;
   targetRef: string;
 };
@@ -27,23 +20,32 @@ export type PersonalPublishTarget = {
   targetRef: "personal";
 };
 
-export type PublishTarget = PersonalPublishTarget | WritableTeamTarget;
+export type PublishTarget = PersonalPublishTarget | WritableOrganizationTarget;
 
 export type ResolvePublishTargetInput = {
   userId: string;
-  publishScope?: "personal" | "team";
+  publishScope?: "personal" | "organization";
+  /** @deprecated use organizationSlug */
   targetRef?: string | null;
   organizationSlug?: string | null;
-  teamSlug?: string | null;
-  teamId?: string | null;
-  activeTeamId?: string | null;
+  organizationId?: string | null;
+  activeOrganizationId?: string | null;
 };
 
 export type ResolvePublishTargetResult =
   | { ok: true; target: PublishTarget }
-  | { ok: false; code: "NO_TEAM_TARGET" | "NO_TEAM_WRITE_ACCESS" | "AMBIGUOUS_TEAM_TARGET" | "INVALID_TEAM_TARGET"; message: string; candidates?: WritableTeamTarget[] };
+  | {
+      ok: false;
+      code:
+        | "NO_ORG_TARGET"
+        | "NO_ORG_WRITE_ACCESS"
+        | "AMBIGUOUS_ORG_TARGET"
+        | "INVALID_ORG_TARGET";
+      message: string;
+      candidates?: WritableOrganizationTarget[];
+    };
 
-export function canWriteTeamWithRole(role: string | null | undefined) {
+export function canWriteOrganizationWithRole(role: string | null | undefined) {
   return role === "owner" || role === "editor";
 }
 
@@ -56,47 +58,31 @@ function toPersonalPublishTarget(userId: string): PersonalPublishTarget {
   };
 }
 
-export async function getWritableTeamTargetForUser(
+export async function getWritableOrganizationTargetForUser(
   userId: string,
-  teamId: string,
-): Promise<WritableTeamTarget | null> {
+  organizationId: string,
+): Promise<WritableOrganizationTarget | null> {
   const [row] = await db
     .select({
-      id: team.id,
-      name: team.name,
-      organizationId: team.organizationId,
-      organizationName: organization.name,
-      organizationSlug: organization.slug,
-      teamSlug: team.slug,
+      id: organization.id,
+      name: organization.name,
+      slug: organization.slug,
       role: member.role,
     })
-    .from(teamMember)
-    .innerJoin(team, eq(teamMember.teamId, team.id))
-    .innerJoin(organization, eq(team.organizationId, organization.id))
-    .innerJoin(
-      member,
-      and(eq(member.userId, teamMember.userId), eq(member.organizationId, team.organizationId)),
-    )
-    .where(and(eq(teamMember.userId, userId), eq(team.id, teamId)))
+    .from(member)
+    .innerJoin(organization, eq(member.organizationId, organization.id))
+    .where(and(eq(member.userId, userId), eq(organization.id, organizationId)))
     .limit(1);
 
-  if (!row || !canWriteTeamWithRole(row.role)) return null;
-
-  const teamSlug = row.teamSlug && row.teamSlug.trim().length > 0
-    ? row.teamSlug
-    : await ensureTeamSlug(row.id);
-  if (!teamSlug) return null;
+  if (!row || !canWriteOrganizationWithRole(row.role)) return null;
 
   return {
-    kind: "team",
+    kind: "organization",
     id: row.id,
     name: row.name,
-    organizationId: row.organizationId,
-    organizationName: row.organizationName,
-    organizationSlug: row.organizationSlug,
-    teamSlug,
+    slug: row.slug,
     role: row.role,
-    targetRef: `@${row.organizationSlug}/${teamSlug}`,
+    targetRef: `@${row.slug}`,
   };
 }
 
@@ -105,78 +91,55 @@ export async function listWritablePublishTargetsForUser(
 ): Promise<PublishTarget[]> {
   const rows = await db
     .select({
-      id: team.id,
-      name: team.name,
-      organizationId: team.organizationId,
-      organizationName: organization.name,
-      organizationSlug: organization.slug,
-      teamSlug: team.slug,
+      id: organization.id,
+      name: organization.name,
+      slug: organization.slug,
       role: member.role,
     })
-    .from(teamMember)
-    .innerJoin(team, eq(teamMember.teamId, team.id))
-    .innerJoin(organization, eq(team.organizationId, organization.id))
-    .innerJoin(
-      member,
-      and(eq(member.userId, teamMember.userId), eq(member.organizationId, team.organizationId)),
-    )
-    .where(eq(teamMember.userId, userId))
-    .orderBy(asc(organization.name), asc(team.name));
+    .from(member)
+    .innerJoin(organization, eq(member.organizationId, organization.id))
+    .where(eq(member.userId, userId))
+    .orderBy(asc(organization.name));
 
-  const teamTargets: WritableTeamTarget[] = [];
+  const orgTargets: WritableOrganizationTarget[] = [];
   for (const row of rows) {
-    if (!canWriteTeamWithRole(row.role)) continue;
-    const teamSlug = row.teamSlug && row.teamSlug.trim().length > 0
-      ? row.teamSlug
-      : await ensureTeamSlug(row.id);
-    if (!teamSlug) continue;
-    teamTargets.push({
-      kind: "team",
+    if (!canWriteOrganizationWithRole(row.role)) continue;
+    orgTargets.push({
+      kind: "organization",
       id: row.id,
       name: row.name,
-      organizationId: row.organizationId,
-      organizationName: row.organizationName,
-      organizationSlug: row.organizationSlug,
-      teamSlug,
+      slug: row.slug,
       role: row.role,
-      targetRef: `@${row.organizationSlug}/${teamSlug}`,
+      targetRef: `@${row.slug}`,
     });
   }
 
-  return [toPersonalPublishTarget(userId), ...teamTargets];
+  return [toPersonalPublishTarget(userId), ...orgTargets];
 }
 
-async function resolveExplicitTeamTargetForUser(params: {
+async function resolveExplicitOrganizationTargetForUser(params: {
   userId: string;
   targetRef?: string | null;
   organizationSlug?: string | null;
-  teamSlug?: string | null;
-  teamId?: string | null;
-}): Promise<WritableTeamTarget | null> {
-  if (params.teamId) {
-    return getWritableTeamTargetForUser(params.userId, params.teamId);
+  organizationId?: string | null;
+}): Promise<WritableOrganizationTarget | null> {
+  if (params.organizationId) {
+    return getWritableOrganizationTargetForUser(params.userId, params.organizationId);
   }
 
-  let organizationSlug = params.organizationSlug?.trim() ?? "";
-  let teamSlug = params.teamSlug?.trim() ?? "";
-
+  let slug = params.organizationSlug?.trim() ?? "";
   if (params.targetRef && params.targetRef.trim().length > 0) {
     const normalized = params.targetRef.trim().startsWith("@")
       ? params.targetRef.trim().slice(1)
       : params.targetRef.trim();
-    const parsed = parseTeamOwnerPath(normalized);
-    if (!parsed) return null;
-    organizationSlug = parsed.orgSlug;
-    teamSlug = parsed.teamSegment;
+    const slash = normalized.indexOf("/");
+    slug = (slash > 0 ? normalized.slice(0, slash) : normalized).trim();
   }
 
-  if (!organizationSlug || !teamSlug) return null;
-  const resolved = await resolveTeamByOrgSlugAndTeamSegment(
-    organizationSlug,
-    teamSlug,
-  );
-  if (!resolved) return null;
-  return getWritableTeamTargetForUser(params.userId, resolved.teamId);
+  if (!slug) return null;
+  const org = await resolveOrganizationBySlug(slug);
+  if (!org) return null;
+  return getWritableOrganizationTargetForUser(params.userId, org.id);
 }
 
 export async function resolvePublishTargetForUser(
@@ -187,34 +150,33 @@ export async function resolvePublishTargetForUser(
     return { ok: true, target: toPersonalPublishTarget(params.userId) };
   }
 
-  const explicitTeamTarget = await resolveExplicitTeamTargetForUser({
+  const explicit = await resolveExplicitOrganizationTargetForUser({
     userId: params.userId,
     targetRef: params.targetRef,
     organizationSlug: params.organizationSlug,
-    teamSlug: params.teamSlug,
-    teamId: params.teamId,
+    organizationId: params.organizationId,
   });
-  const hasExplicitTeamInput =
-    !!params.teamId ||
+  const hasExplicitOrgInput =
+    !!params.organizationId ||
     !!params.targetRef?.trim() ||
-    (!!params.organizationSlug?.trim() && !!params.teamSlug?.trim());
+    !!params.organizationSlug?.trim();
 
-  if (hasExplicitTeamInput) {
-    if (!explicitTeamTarget) {
+  if (hasExplicitOrgInput) {
+    if (!explicit) {
       return {
         ok: false,
-        code: "NO_TEAM_WRITE_ACCESS",
+        code: "NO_ORG_WRITE_ACCESS",
         message:
-          "You do not have publish access to the selected team, or the team target is invalid.",
+          "You do not have publish access to the selected organization, or the organization target is invalid.",
       };
     }
-    return { ok: true, target: explicitTeamTarget };
+    return { ok: true, target: explicit };
   }
 
-  if (params.activeTeamId) {
-    const activeTarget = await getWritableTeamTargetForUser(
+  if (params.activeOrganizationId) {
+    const activeTarget = await getWritableOrganizationTargetForUser(
       params.userId,
-      params.activeTeamId,
+      params.activeOrganizationId,
     );
     if (activeTarget) {
       return { ok: true, target: activeTarget };
@@ -222,15 +184,15 @@ export async function resolvePublishTargetForUser(
   }
 
   const writableTargets = (await listWritablePublishTargetsForUser(params.userId)).filter(
-    (target): target is WritableTeamTarget => target.kind === "team",
+    (target): target is WritableOrganizationTarget => target.kind === "organization",
   );
 
   if (writableTargets.length === 0) {
     return {
       ok: false,
-      code: "NO_TEAM_WRITE_ACCESS",
+      code: "NO_ORG_WRITE_ACCESS",
       message:
-        "You do not currently have publish access to any team. Create or join a team first, or publish to personal scope.",
+        "You do not currently have publish access to any organization. Join an organization first, or publish to personal scope.",
     };
   }
 
@@ -240,9 +202,9 @@ export async function resolvePublishTargetForUser(
 
   return {
     ok: false,
-    code: "AMBIGUOUS_TEAM_TARGET",
+    code: "AMBIGUOUS_ORG_TARGET",
     message:
-      "You can publish to multiple teams. Choose one explicitly using targetRef like @org/team.",
+      "You can publish to multiple organizations. Choose one explicitly using targetRef like @org-slug.",
     candidates: writableTargets,
   };
 }

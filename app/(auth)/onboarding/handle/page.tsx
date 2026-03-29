@@ -19,7 +19,7 @@ export default function ChooseHandlePage() {
         }
         const data = (await res.json()) as { user: { handle?: string | null } | null };
         if (data.user?.handle) {
-          window.location.href = "/dashboard";
+          window.location.href = "/me";
           return;
         }
       } finally {
@@ -44,7 +44,7 @@ export default function ChooseHandlePage() {
         setError(data.error ?? "Failed to save username");
         return;
       }
-      window.location.href = "/dashboard";
+      window.location.href = "/me";
     } finally {
       setSaving(false);
     }

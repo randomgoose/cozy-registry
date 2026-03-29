@@ -1,32 +1,26 @@
 import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { getCollectionScopeContext } from "@/lib/collection-scope";
-import { registryCollectionItems, registryCollections, registryItems } from "@/lib/db/schema";
+import { getProjectScopeContext } from "@/lib/project-scope";
+import {
+  getProjectIfAccessible,
+  getUserProjectRole,
+  roleCanEditProject,
+} from "@/lib/project-permissions";
+import { registryProjectItems, registryItems } from "@/lib/db/schema";
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId, activeTeamId } = await getCollectionScopeContext(request);
+  const { userId } = await getProjectScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
   const { id } = await params;
 
-  const [collection] = await db
-    .select()
-    .from(registryCollections)
-    .where(
-      and(
-        eq(registryCollections.id, id),
-        activeTeamId
-          ? eq(registryCollections.ownerTeamId, activeTeamId)
-          : eq(registryCollections.ownerUserId, userId),
-      ),
-    )
-    .limit(1);
-  if (!collection) {
+  const project = await getProjectIfAccessible(userId, id);
+  if (!project) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -38,11 +32,11 @@ export async function GET(
       title: registryItems.title,
       description: registryItems.description,
       visibility: registryItems.visibility,
-      addedAt: registryCollectionItems.addedAt,
+      addedAt: registryProjectItems.addedAt,
     })
-    .from(registryCollectionItems)
-    .innerJoin(registryItems, eq(registryCollectionItems.itemId, registryItems.id))
-    .where(eq(registryCollectionItems.collectionId, id))
+    .from(registryProjectItems)
+    .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
+    .where(eq(registryProjectItems.projectId, id))
     .orderBy(registryItems.name);
 
   return NextResponse.json({ items: rows });
@@ -52,7 +46,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId, activeTeamId } = await getCollectionScopeContext(request);
+  const { userId, activeOrganizationId } = await getProjectScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
@@ -62,48 +56,48 @@ export async function POST(
     return NextResponse.json({ error: "Missing required field: itemId" }, { status: 400 });
   }
 
-  const [collection] = await db
-    .select()
-    .from(registryCollections)
-    .where(
-      and(
-        eq(registryCollections.id, id),
-        activeTeamId
-          ? eq(registryCollections.ownerTeamId, activeTeamId)
-          : eq(registryCollections.ownerUserId, userId),
-      ),
-    )
-    .limit(1);
-  if (!collection) {
+  const project = await getProjectIfAccessible(userId, id);
+  if (!project) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const role = await getUserProjectRole(userId, id, project.ownerUserId);
+  if (!roleCanEditProject(role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const [item] = await db
-    .select({ id: registryItems.id })
+    .select({ id: registryItems.id, userId: registryItems.userId, organizationId: registryItems.organizationId })
     .from(registryItems)
-    .where(
-      and(
-        eq(registryItems.id, body.itemId),
-        activeTeamId
-          ? eq(registryItems.teamId, activeTeamId)
-          : eq(registryItems.userId, userId),
-      ),
-    )
+    .where(eq(registryItems.id, body.itemId))
     .limit(1);
   if (!item) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
 
+  if (project.organizationId) {
+    if (item.organizationId !== project.organizationId) {
+      return NextResponse.json(
+        { error: "Item must belong to the same organization as this project" },
+        { status: 400 },
+      );
+    }
+  } else if (item.userId !== userId) {
+    return NextResponse.json(
+      { error: "Item must belong to you for a personal project" },
+      { status: 400 },
+    );
+  }
+
   try {
-    await db.insert(registryCollectionItems).values({
-      collectionId: id,
+    await db.insert(registryProjectItems).values({
+      projectId: id,
       itemId: body.itemId,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to add item";
     const isUnique = /\bduplicate key\b|\bunique constraint\b|23505/.test(msg);
     if (isUnique) {
-      return NextResponse.json({ error: "Item already exists in this collection" }, { status: 409 });
+      return NextResponse.json({ error: "Item already exists in this project" }, { status: 409 });
     }
     return NextResponse.json({ error: msg }, { status: 500 });
   }

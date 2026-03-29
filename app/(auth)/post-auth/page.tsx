@@ -22,5 +22,5 @@ export default async function PostAuthPage() {
     .where(eq(user.id, userId))
     .limit(1);
 
-  redirect(row?.handle ? "/dashboard" : "/onboarding/handle");
+  redirect(row?.handle ? "/me" : "/onboarding/handle");
 }

@@ -173,7 +173,7 @@ export default async function Home() {
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
-              href={session ? "/dashboard" : "/sign-up"}
+              href={session ? "/me" : "/sign-up"}
               className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
               {session ? "View my registry" : "Sign up"}
@@ -254,7 +254,7 @@ export default async function Home() {
               Docs
             </Link>
             <Link
-              href={session ? "/dashboard" : "/sign-up"}
+              href={session ? "/me" : "/sign-up"}
               className="transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
             >
               {session ? "Dashboard" : "Sign up"}

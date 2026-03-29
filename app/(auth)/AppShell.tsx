@@ -15,21 +15,26 @@ function shouldShowAppNav(pathname: string, email: string | null) {
   if (pathname.startsWith("/sign-up")) return false;
   if (pathname.startsWith("/onboarding")) return false;
   return (
-    pathname === "/dashboard" ||
-    pathname === "/collections" ||
-    pathname === "/workspace" ||
-    pathname === "/settings" ||
-    pathname === "/docs"
+    pathname.startsWith("/me") ||
+    pathname.startsWith("/workspace") ||
+    pathname === "/docs" ||
+    pathname.startsWith("/docs/")
   );
 }
 
-const APP_NAV_ITEMS = [
-  { href: "/dashboard", label: "My items" },
-  { href: "/collections", label: "Collections" },
-  { href: "/workspace", label: "Workspace" },
-  { href: "/settings", label: "Settings" },
-  { href: "/docs", label: "Docs" },
-];
+function normalizePath(p: string) {
+  if (p.length > 1 && p.endsWith("/")) return p.slice(0, -1);
+  return p;
+}
+
+function navActive(pathname: string, href: string) {
+  const path = normalizePath(pathname);
+  const h = normalizePath(href);
+  if (h === "/me") return path === "/me";
+  // Workspace catalog root: /workspace/{slug} only (not /projects or /settings)
+  if (/^\/workspace\/[^/]+$/.test(h)) return path === h;
+  return path === h || path.startsWith(`${h}/`);
+}
 
 export function AppShell(props: {
   userId: string | null;
@@ -43,6 +48,36 @@ export function AppShell(props: {
   const show = shouldShowAppNav(pathname, props.email);
 
   if (!show) return <>{props.children}</>;
+
+  const workspaceMatch = pathname.match(/^\/workspace\/([^/]+)/);
+  const activeWorkspaceSlug = workspaceMatch
+    ? decodeURIComponent(workspaceMatch[1])
+    : undefined;
+  const isWorkspaceShell = !!activeWorkspaceSlug;
+
+  const personalNav = [
+    { href: "/me", label: "My items" },
+    { href: "/me/projects", label: "Projects" },
+    { href: "/me/settings", label: "Settings" },
+  ] as const;
+
+  const navItems =
+    isWorkspaceShell && activeWorkspaceSlug
+      ? ([
+          {
+            href: `/workspace/${encodeURIComponent(activeWorkspaceSlug)}`,
+            label: "Items",
+          },
+          {
+            href: `/workspace/${encodeURIComponent(activeWorkspaceSlug)}/projects`,
+            label: "Projects",
+          },
+          {
+            href: `/workspace/${encodeURIComponent(activeWorkspaceSlug)}/settings`,
+            label: "Settings",
+          },
+        ] as const)
+      : personalNav;
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.05),transparent_24%),linear-gradient(180deg,#fffdf9_0%,#ffffff_42%,#fbfbfc_100%)] dark:bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_20%),linear-gradient(180deg,#09090b_0%,#09090b_100%)]">
@@ -79,8 +114,8 @@ export function AppShell(props: {
                 <WorkspaceScopeSwitcher workspace={props.workspace} userId={props.userId} />
               </div>
               <nav className="mt-4 space-y-1">
-                {APP_NAV_ITEMS.map((item) => {
-                  const isActive = pathname === item.href;
+                {navItems.map((item) => {
+                  const isActive = navActive(pathname, item.href);
                   return (
                     <Link
                       key={item.href}

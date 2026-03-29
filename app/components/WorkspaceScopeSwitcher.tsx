@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Check, ChevronDown, Plus } from "lucide-react";
 import { toast } from "sonner";
 import type { WorkspaceContext } from "@/lib/workspace-context";
@@ -38,25 +38,56 @@ function slugifyWorkspaceName(value: string) {
     .slice(0, 48);
 }
 
+/** Preserve items / projects / settings (or org hub) when switching scope via URL. */
+function inferNavSection(pathname: string): "items" | "projects" | "settings" | "org_hub" {
+  if (pathname === "/workspace") return "org_hub";
+  if (pathname.includes("/projects")) return "projects";
+  if (pathname.includes("/settings")) return "settings";
+  return "items";
+}
+
+function personalPathForSection(section: ReturnType<typeof inferNavSection>): string {
+  switch (section) {
+    case "projects":
+      return "/me/projects";
+    case "settings":
+      return "/me/settings";
+    case "org_hub":
+      return "/me";
+    default:
+      return "/me";
+  }
+}
+
+function workspacePathForSlug(orgSlug: string, section: ReturnType<typeof inferNavSection>): string {
+  const enc = encodeURIComponent(orgSlug);
+  switch (section) {
+    case "projects":
+      return `/workspace/${enc}/projects`;
+    case "settings":
+      return `/workspace/${enc}/settings`;
+    case "org_hub":
+      return `/workspace/${enc}`;
+    default:
+      return `/workspace/${enc}`;
+  }
+}
+
 export function WorkspaceScopeSwitcher({
   workspace,
-  userId,
+  userId: _userId,
 }: WorkspaceScopeSwitcherProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [createOpen, setCreateOpen] = useState(false);
-  const [teamName, setTeamName] = useState("");
+  const [orgName, setOrgName] = useState("");
 
-  const targetOrganization = useMemo(
-    () => workspace.activeOrganization ?? workspace.organizations[0] ?? null,
-    [workspace.activeOrganization, workspace.organizations],
-  );
-
-  const activePrimaryLabel = workspace.activeTeam?.name ?? "Personal";
-  const activeSecondaryLabel = workspace.activeTeam
-    ? workspace.activeOrganization?.name ?? "Team workspace"
+  const activePrimaryLabel = workspace.activeOrganization?.name ?? "Personal";
+  const activeSecondaryLabel = workspace.activeOrganization
+    ? `@${workspace.activeOrganization.slug}`
     : "Your own registry";
 
   async function postJson(path: string, body: Record<string, string | null>) {
@@ -79,9 +110,10 @@ export function WorkspaceScopeSwitcher({
     startTransition(async () => {
       try {
         setSwitchError(null);
-        await postJson("/api/auth/organization/set-active-team", {
-          teamId: null,
+        await postJson("/api/auth/organization/set-active", {
+          organizationId: null,
         });
+        router.push(personalPathForSection(inferNavSection(pathname)));
         router.refresh();
       } catch (nextError) {
         const message =
@@ -94,16 +126,18 @@ export function WorkspaceScopeSwitcher({
     });
   }
 
-  function switchToTeam(organizationId: string, teamId: string) {
+  function switchToOrganization(organizationId: string) {
+    const org = workspace.organizations.find((o) => o.id === organizationId);
+    const slug = org?.slug;
     startTransition(async () => {
       try {
         setSwitchError(null);
         await postJson("/api/auth/organization/set-active", {
           organizationId,
         });
-        await postJson("/api/auth/organization/set-active-team", {
-          teamId,
-        });
+        if (slug) {
+          router.push(workspacePathForSlug(slug, inferNavSection(pathname)));
+        }
         router.refresh();
       } catch (nextError) {
         const message =
@@ -116,43 +150,19 @@ export function WorkspaceScopeSwitcher({
     });
   }
 
-  function createTeam() {
-    const nextName = teamName.trim();
+  function createOrganization() {
+    const nextName = orgName.trim();
     if (!nextName) return;
 
     startTransition(async () => {
       try {
         setCreateError(null);
-        if (!targetOrganization) {
-          const slug = slugifyWorkspaceName(nextName);
-          if (!slug) {
-            throw new Error("Please enter a valid workspace name.");
-          }
-
-          const response = await fetch("/api/auth/organization/create", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            credentials: "include",
-            body: JSON.stringify({
-              name: nextName,
-              slug,
-            }),
-          });
-
-          if (!response.ok) {
-            const message = await response.text().catch(() => "");
-            throw new Error(message || `Request failed (${response.status})`);
-          }
-
-          setTeamName("");
-          setCreateOpen(false);
-          router.refresh();
-          return;
+        const slug = slugifyWorkspaceName(nextName);
+        if (!slug) {
+          throw new Error("Please enter a valid workspace name.");
         }
 
-        const response = await fetch("/api/auth/organization/create-team", {
+        const response = await fetch("/api/auth/organization/create", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -160,7 +170,7 @@ export function WorkspaceScopeSwitcher({
           credentials: "include",
           body: JSON.stringify({
             name: nextName,
-            organizationId: targetOrganization.id,
+            slug,
           }),
         });
 
@@ -169,39 +179,15 @@ export function WorkspaceScopeSwitcher({
           throw new Error(message || `Request failed (${response.status})`);
         }
 
-        const created = (await response.json()) as { id?: string };
-        if (!created?.id) {
-          throw new Error("Team created, but no team id was returned.");
-        }
-
-        if (userId) {
-          await postJson("/api/auth/organization/add-team-member", {
-            teamId: created.id,
-            userId,
-          });
-        }
-
-        await postJson("/api/team/ensure-slug", {
-          teamId: created.id,
-        });
-
-        await postJson("/api/auth/organization/set-active", {
-          organizationId: targetOrganization.id,
-        });
-        await postJson("/api/auth/organization/set-active-team", {
-          teamId: created.id,
-        });
-
-        setTeamName("");
+        setOrgName("");
         setCreateOpen(false);
-          router.refresh();
+        router.push(workspacePathForSlug(slug, inferNavSection(pathname)));
+        router.refresh();
       } catch (nextError) {
         const message =
           nextError instanceof Error
             ? nextError.message
-            : targetOrganization
-              ? "Failed to create team"
-              : "Failed to create workspace";
+            : "Failed to create workspace";
         setCreateError(message);
         toast.error(message);
       }
@@ -221,24 +207,21 @@ export function WorkspaceScopeSwitcher({
       >
         <DialogContent className="max-w-md rounded-[24px] border border-white/65 bg-white/90 p-5 shadow-[0_24px_48px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/92 dark:shadow-[0_28px_52px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]">
           <DialogHeader>
-            <DialogTitle>
-              {targetOrganization ? "Create team" : "Create workspace"}
-            </DialogTitle>
+            <DialogTitle>Create organization</DialogTitle>
             <DialogDescription>
-              {targetOrganization
-                ? `Create a new team inside ${targetOrganization.name}.`
-                : "Create your first shared workspace. A default team will be created automatically."}
+              Create a shared organization workspace. You can add projects and invite members from the
+              workspace settings page.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
-                {targetOrganization ? "Team name" : "Workspace name"}
+                Organization name
               </label>
               <Input
-                value={teamName}
-                onChange={(event) => setTeamName(event.target.value)}
-                placeholder={targetOrganization ? "Trading" : "Acme Design"}
+                value={orgName}
+                onChange={(event) => setOrgName(event.target.value)}
+                placeholder="Acme Design"
                 className="h-9 rounded-xl border-zinc-200 bg-white/90 px-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/70"
                 autoFocus
               />
@@ -250,19 +233,11 @@ export function WorkspaceScopeSwitcher({
             ) : null}
           </div>
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setCreateOpen(false)}
-            >
+            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
-            <Button
-              type="button"
-              onClick={createTeam}
-              disabled={!teamName.trim() || pending}
-            >
-              {targetOrganization ? "Create team" : "Create workspace"}
+            <Button type="button" onClick={createOrganization} disabled={!orgName.trim() || pending}>
+              Create organization
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -308,9 +283,7 @@ export function WorkspaceScopeSwitcher({
                   Your own registry assets
                 </div>
               </div>
-              {!workspace.activeTeam ? (
-                <Check className="size-4 shrink-0" />
-              ) : null}
+              {!workspace.activeOrganization ? <Check className="size-4 shrink-0" /> : null}
             </div>
           </DropdownMenuItem>
 
@@ -320,47 +293,26 @@ export function WorkspaceScopeSwitcher({
 
           <div className="max-h-[18rem] overflow-auto">
             {workspace.organizations.map((organization) => (
-              <div key={organization.id} className="mb-2 last:mb-0">
-                <div className="px-2 pb-1">
-                  <div className="truncate text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                    Workspace
+              <DropdownMenuItem
+                key={organization.id}
+                className="rounded-xl px-3 py-2 text-sm text-zinc-700 focus:bg-black/[0.06] focus:text-zinc-950 dark:text-zinc-300 dark:focus:bg-black/30 dark:focus:text-zinc-50"
+                onClick={() => switchToOrganization(organization.id)}
+              >
+                <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{organization.name}</div>
+                    <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                      @{organization.slug} ·{" "}
+                      {organization.role === "owner"
+                        ? "Owner"
+                        : organization.role === "editor"
+                          ? "Editor"
+                          : "Viewer"}
+                    </div>
                   </div>
-                  <div className="truncate pt-1 text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">
-                    {organization.name}
-                  </div>
-                  <div className="truncate pt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-                    @{organization.slug}
-                  </div>
+                  {organization.isActive ? <Check className="size-4 shrink-0" /> : null}
                 </div>
-                <div className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                  Teams
-                </div>
-                <div className="space-y-1">
-                  {organization.teams.map((team) => (
-                    <DropdownMenuItem
-                      key={team.id}
-                      className="rounded-xl px-3 py-2 text-sm text-zinc-700 focus:bg-black/[0.06] focus:text-zinc-950 dark:text-zinc-300 dark:focus:bg-black/30 dark:focus:text-zinc-50"
-                      onClick={() => switchToTeam(organization.id, team.id)}
-                    >
-                      <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">{team.name}</div>
-                          <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-                            {organization.role === "owner"
-                              ? "Owner access"
-                              : organization.role === "editor"
-                                ? "Editor access"
-                                : "Viewer access"}
-                          </div>
-                        </div>
-                        {team.isActive ? (
-                          <Check className="size-4 shrink-0" />
-                        ) : null}
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </div>
-              </div>
+              </DropdownMenuItem>
             ))}
           </div>
 
@@ -375,7 +327,7 @@ export function WorkspaceScopeSwitcher({
               onClick={() => setCreateOpen(true)}
             >
               <Plus className="size-4" />
-              {targetOrganization ? "Create team" : "Create workspace"}
+              Create organization
             </button>
           </div>
         </DropdownMenuContent>
@@ -388,8 +340,8 @@ export function WorkspaceScopeSwitcher({
         )}
       >
         {switchError ??
-          (workspace.activeTeam
-            ? "You are viewing this team's registry scope."
+          (workspace.activeOrganization
+            ? "You are viewing this organization’s registry scope."
             : "You are viewing your personal scope.")}
       </p>
     </div>

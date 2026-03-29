@@ -268,7 +268,9 @@ export const registryItems = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
-    teamId: text("team_id").references(() => team.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id").references(() => organization.id, {
+      onDelete: "cascade",
+    }),
     name: text("name").notNull(),
     type: text("type").notNull(), // registry:block, registry:component, etc.
     title: text("title").notNull(),
@@ -284,10 +286,9 @@ export const registryItems = pgTable(
   },
   (table) => [
     index("registry_items_userId_idx").on(table.userId),
-    index("registry_items_teamId_idx").on(table.teamId),
+    index("registry_items_organization_id_idx").on(table.organizationId),
     // Per-user unique: each user can have one component per name
     unique("registry_items_user_name_key").on(table.userId, table.name),
-    unique("registry_items_team_name_key").on(table.teamId, table.name),
   ]
 );
 
@@ -335,14 +336,16 @@ export const registryFileVersions = pgTable("registry_file_versions", {
   type: text("type").notNull(),
 });
 
-// --- Registry organization & AI scope tables ---
+// --- Registry projects (scoped groups + per-project ACL) ---
 
-export const registryCollections = pgTable(
-  "registry_collections",
+export const registryProjects = pgTable(
+  "registry_projects",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id").references(() => organization.id, {
+      onDelete: "cascade",
+    }),
     ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: "cascade" }),
-    ownerTeamId: text("owner_team_id").references(() => team.id, { onDelete: "cascade" }),
     slug: text("slug").notNull(),
     title: text("title").notNull(),
     description: text("description"),
@@ -354,28 +357,46 @@ export const registryCollections = pgTable(
       .notNull(),
   },
   (table) => [
-    index("registry_collections_ownerUserId_idx").on(table.ownerUserId),
-    index("registry_collections_ownerTeamId_idx").on(table.ownerTeamId),
-    unique("registry_collections_owner_slug_key").on(table.ownerUserId, table.slug),
-    unique("registry_collections_owner_team_slug_key").on(table.ownerTeamId, table.slug),
+    index("registry_projects_organization_id_idx").on(table.organizationId),
+    index("registry_projects_owner_user_id_idx").on(table.ownerUserId),
   ],
 );
 
-export const registryCollectionItems = pgTable(
-  "registry_collection_items",
+export const registryProjectMembers = pgTable(
+  "registry_project_members",
   {
-    collectionId: uuid("collection_id")
+    id: uuid("id").defaultRandom().primaryKey(),
+    projectId: uuid("project_id")
       .notNull()
-      .references(() => registryCollections.id, { onDelete: "cascade" }),
+      .references(() => registryProjects.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("viewer"), // owner | admin | editor | viewer
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("registry_project_members_project_id_idx").on(table.projectId),
+    index("registry_project_members_user_id_idx").on(table.userId),
+    unique("registry_project_members_project_user_key").on(table.projectId, table.userId),
+  ],
+);
+
+export const registryProjectItems = pgTable(
+  "registry_project_items",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => registryProjects.id, { onDelete: "cascade" }),
     itemId: uuid("item_id")
       .notNull()
       .references(() => registryItems.id, { onDelete: "cascade" }),
     addedAt: timestamp("added_at").defaultNow().notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.collectionId, table.itemId] }),
-    index("registry_collection_items_collectionId_idx").on(table.collectionId),
-    index("registry_collection_items_itemId_idx").on(table.itemId),
+    primaryKey({ columns: [table.projectId, table.itemId] }),
+    index("registry_project_items_project_id_idx").on(table.projectId),
+    index("registry_project_items_item_id_idx").on(table.itemId),
   ],
 );
 
@@ -411,10 +432,10 @@ export const registryAssetJobs = pgTable(
 );
 
 export type RegistryApiKeyPolicy = {
-  allowedCollectionIds: string[];
+  allowedProjectIds: string[];
   allowedTypes: string[];
   allowedOwnerHandlesOrIds?: string[];
-  allowPublicOutsideCollections: boolean;
+  allowPublicOutsideProjects: boolean;
 };
 
 export const registryApiKeyPolicies = pgTable(
@@ -424,15 +445,15 @@ export const registryApiKeyPolicies = pgTable(
       .primaryKey()
       .references(() => apiKey.id, { onDelete: "cascade" }),
     ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: "cascade" }),
-    ownerTeamId: text("owner_team_id").references(() => team.id, { onDelete: "cascade" }),
-    allowedCollectionIds: jsonb("allowed_collection_ids")
-      .$type<string[]>()
-      .default([]),
+    ownerOrganizationId: text("owner_organization_id").references(() => organization.id, {
+      onDelete: "cascade",
+    }),
+    allowedProjectIds: jsonb("allowed_project_ids").$type<string[]>().default([]),
     allowedTypes: jsonb("allowed_types").$type<string[]>().default([]),
     allowedOwnerHandlesOrIds: jsonb("allowed_owner_handles_or_ids")
       .$type<string[]>()
       .default([]),
-    allowPublicOutsideCollections: boolean("allow_public_outside_collections")
+    allowPublicOutsideProjects: boolean("allow_public_outside_collections")
       .default(false)
       .notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -443,6 +464,6 @@ export const registryApiKeyPolicies = pgTable(
   },
   (table) => [
     index("registry_api_key_policies_ownerUserId_idx").on(table.ownerUserId),
-    index("registry_api_key_policies_ownerTeamId_idx").on(table.ownerTeamId),
+    index("registry_api_key_policies_owner_organization_id_idx").on(table.ownerOrganizationId),
   ],
 );
