@@ -35,7 +35,7 @@ import {
 } from "@cozy/auth-control/registry-team";
 import { getRegistryPolicyForApiKey } from "@cozy/registry-domain/registry-policy";
 import { db } from "@cozy/db";
-import { registryCollections } from "@cozy/db/schema";
+import { projects } from "@cozy/db/schema";
 import { parseTokensFromJson, tokensToRootCss } from "@cozy/tooling/theme-tokens";
 import {
   checkInstalledItemUpdate,
@@ -183,9 +183,9 @@ export function createRegistryMcpServer(request?: Request) {
 
   async function getAdhocPolicyForCollectionSlug(collectionSlug: string, requestUserId: string) {
     const [row] = await db
-      .select({ id: registryCollections.id })
-      .from(registryCollections)
-      .where(and(eq(registryCollections.ownerUserId, requestUserId), eq(registryCollections.slug, collectionSlug)))
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.ownerUserId, requestUserId), eq(projects.slug, collectionSlug)))
       .limit(1);
     if (!row?.id) return null;
 
@@ -226,14 +226,14 @@ export function createRegistryMcpServer(request?: Request) {
 
       const rows = await db
         .select({
-          id: registryCollections.id,
-          slug: registryCollections.slug,
-          title: registryCollections.title,
-          visibility: registryCollections.visibility,
+          id: projects.id,
+          slug: projects.slug,
+          title: projects.title,
+          visibility: projects.visibility,
         })
-        .from(registryCollections)
-        .where(eq(registryCollections.ownerUserId, userId))
-        .orderBy(registryCollections.slug);
+        .from(projects)
+        .where(eq(projects.ownerUserId, userId))
+        .orderBy(projects.slug);
 
       const lines = rows.map((c) => `- **${c.slug}**: ${c.title} (${c.visibility})`).join("\n");
       return {

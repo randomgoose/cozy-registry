@@ -1,7 +1,9 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { RouterProvider } from "@tanstack/react-router";
-import { getRouter } from "./router";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { RouterProvider } from "react-router-dom";
+import { appRouter } from "./router";
+import { webQueryClient } from "./lib/query-client";
 
 const container = document.getElementById("root");
 
@@ -9,10 +11,10 @@ if (!container) {
   throw new Error("Missing #root container for @cozy/web");
 }
 
-const router = getRouter();
-
 createRoot(container).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <QueryClientProvider client={webQueryClient}>
+      <RouterProvider router={appRouter} />
+    </QueryClientProvider>
   </StrictMode>,
 );

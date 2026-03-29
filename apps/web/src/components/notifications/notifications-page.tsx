@@ -7,8 +7,6 @@ import {
   markNotificationReadById,
   type NotificationItem,
 } from "../../lib/platform";
-import { AppShellLite } from "../layout/app-shell-lite";
-
 export function NotificationsPage() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unread, setUnread] = useState(0);
@@ -71,7 +69,7 @@ export function NotificationsPage() {
 
   if (status === "signed-out") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
+      <div className="flex min-h-[min(65vh,520px)] items-center justify-center rounded-[28px] border border-zinc-200/80 bg-zinc-50/80 px-6 py-16 dark:border-zinc-800 dark:bg-zinc-950/40">
         <div className="max-w-md text-center">
           <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
             Sign in to see notifications
@@ -91,11 +89,7 @@ export function NotificationsPage() {
   }
 
   return (
-    <AppShellLite
-      title="Notifications"
-      subtitle="This inbox is now hosted in the migrated web app and reads from cozy-platform."
-    >
-      <section className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
+    <section className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
@@ -170,6 +164,5 @@ export function NotificationsPage() {
           )}
         </div>
       </section>
-    </AppShellLite>
   );
 }

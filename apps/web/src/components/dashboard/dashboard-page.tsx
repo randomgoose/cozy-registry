@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Lock, Sparkles } from "lucide-react";
+import { useWorkspaceShellRouting } from "../../hooks/use-workspace-shell-routing";
 import {
   fetchCurrentWorkspace,
   fetchOwnedRegistryItems,
@@ -7,7 +8,6 @@ import {
   type WorkspaceData,
 } from "../../lib/platform";
 import { getPlatformBaseUrl } from "../../lib/runtime-config";
-import { AppShellLite } from "../layout/app-shell-lite";
 
 function DashboardEmptyState() {
   return (
@@ -83,6 +83,7 @@ function DashboardCards({ items }: { items: OwnedRegistryItem[] }) {
 }
 
 export function DashboardPage() {
+  const { hrefs, parsed } = useWorkspaceShellRouting();
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [items, setItems] = useState<OwnedRegistryItem[] | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "signed-out" | "error">(
@@ -129,7 +130,7 @@ export function DashboardPage() {
 
   if (status === "signed-out") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
+      <div className="flex min-h-[min(65vh,520px)] items-center justify-center rounded-[28px] border border-zinc-200/80 bg-zinc-50/80 px-6 py-16 dark:border-zinc-800 dark:bg-zinc-950/40">
         <div className="max-w-md rounded-[28px] border border-zinc-200 bg-white/92 p-8 text-center shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
           <Lock className="mx-auto size-8 text-zinc-400 dark:text-zinc-500" />
           <h1 className="mt-4 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
@@ -154,7 +155,7 @@ export function DashboardPage() {
 
   if (status === "error") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
+      <div className="flex min-h-[min(65vh,520px)] items-center justify-center rounded-[28px] border border-rose-200/90 bg-rose-50/90 px-6 py-16 dark:border-rose-900/50 dark:bg-rose-950/30">
         <div className="max-w-2xl rounded-[28px] border border-rose-200 bg-rose-50 p-8 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">
           Dashboard could not reach the extracted platform APIs. Make sure <code className="rounded bg-rose-100 px-1 py-0.5 dark:bg-rose-900/40">VITE_COZY_PLATFORM_BASE_URL</code> points at a running <code className="rounded bg-rose-100 px-1 py-0.5 dark:bg-rose-900/40">cozy-platform</code> host.
         </div>
@@ -162,24 +163,21 @@ export function DashboardPage() {
     );
   }
 
-  const workspaceName = workspace?.workspace?.name ?? "Workspace";
-
   return (
-    <AppShellLite
-      title={workspaceName}
-      subtitle="Authenticated navigation is migrating route by route. This dashboard already reads through cozy-platform."
-    >
+    <>
       <section className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
-              Personal space
+              {parsed.mode === "personal" ? "Personal" : parsed.mode === "org" ? "Organization" : "Access group"}
             </p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              Your registry workspace
+              {parsed.mode === "personal" ? "Your registry" : "Dashboard"}
             </h1>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Manage everything published under your account through the extracted platform boundary.
+              {parsed.mode === "personal"
+                ? "Manage items published under your account through the platform API."
+                : "Overview for the current workspace scope."}
             </p>
           </div>
 
@@ -191,7 +189,7 @@ export function DashboardPage() {
               Publish new item
             </a>
             <a
-              href="/projects"
+              href={hrefs.projects}
               className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800/70"
             >
               Open projects
@@ -226,20 +224,22 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <div className="mt-5 rounded-2xl bg-zinc-50/90 px-4 py-3 text-sm text-zinc-600 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:text-zinc-400 dark:ring-zinc-800">
-          <span className="font-medium text-zinc-900 dark:text-zinc-100">
-            {workspace?.teams.length ?? 0}
-          </span>{" "}
-          access groups,{" "}
-          <span className="font-medium text-zinc-900 dark:text-zinc-100">
-            {workspace?.members.length ?? 0}
-          </span>{" "}
-          members, and{" "}
-          <span className="font-medium text-zinc-900 dark:text-zinc-100">
-            {workspace?.invitations.length ?? 0}
-          </span>{" "}
-          pending invites in the active workspace.
-        </div>
+        {parsed.mode !== "personal" ? (
+          <div className="mt-5 rounded-2xl bg-zinc-50/90 px-4 py-3 text-sm text-zinc-600 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:text-zinc-400 dark:ring-zinc-800">
+            <span className="font-medium text-zinc-900 dark:text-zinc-100">
+              {workspace?.teams.length ?? 0}
+            </span>{" "}
+            access groups,{" "}
+            <span className="font-medium text-zinc-900 dark:text-zinc-100">
+              {workspace?.members.length ?? 0}
+            </span>{" "}
+            members, and{" "}
+            <span className="font-medium text-zinc-900 dark:text-zinc-100">
+              {workspace?.invitations.length ?? 0}
+            </span>{" "}
+            pending invites in the active workspace.
+          </div>
+        ) : null}
       </section>
 
       <section className="mt-8">
@@ -255,6 +255,6 @@ export function DashboardPage() {
           </>
         )}
       </section>
-    </AppShellLite>
+    </>
   );
 }

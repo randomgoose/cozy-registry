@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { useWorkspaceShellRouting } from "../../hooks/use-workspace-shell-routing";
 import { fetchAuthControlSession, postAuthControl } from "../../lib/auth-control";
 import { fetchCurrentWorkspace, type WorkspaceData } from "../../lib/platform";
-import { AppShellLite } from "../layout/app-shell-lite";
 
 export function WorkspacePage() {
+  const { hrefs } = useWorkspaceShellRouting();
   const [sessionChecked, setSessionChecked] = useState(false);
   const [workspaceData, setWorkspaceData] = useState<WorkspaceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -111,14 +112,14 @@ export function WorkspacePage() {
 
   if (!workspaceData && !loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
+      <div className="flex min-h-[min(65vh,520px)] items-center justify-center rounded-[28px] border border-zinc-200/80 bg-zinc-50/80 px-6 py-16 dark:border-zinc-800 dark:bg-zinc-950/40">
         <div className="max-w-md text-center">
           <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">Sign in to open workspace settings</h1>
           <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
             Workspace management is now available in the migrated host, but you still need an active session.
           </p>
           <a
-            href="/sign-in?callbackUrl=%2Fworkspace"
+            href={`/sign-in?callbackUrl=${encodeURIComponent(hrefs.workspace)}`}
             className="mt-6 inline-flex rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
           >
             Continue to sign in
@@ -129,12 +130,7 @@ export function WorkspacePage() {
   }
 
   return (
-    <AppShellLite
-      title={workspace?.name ?? "Workspace"}
-      subtitle="Workspace settings are now hosted locally. Organization mutations flow through cozy-platform /auth-control."
-      activeNav="workspace"
-    >
-      <div className="space-y-8">
+    <div className="space-y-8">
         <section className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
           <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
             Workspace
@@ -282,7 +278,7 @@ export function WorkspacePage() {
                   ))}
                 </div>
                 <a
-                  href="/settings"
+                  href={hrefs.settings}
                   className="mt-4 inline-flex text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-100"
                 >
                   Open project settings
@@ -311,6 +307,5 @@ export function WorkspacePage() {
           </>
         ) : null}
       </div>
-    </AppShellLite>
   );
 }

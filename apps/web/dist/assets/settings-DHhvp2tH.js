@@ -1,0 +1,1 @@
+import{j as t}from"./index-DutXNsJO.js";import{S as o}from"./settings-page-Dnfk7Kwa.js";import"./platform-BndVUYlY.js";import"./arrow-right-DvnfdEIP.js";function s(){return t.jsx(o,{})}export{s as SettingsRoute};

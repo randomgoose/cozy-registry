@@ -117,8 +117,8 @@ describe("collections-service", () => {
       .mockReturnValueOnce({
         from: vi.fn().mockReturnThis(),
         where: vi.fn().mockResolvedValue([
-          { collectionId: "col-1", itemId: "item-1" },
-          { collectionId: "col-1", itemId: "item-2" },
+          { projectId: "col-1", itemId: "item-1" },
+          { projectId: "col-1", itemId: "item-2" },
         ]),
       });
 

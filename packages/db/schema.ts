@@ -335,7 +335,9 @@ export const registryFileVersions = pgTable("registry_file_versions", {
   type: text("type").notNull(),
 });
 
-// --- Registry organization & AI scope tables ---
+// --- Legacy collection tables ---
+// Deprecated compatibility storage kept for policy/backfill migration.
+// New product-facing project flows should use projects/project_items instead.
 
 export const registryCollections = pgTable(
   "registry_collections",
@@ -376,6 +378,50 @@ export const registryCollectionItems = pgTable(
     primaryKey({ columns: [table.collectionId, table.itemId] }),
     index("registry_collection_items_collectionId_idx").on(table.collectionId),
     index("registry_collection_items_itemId_idx").on(table.itemId),
+  ],
+);
+
+// --- Project tables ---
+
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: "cascade" }),
+    ownerTeamId: text("owner_team_id").references(() => team.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    visibility: text("visibility").default("private").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("projects_ownerUserId_idx").on(table.ownerUserId),
+    index("projects_ownerTeamId_idx").on(table.ownerTeamId),
+    unique("projects_owner_slug_key").on(table.ownerUserId, table.slug),
+    unique("projects_owner_team_slug_key").on(table.ownerTeamId, table.slug),
+  ],
+);
+
+export const projectItems = pgTable(
+  "project_items",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => registryItems.id, { onDelete: "cascade" }),
+    addedAt: timestamp("added_at").defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.itemId] }),
+    index("project_items_projectId_idx").on(table.projectId),
+    index("project_items_itemId_idx").on(table.itemId),
   ],
 );
 

@@ -1,0 +1,1 @@
+import{j as o}from"./index-DutXNsJO.js";import{P as r}from"./collections-page-BWneXv5J.js";import"./platform-BndVUYlY.js";import"./sparkles-C6videEd.js";import"./arrow-right-DvnfdEIP.js";import"./arrow-left-De7h4Nsu.js";import"./trash-2-mZ9MmnDa.js";function n(){return o.jsx(r,{})}export{n as ProjectsRoute};

@@ -11,11 +11,10 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@repo/*": ["../../*"],
       "@cozy/ui": ["../../packages/ui/src"],
       "@cozy/ui/*": ["../../packages/ui/src/*"],
       "@cozy/*": ["../../packages/*", "../../apps/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts", "vite.config.ts"]
 }

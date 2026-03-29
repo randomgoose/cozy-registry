@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@cozy/db";
-import { registryCollections, team, teamMember } from "@cozy/db/schema";
+import { projects, team, teamMember } from "@cozy/db/schema";
 import { forwardAuthControlRequest } from "@cozy/auth-control/auth-control-service";
 import type { PlatformRequestContext } from "@cozy/platform-core/platform-context";
 
@@ -35,12 +35,12 @@ async function resolveWritableTeamProject(input: {
 
   const [project] = await db
     .select({
-      id: registryCollections.id,
-      title: registryCollections.title,
-      ownerTeamId: registryCollections.ownerTeamId,
+      id: projects.id,
+      title: projects.title,
+      ownerTeamId: projects.ownerTeamId,
     })
-    .from(registryCollections)
-    .where(eq(registryCollections.id, input.projectId))
+    .from(projects)
+    .where(eq(projects.id, input.projectId))
     .limit(1);
 
   if (!project) {

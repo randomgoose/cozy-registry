@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchTeamRouteResolution, postAuthControl } from "../../lib/auth-control";
+import { NotificationsPage } from "../notifications";
 import { DashboardPage } from "../dashboard";
 import { ProjectsPage } from "../collections";
 import { SettingsPage } from "../settings";
 
-type TeamSection = "dashboard" | "projects" | "settings";
+type TeamSection = "dashboard" | "projects" | "settings" | "notifications";
 
 type TeamResolution = {
   organizationId: string;
@@ -95,7 +96,7 @@ export function TeamScopedPage(props: {
 
   if (status === "loading" || status === "syncing") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
+      <div className="flex min-h-[min(65vh,520px)] items-center justify-center rounded-[28px] border border-zinc-200/80 bg-zinc-50/80 px-6 py-16 dark:border-zinc-800 dark:bg-zinc-950/40">
         <div className="max-w-md text-center">
           <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
             {status === "syncing" ? "Switching access group scope" : "Loading project workspace"}
@@ -112,7 +113,7 @@ export function TeamScopedPage(props: {
 
   if (status === "signed-out") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
+      <div className="flex min-h-[min(65vh,520px)] items-center justify-center rounded-[28px] border border-zinc-200/80 bg-zinc-50/80 px-6 py-16 dark:border-zinc-800 dark:bg-zinc-950/40">
         <div className="max-w-md text-center">
           <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
             Sign in to open this project workspace
@@ -133,7 +134,7 @@ export function TeamScopedPage(props: {
 
   if (status === "not-found") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
+      <div className="flex min-h-[min(65vh,520px)] items-center justify-center rounded-[28px] border border-zinc-200/80 bg-zinc-50/80 px-6 py-16 dark:border-zinc-800 dark:bg-zinc-950/40">
         <div className="max-w-md text-center">
           <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
             Access-group route unavailable
@@ -148,7 +149,7 @@ export function TeamScopedPage(props: {
 
   if (status === "error") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
+      <div className="flex min-h-[min(65vh,520px)] items-center justify-center rounded-[28px] border border-zinc-200/80 bg-zinc-50/80 px-6 py-16 dark:border-zinc-800 dark:bg-zinc-950/40">
         <div className="max-w-md text-center">
           <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
             Could not open access-group route
@@ -181,6 +182,15 @@ export function TeamScopedPage(props: {
       <>
         {banner}
         <ProjectsPage />
+      </>
+    );
+  }
+
+  if (props.section === "notifications") {
+    return (
+      <>
+        {banner}
+        <NotificationsPage />
       </>
     );
   }

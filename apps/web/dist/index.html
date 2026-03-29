@@ -1,11 +1,29 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="font-sans">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A component registry for design-led teams, Vibe Coding, and AI-assisted workflows."
+    />
     <title>Cozy Registry</title>
-    <script type="module" crossorigin src="/assets/index-tOQmWZ0K.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-Bb16T9YQ.css">
+    <script>
+      (function () {
+        try {
+          var d = document.documentElement;
+          var t = localStorage.getItem("cozy-theme");
+          if (t === "light") d.classList.remove("dark");
+          else if (t === "dark") d.classList.add("dark");
+          else {
+            if (window.matchMedia("(prefers-color-scheme: dark)").matches) d.classList.add("dark");
+            else d.classList.remove("dark");
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-DutXNsJO.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BUP8ioaM.css">
   </head>
   <body>
     <div id="root"></div>

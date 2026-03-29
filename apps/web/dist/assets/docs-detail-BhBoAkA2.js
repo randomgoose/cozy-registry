@@ -1,0 +1,1 @@
+import{u as o,j as t}from"./index-DutXNsJO.js";import{D as r}from"./docs-page-BKsOr3MO.js";import"./arrow-left-De7h4Nsu.js";function m(){const{slug:s}=o();return t.jsx(r,{slug:s??""})}export{m as DocsDetailRoute};

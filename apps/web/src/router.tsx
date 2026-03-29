@@ -4,12 +4,10 @@ import {
   type ComponentType,
   type LazyExoticComponent,
 } from "react";
-import {
-  createRootRoute,
-  createRoute,
-  createRouter,
-} from "@tanstack/react-router";
-import { RootComponent, getRootHead } from "./routes/__root";
+import { createBrowserRouter, Navigate } from "react-router-dom";
+import { RootLayout } from "./routes/root-layout";
+import { WorkspaceOrgLayout } from "./routes/workspace-org-layout";
+import { WorkspaceShellLayout } from "./routes/workspace-shell-layout";
 
 const HomeRoute = lazy(async () => ({
   default: (await import("./routes/index")).HomeRoute,
@@ -22,6 +20,9 @@ const CollectionsRoute = lazy(async () => ({
 }));
 const ProjectsRoute = lazy(async () => ({
   default: (await import("./routes/projects")).ProjectsRoute,
+}));
+const ProjectDetailRoute = lazy(async () => ({
+  default: (await import("./routes/project-detail")).ProjectDetailRoute,
 }));
 const RegistryRoute = lazy(async () => ({
   default: (await import("./routes/registry")).RegistryRoute,
@@ -74,6 +75,9 @@ const TeamProjectsRoute = lazy(async () => ({
 const TeamSettingsRoute = lazy(async () => ({
   default: (await import("./routes/team-settings")).TeamSettingsRoute,
 }));
+const TeamNotificationsRoute = lazy(async () => ({
+  default: (await import("./routes/team-notifications")).TeamNotificationsRoute,
+}));
 const DocsRoute = lazy(async () => ({
   default: (await import("./routes/docs")).DocsRoute,
 }));
@@ -91,7 +95,7 @@ function RouteLoadingFallback() {
 
 function withRouteSuspense(
   Component: LazyExoticComponent<ComponentType>,
-) {
+): ComponentType {
   return function SuspendedRouteComponent() {
     return (
       <Suspense fallback={<RouteLoadingFallback />}>
@@ -101,190 +105,70 @@ function withRouteSuspense(
   };
 }
 
-const rootRoute = createRootRoute({
-  head: getRootHead,
-  component: RootComponent,
-});
+const suspense = withRouteSuspense;
 
-const indexRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/",
-  component: withRouteSuspense(HomeRoute),
-});
-
-const dashboardRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/dashboard",
-  component: withRouteSuspense(DashboardRoute),
-});
-
-const collectionsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/collections",
-  component: withRouteSuspense(CollectionsRoute),
-});
-
-const projectsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/projects",
-  component: withRouteSuspense(ProjectsRoute),
-});
-
-const registryRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/registry",
-  component: withRouteSuspense(RegistryRoute),
-});
-
-const registryItemRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/registry/$itemName",
-  component: withRouteSuspense(RegistryItemRoute),
-});
-
-const registryDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/registry/$owner/$name",
-  validateSearch: (search: Record<string, unknown>) => ({
-    v: typeof search.v === "string" ? search.v : undefined,
-  }),
-  component: withRouteSuspense(RegistryDetailRoute),
-});
-
-const previewDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/preview/$owner/$name",
-  validateSearch: (search: Record<string, unknown>) => ({
-    v: typeof search.v === "string" ? search.v : undefined,
-  }),
-  component: withRouteSuspense(PreviewDetailRoute),
-});
-
-const publishRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/publish",
-  component: withRouteSuspense(PublishRoute),
-});
-
-const settingsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/settings",
-  component: withRouteSuspense(SettingsRoute),
-});
-
-const signInRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/sign-in",
-  component: withRouteSuspense(SignInRoute),
-});
-
-const signUpRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/sign-up",
-  component: withRouteSuspense(SignUpRoute),
-});
-
-const postAuthRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/post-auth",
-  component: withRouteSuspense(PostAuthRoute),
-});
-
-const acceptInvitationRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/accept-invitation",
-  component: withRouteSuspense(AcceptInvitationRoute),
-});
-
-const onboardingHandleRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/onboarding/handle",
-  component: withRouteSuspense(OnboardingHandleRoute),
-});
-
-const workspaceRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/workspace",
-  component: withRouteSuspense(WorkspaceRoute),
-});
-
-const notificationsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/notifications",
-  component: withRouteSuspense(NotificationsRoute),
-});
-
-const docsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/docs",
-  component: withRouteSuspense(DocsRoute),
-});
-
-const docsDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/docs/$slug",
-  component: withRouteSuspense(DocsDetailRoute),
-});
-
-const teamDashboardRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/t/$orgSlug/$teamSlug/dashboard",
-  component: withRouteSuspense(TeamDashboardRoute),
-});
-
-const teamProjectsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/t/$orgSlug/$teamSlug/projects",
-  component: withRouteSuspense(TeamProjectsRoute),
-});
-
-const teamCollectionsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/t/$orgSlug/$teamSlug/collections",
-  component: withRouteSuspense(TeamCollectionsRoute),
-});
-
-const teamSettingsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/t/$orgSlug/$teamSlug/settings",
-  component: withRouteSuspense(TeamSettingsRoute),
-});
-
-const routeTree = rootRoute.addChildren([
-  indexRoute,
-  dashboardRoute,
-  collectionsRoute,
-  projectsRoute,
-  registryRoute,
-  registryItemRoute,
-  registryDetailRoute,
-  previewDetailRoute,
-  publishRoute,
-  settingsRoute,
-  signInRoute,
-  signUpRoute,
-  postAuthRoute,
-  acceptInvitationRoute,
-  onboardingHandleRoute,
-  workspaceRoute,
-  notificationsRoute,
-  docsRoute,
-  docsDetailRoute,
-  teamDashboardRoute,
-  teamProjectsRoute,
-  teamCollectionsRoute,
-  teamSettingsRoute,
+export const appRouter = createBrowserRouter([
+  {
+    path: "/",
+    element: <RootLayout />,
+    children: [
+      { index: true, Component: suspense(HomeRoute) },
+      {
+        Component: WorkspaceShellLayout,
+        children: [
+          { path: "dashboard", Component: DashboardRoute },
+          { path: "projects", Component: ProjectsRoute },
+          { path: "projects/:projectSlug", Component: ProjectDetailRoute },
+          { path: "workspace", element: <Navigate to="/dashboard" replace /> },
+          { path: "settings", Component: SettingsRoute },
+          { path: "notifications", Component: NotificationsRoute },
+          {
+            path: "w/:orgSlug",
+            element: <WorkspaceOrgLayout />,
+            children: [
+              { path: "dashboard", Component: DashboardRoute },
+              { path: "projects", Component: ProjectsRoute },
+              { path: "projects/:projectSlug", Component: ProjectDetailRoute },
+              { path: "settings", Component: SettingsRoute },
+              { path: "workspace", Component: WorkspaceRoute },
+              { path: "notifications", Component: NotificationsRoute },
+            ],
+          },
+          {
+            path: "t/:orgSlug/:teamSlug/dashboard",
+            Component: TeamDashboardRoute,
+          },
+          {
+            path: "t/:orgSlug/:teamSlug/projects",
+            Component: TeamProjectsRoute,
+          },
+          {
+            path: "t/:orgSlug/:teamSlug/collections",
+            Component: TeamCollectionsRoute,
+          },
+          {
+            path: "t/:orgSlug/:teamSlug/settings",
+            Component: TeamSettingsRoute,
+          },
+          {
+            path: "t/:orgSlug/:teamSlug/notifications",
+            Component: TeamNotificationsRoute,
+          },
+        ],
+      },
+      { path: "collections", Component: suspense(CollectionsRoute) },
+      { path: "registry", Component: suspense(RegistryRoute) },
+      { path: "registry/:itemName", Component: suspense(RegistryItemRoute) },
+      { path: "registry/:owner/:name", Component: suspense(RegistryDetailRoute) },
+      { path: "preview/:owner/:name", Component: suspense(PreviewDetailRoute) },
+      { path: "publish", Component: suspense(PublishRoute) },
+      { path: "sign-in", Component: suspense(SignInRoute) },
+      { path: "sign-up", Component: suspense(SignUpRoute) },
+      { path: "post-auth", Component: suspense(PostAuthRoute) },
+      { path: "accept-invitation", Component: suspense(AcceptInvitationRoute) },
+      { path: "onboarding/handle", Component: suspense(OnboardingHandleRoute) },
+      { path: "docs", Component: suspense(DocsRoute) },
+      { path: "docs/:slug", Component: suspense(DocsDetailRoute) },
+    ],
+  },
 ]);
-
-export function getRouter() {
-  return createRouter({
-    routeTree,
-    scrollRestoration: true,
-  });
-}
-
-declare module "@tanstack/react-router" {
-  interface Register {
-    router: ReturnType<typeof getRouter>;
-  }
-}

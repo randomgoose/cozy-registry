@@ -1,10 +1,10 @@
-import { and, asc, eq, or } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@cozy/db";
 import {
   invitation,
   member,
   organization,
-  registryCollections,
+  projects,
   team,
   teamMember,
   user,
@@ -24,16 +24,16 @@ export async function getProjectMembership(input: {
 
   const [project] = await db
     .select({
-      id: registryCollections.id,
-      slug: registryCollections.slug,
-      title: registryCollections.title,
-      visibility: registryCollections.visibility,
-      ownerUserId: registryCollections.ownerUserId,
-      ownerTeamId: registryCollections.ownerTeamId,
-      createdAt: registryCollections.createdAt,
+      id: projects.id,
+      slug: projects.slug,
+      title: projects.title,
+      visibility: projects.visibility,
+      ownerUserId: projects.ownerUserId,
+      ownerTeamId: projects.ownerTeamId,
+      createdAt: projects.createdAt,
     })
-    .from(registryCollections)
-    .where(eq(registryCollections.id, input.projectId))
+    .from(projects)
+    .where(eq(projects.id, input.projectId))
     .limit(1);
 
   if (!project) {
@@ -126,6 +126,10 @@ export async function getProjectMembership(input: {
     };
   }
 
+  if (project.ownerUserId !== userId && project.visibility !== "public") {
+    return { status: 404, body: { error: "Not found" } };
+  }
+
   const [owner] = await db
     .select({
       id: user.id,
@@ -134,15 +138,10 @@ export async function getProjectMembership(input: {
       image: user.image,
     })
     .from(user)
-    .where(
-      and(
-        eq(user.id, project.ownerUserId ?? ""),
-        or(eq(user.id, userId), eq(registryCollections.visibility, "public")),
-      ),
-    )
+    .where(eq(user.id, project.ownerUserId ?? ""))
     .limit(1);
 
-  if (!owner || project.ownerUserId !== userId) {
+  if (!owner) {
     return { status: 404, body: { error: "Not found" } };
   }
 

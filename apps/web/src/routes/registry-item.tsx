@@ -1,4 +1,4 @@
-import { useLocation } from "@tanstack/react-router";
+import { useLocation } from "react-router-dom";
 import { RegistryLookupPage } from "../components/registry";
 
 export function RegistryItemRoute() {

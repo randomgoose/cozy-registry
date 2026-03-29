@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown, LoaderCircle, Plus } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useWorkspaceShellRouting } from "../../hooks/use-workspace-shell-routing";
 import { fetchWorkspaceScopeContext, postAuthControl } from "../../lib/auth-control";
+import { rehomeWorkspacePath } from "../../lib/workspace-path";
 
 type ScopeTeam = {
   id: string;
@@ -39,12 +42,19 @@ function slugifyWorkspaceName(value: string) {
     .slice(0, 48);
 }
 
-export function WorkspaceScopeSwitcher() {
+type WorkspaceScopeSwitcherProps = {
+  placement?: "header" | "sidebar";
+};
+
+export function WorkspaceScopeSwitcher({ placement = "header" }: WorkspaceScopeSwitcherProps) {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const { parsed, hrefs } = useWorkspaceShellRouting();
   const [context, setContext] = useState<WorkspaceScopeContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createName, setCreateName] = useState("");
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const [workspaceNameDraft, setWorkspaceNameDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,41 +77,32 @@ export function WorkspaceScopeSwitcher() {
 
   useEffect(() => {
     void loadContext();
-  }, []);
+  }, [pathname]);
 
-  const activePrimaryLabel = useMemo(() => {
+  const primaryLabel = useMemo(() => {
     if (!context) return "Workspace";
-    return context.workspace.activeTeam?.name ?? "Personal";
-  }, [context]);
-
-  const activeSecondaryLabel = useMemo(() => {
-    if (!context) return "Loading scope";
-
-    if (context.workspace.activeTeam && context.workspace.activeOrganization) {
-      return context.workspace.activeOrganization.name;
+    if (parsed.mode === "personal") return "Personal";
+    if (parsed.mode === "org") {
+      const org = context.workspace.organizations.find((o) => o.slug === parsed.orgSlug);
+      return org?.name ?? parsed.orgSlug;
     }
+    const org = context.workspace.organizations.find((o) => o.slug === parsed.orgSlug);
+    const team = org?.teams.find((t) => t.slug === parsed.teamSlug);
+    return team?.name ?? parsed.teamSlug;
+  }, [context, parsed]);
 
-    return "Your own registry";
-  }, [context]);
+  const hasOrganizations = (context?.workspace.organizations.length ?? 0) > 0;
 
-  const targetOrganization = context?.workspace.activeOrganization ?? context?.workspace.organizations[0] ?? null;
-
-  async function switchToPersonal() {
-    try {
-      setPending(true);
-      setError(null);
-      await postAuthControl("/organization/set-active-team", { teamId: null });
-      await postAuthControl("/organization/set-active", { organizationId: null });
-      window.location.assign("/dashboard");
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to switch scope");
-    } finally {
-      setPending(false);
-      setMenuOpen(false);
+  const orgWorkspaceSettingsHref = useMemo(() => {
+    if (!hasOrganizations) return null;
+    if (parsed.mode === "org") return hrefs.workspace;
+    if (parsed.mode === "team") {
+      return `/w/${encodeURIComponent(parsed.orgSlug)}/workspace`;
     }
-  }
+    return null;
+  }, [hasOrganizations, hrefs.workspace, parsed]);
 
-  async function switchToTeam(organizationId: string, teamId: string) {
+  async function activateTeamWithoutUrl(organizationId: string, teamId: string) {
     try {
       setPending(true);
       setError(null);
@@ -116,75 +117,51 @@ export function WorkspaceScopeSwitcher() {
     }
   }
 
-  async function createScope() {
-    const nextName = createName.trim();
-    if (!nextName) return;
+  async function createFirstWorkspace() {
+    const name = workspaceNameDraft.trim();
+    if (!name) return;
+
+    const slug = slugifyWorkspaceName(name);
+    if (!slug) {
+      setError("Please enter a valid workspace name.");
+      return;
+    }
 
     try {
       setPending(true);
       setError(null);
 
-      if (!targetOrganization) {
-        const slug = slugifyWorkspaceName(nextName);
-        if (!slug) {
-          throw new Error("Please enter a valid workspace name.");
-        }
-
-        const { response, data } = await postAuthControl("/organization/create", {
-          name: nextName,
-          slug,
-        });
-
-        if (!response.ok) {
-          throw new Error((data?.message as string | undefined) || `Request failed (${response.status})`);
-        }
-
-        window.location.assign("/workspace");
-        return;
-      }
-
-      const { response, data } = await postAuthControl("/organization/create-team", {
-        name: nextName,
-        organizationId: targetOrganization.id,
+      const { response, data } = await postAuthControl("/organization/create", {
+        name,
+        slug,
       });
 
       if (!response.ok) {
         throw new Error((data?.message as string | undefined) || `Request failed (${response.status})`);
       }
 
-      const created = data as { id?: string } | null;
-      if (!created?.id) {
-        throw new Error("Team created, but no team id was returned.");
-      }
-
-      await postAuthControl("/organization/add-team-member", {
-        teamId: created.id,
-        userId: context?.userId ?? null,
-      });
-      await postAuthControl("/team/ensure-slug", {
-        teamId: created.id,
-      });
-      await postAuthControl("/organization/set-active", {
-        organizationId: targetOrganization.id,
-      });
-      await postAuthControl("/organization/set-active-team", {
-        teamId: created.id,
-      });
-
-      window.location.assign("/dashboard");
+      navigate(`/w/${encodeURIComponent(slug)}/workspace`);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Failed to create scope");
+      setError(nextError instanceof Error ? nextError.message : "Failed to create workspace");
     } finally {
       setPending(false);
-      setCreateOpen(false);
-      setCreateName("");
+      setCreateWorkspaceOpen(false);
+      setWorkspaceNameDraft("");
       setMenuOpen(false);
     }
   }
 
+  const isSidebar = placement === "sidebar";
+
   if (loading) {
     return (
-      <div className="inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white/90 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+      <div
+        className={
+          isSidebar
+            ? "flex w-full items-center justify-center gap-2 rounded-2xl border border-zinc-200/80 bg-white/80 px-3 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-300"
+            : "inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white/90 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+        }
+      >
         <LoaderCircle className="size-4 animate-spin" />
         Loading scope
       </div>
@@ -195,126 +172,183 @@ export function WorkspaceScopeSwitcher() {
     return null;
   }
 
+  const personalActive = parsed.mode === "personal";
+  const personalHref = rehomeWorkspacePath(parsed, { mode: "personal" });
+
   return (
-    <div className="relative">
+    <div className={isSidebar ? "relative w-full" : "relative"}>
       <button
         type="button"
         onClick={() => setMenuOpen((value) => !value)}
-        className="inline-flex items-center gap-3 rounded-full border border-zinc-300 bg-white/95 px-3 py-2 text-left text-sm text-zinc-700 shadow-sm transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800/80"
+        className="flex w-full items-center gap-3 bg-white/90 px-2 py-2 text-left text-sm text-zinc-700 transition hover:bg-white dark:bg-zinc-950/40 dark:text-zinc-200 dark:hover:bg-zinc-900/80"
       >
-        <div className="min-w-0">
-          <div className="truncate text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-            Scope
-          </div>
-          <div className="truncate font-medium">{activePrimaryLabel}</div>
-          <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-            {activeSecondaryLabel}
-          </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium">{primaryLabel}</div>
         </div>
         <ChevronDown className="size-4 shrink-0" />
       </button>
 
       {menuOpen ? (
-        <div className="absolute right-0 z-30 mt-2 w-[320px] rounded-3xl border border-zinc-200 bg-white p-3 shadow-[0_24px_60px_rgba(15,23,42,0.14)] dark:border-zinc-800 dark:bg-zinc-950">
-          <div className="rounded-2xl bg-zinc-50/90 px-4 py-3 ring-1 ring-zinc-200/80 dark:bg-zinc-900/70 dark:ring-zinc-800">
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-              Active scope
-            </div>
-            <div className="mt-2 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-              {activePrimaryLabel}
-            </div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              {activeSecondaryLabel}
-            </div>
-          </div>
+        <div
+          className={
+            isSidebar
+              ? "absolute left-0 z-30 mt-2 w-[min(20rem,calc(100vw-3rem))] rounded-3xl border border-zinc-200 bg-white p-3 shadow-[0_24px_60px_rgba(15,23,42,0.14)] dark:border-zinc-800 dark:bg-zinc-950 sm:w-[min(22rem,calc(100vw-3rem))]"
+              : "absolute right-0 z-30 mt-2 w-[320px] rounded-3xl border border-zinc-200 bg-white p-3 shadow-[0_24px_60px_rgba(15,23,42,0.14)] dark:border-zinc-800 dark:bg-zinc-950"
+          }
+        >
+      
 
           <div className="mt-3 space-y-1">
-            <button
-              type="button"
-              onClick={() => void switchToPersonal()}
-              disabled={pending}
-              className="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-60 dark:text-zinc-200 dark:hover:bg-zinc-900/80"
+            <Link
+              to={personalHref}
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-900/80"
             >
               <div>
                 <div className="font-medium">Personal</div>
                 <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Your own registry scope
+                  /dashboard, /projects, …
                 </div>
               </div>
-              {!context.workspace.activeTeam ? <Check className="size-4" /> : null}
-            </button>
+              {personalActive ? <Check className="size-4" /> : null}
+            </Link>
 
             {context.workspace.organizations.map((organization) => (
               <div key={organization.id} className="rounded-2xl border border-zinc-200/80 p-2 dark:border-zinc-800">
-                <div className="px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-                  {organization.name}
-                </div>
-                <div className="space-y-1">
-                  {organization.teams.map((team) => (
-                    <button
-                      key={team.id}
-                      type="button"
-                      disabled={pending}
-                      onClick={() => void switchToTeam(organization.id, team.id)}
-                      className="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-60 dark:text-zinc-200 dark:hover:bg-zinc-900/80"
-                    >
-                      <div>
-                        <div className="font-medium">{team.name}</div>
-                        <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                          /t/{organization.slug}/{team.slug ?? "pending"}
-                        </div>
+                {organization.teams.length === 0 ? (
+                  <Link
+                    to={rehomeWorkspacePath(parsed, { mode: "org", orgSlug: organization.slug })}
+                    onClick={() => setMenuOpen(false)}
+                    className="flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-900/80"
+                  >
+                    <div>
+                      <div className="font-medium text-zinc-950 dark:text-zinc-50">{organization.name}</div>
+                      <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                        /w/{organization.slug}/… · no access groups yet
                       </div>
-                      {team.isActive ? <Check className="size-4" /> : null}
-                    </button>
-                  ))}
-                </div>
+                    </div>
+                    {parsed.mode === "org" && parsed.orgSlug === organization.slug ? (
+                      <Check className="size-4 shrink-0" />
+                    ) : null}
+                  </Link>
+                ) : (
+                  <>
+                    <Link
+                      to={rehomeWorkspacePath(parsed, { mode: "org", orgSlug: organization.slug })}
+                      onClick={() => setMenuOpen(false)}
+                      className="flex w-full items-center justify-between rounded-2xl px-2 py-2 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900/80"
+                    >
+                      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+                        {organization.name}
+                      </div>
+                      {parsed.mode === "org" && parsed.orgSlug === organization.slug ? (
+                        <Check className="size-4 shrink-0 text-zinc-600 dark:text-zinc-300" />
+                      ) : null}
+                    </Link>
+                    <div className="space-y-1">
+                      {organization.teams.map((team) =>
+                        team.slug ? (
+                          <Link
+                            key={team.id}
+                            to={rehomeWorkspacePath(parsed, {
+                              mode: "team",
+                              orgSlug: organization.slug,
+                              teamSlug: team.slug,
+                            })}
+                            onClick={() => setMenuOpen(false)}
+                            className="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-900/80"
+                          >
+                            <div>
+                              <div className="font-medium">{team.name}</div>
+                              <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                /t/{organization.slug}/{team.slug}
+                              </div>
+                            </div>
+                            {parsed.mode === "team" &&
+                            parsed.orgSlug === organization.slug &&
+                            parsed.teamSlug === team.slug ? (
+                              <Check className="size-4" />
+                            ) : null}
+                          </Link>
+                        ) : (
+                          <button
+                            key={team.id}
+                            type="button"
+                            disabled={pending}
+                            onClick={() => void activateTeamWithoutUrl(organization.id, team.id)}
+                            className="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-60 dark:text-zinc-200 dark:hover:bg-zinc-900/80"
+                          >
+                            <div>
+                              <div className="font-medium">{team.name}</div>
+                              <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                Slug pending — tap to activate
+                              </div>
+                            </div>
+                            {team.isActive ? <Check className="size-4" /> : null}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>
 
-          <div className="mt-3 flex items-center justify-between gap-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-            <button
-              type="button"
-              onClick={() => setCreateOpen((value) => !value)}
-              className="inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              <Plus className="size-4" />
-              {targetOrganization ? "Create team" : "Create workspace"}
-            </button>
+          <div className="mt-3 flex flex-col gap-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+            {orgWorkspaceSettingsHref ? (
+              <Link
+                to={orgWorkspaceSettingsHref}
+                onClick={() => setMenuOpen(false)}
+                className="text-center text-sm font-medium text-zinc-600 transition hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
+              >
+                Workspace settings
+              </Link>
+            ) : null}
+            {!hasOrganizations ? (
+              <button
+                type="button"
+                onClick={() => setCreateWorkspaceOpen((value) => !value)}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                <Plus className="size-4" />
+                Create workspace
+              </button>
+            ) : null}
             {pending ? (
-              <span className="inline-flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+              <span className="inline-flex items-center justify-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                 <LoaderCircle className="size-4 animate-spin" />
                 Updating…
               </span>
             ) : null}
           </div>
 
-          {createOpen ? (
+          {!hasOrganizations && createWorkspaceOpen ? (
             <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50/90 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
               <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-                {targetOrganization ? "Team name" : "Workspace name"}
+                Workspace name
               </label>
               <input
-                value={createName}
-                onChange={(event) => setCreateName(event.target.value)}
-                placeholder={targetOrganization ? "Design Systems" : "Acme Design"}
+                value={workspaceNameDraft}
+                onChange={(event) => setWorkspaceNameDraft(event.target.value)}
+                placeholder="Acme Design"
                 className="mt-2 w-full rounded-2xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               />
               <div className="mt-3 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setCreateOpen(false)}
+                  onClick={() => setCreateWorkspaceOpen(false)}
                   className="rounded-full px-3 py-2 text-sm text-zinc-600 transition hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  disabled={pending || !createName.trim()}
-                  onClick={() => void createScope()}
+                  disabled={pending || !workspaceNameDraft.trim()}
+                  onClick={() => void createFirstWorkspace()}
                   className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
                 >
-                  {pending ? "Creating…" : targetOrganization ? "Create team" : "Create workspace"}
+                  {pending ? "Creating…" : "Create workspace"}
                 </button>
               </div>
             </div>

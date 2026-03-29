@@ -1,10 +1,12 @@
+import path from "node:path";
 import { defineConfig } from "vite";
 import viteReact from "@vitejs/plugin-react";
-import path from "node:path";
 
 export default defineConfig({
+  envDir: path.resolve(__dirname, "../.."),
   resolve: {
     alias: {
+      "@": path.resolve(__dirname, "src"),
       "@cozy/ui": path.resolve(__dirname, "../../packages/ui/src"),
     },
   },

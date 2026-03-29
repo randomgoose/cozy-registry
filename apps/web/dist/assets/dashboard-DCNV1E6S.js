@@ -1,1 +1,0 @@
-import{j as o}from"./index-tOQmWZ0K.js";import{D as r}from"./dashboard-page-DpWh_BIc.js";import"./app-shell-lite-CuFP4PG7.js";import"./cozy-logo-icon-vyW7Y4_v.js";import"./auth-control-DZqB_PBN.js";import"./sparkles-BZ_zOawk.js";import"./arrow-right-BO6UX-lZ.js";function n(){return o.jsx(r,{})}export{n as DashboardRoute};

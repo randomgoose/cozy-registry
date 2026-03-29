@@ -1,0 +1,1 @@
+import{j as o}from"./index-DutXNsJO.js";import{N as t}from"./notifications-page-CTVsgHSv.js";import"./platform-BndVUYlY.js";import"./arrow-right-DvnfdEIP.js";function n(){return o.jsx(t,{})}export{n as NotificationsRoute};

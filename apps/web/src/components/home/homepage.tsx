@@ -1,8 +1,68 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, BookOpen } from "lucide-react";
 import { CozyLogoIcon } from "../icons";
-import { fetchRegistryCatalog, type RegistryCatalogItem } from "../../lib/platform";
+import { fetchAuthControlSession } from "../../lib/auth-control";
 import { getPlatformBaseUrl } from "../../lib/runtime-config";
+import { fetchRegistryCatalog, type RegistryCatalogItem } from "../../lib/platform";
+
+function HomeHeaderAuth() {
+  const platformBaseUrl = getPlatformBaseUrl();
+  const [phase, setPhase] = useState<"idle" | "loading" | "signed-in" | "signed-out">("idle");
+
+  useEffect(() => {
+    if (!platformBaseUrl) {
+      setPhase("signed-out");
+      return;
+    }
+
+    let cancelled = false;
+    setPhase("loading");
+
+    fetchAuthControlSession()
+      .then((data) => {
+        if (cancelled) return;
+        setPhase(data?.user?.id ? "signed-in" : "signed-out");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPhase("signed-out");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [platformBaseUrl]);
+
+  if (phase === "loading" || phase === "idle") {
+    return (
+      <span
+        className="inline-block h-7 w-20 animate-pulse rounded-lg bg-zinc-200/80 dark:bg-zinc-800/80"
+        aria-hidden
+      />
+    );
+  }
+
+  if (phase === "signed-in") {
+    return (
+      <a
+        href="/dashboard"
+        className="rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+      >
+        Dashboard
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href="/sign-in"
+      className="rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+    >
+      Login
+    </a>
+  );
+}
 
 function HomeCatalogState() {
   const [items, setItems] = useState<RegistryCatalogItem[]>([]);
@@ -120,12 +180,7 @@ export function Homepage() {
               <BookOpen className="size-4" />
               Docs
             </a>
-            <a
-              href="/sign-in"
-              className="rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              Login
-            </a>
+            <HomeHeaderAuth />
           </nav>
         </div>
       </header>

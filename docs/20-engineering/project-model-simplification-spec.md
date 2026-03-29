@@ -1,4 +1,4 @@
-Status: proposed
+Status: in progress
 Owner: engineering
 Last updated: 2026-03-29
 Source of truth: no
@@ -154,6 +154,13 @@ Source of truth: no
 
 ### 4.2 现有表的迁移方向
 
+当前实现已经进入第一轮真实迁移：
+
+- `projects` / `project_items` 已经有独立表
+- `project-service`、`project-membership-service`、`project-access-service` 已切到新表
+- `/projects*` 已经不再只是 facade remap
+- `/collections*` 现在是兼容 alias，仍可用但不再是主路径
+
 建议现有 `registry_collections` 作为 `projects` 的主要迁移起点。
 
 映射关系建议如下：
@@ -162,7 +169,7 @@ Source of truth: no
 - `registry_collection_items` -> `project_items` 或保留 item 关联表语义
 - `team collaboration` -> `project membership`
 
-兼容阶段不要求立刻物理 rename 表名，但新 service 和新 API 不应继续强化 collection/team 语义。
+兼容阶段不要求立刻物理删除旧表，但新 service 和新 API 不应继续强化 collection/team 语义。
 
 ---
 

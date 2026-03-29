@@ -6,7 +6,7 @@ Target stack:
 
 - Vite
 - React
-- TanStack Router
+- React Router (react-router-dom v7)
 
 Why:
 

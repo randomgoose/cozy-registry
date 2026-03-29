@@ -14,7 +14,6 @@ import {
   updateProjectMemberRole,
 } from "../../lib/platform";
 import { getPlatformBaseUrl } from "../../lib/runtime-config";
-import { AppShellLite } from "../layout/app-shell-lite";
 
 export function SettingsPage() {
   const platformBaseUrl = getPlatformBaseUrl();
@@ -301,7 +300,7 @@ export function SettingsPage() {
 
   if (status === "signed-out") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
+      <div className="flex min-h-[min(65vh,520px)] items-center justify-center rounded-[28px] border border-zinc-200/80 bg-zinc-50/80 px-6 py-16 dark:border-zinc-800 dark:bg-zinc-950/40">
         <div className="max-w-md rounded-[28px] border border-zinc-200 bg-white/92 p-8 text-center shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
           <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
             Sign in to open settings
@@ -325,7 +324,7 @@ export function SettingsPage() {
 
   if (status === "error") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
+      <div className="flex min-h-[min(65vh,520px)] items-center justify-center rounded-[28px] border border-rose-200/90 bg-rose-50/90 px-6 py-16 dark:border-rose-900/50 dark:bg-rose-950/30">
         <div className="max-w-2xl rounded-[28px] border border-rose-200 bg-rose-50 p-8 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">
           Settings could not reach the extracted platform APIs. Check <code className="rounded bg-rose-100 px-1 py-0.5 dark:bg-rose-900/40">VITE_COZY_PLATFORM_BASE_URL</code>.
         </div>
@@ -334,11 +333,7 @@ export function SettingsPage() {
   }
 
   return (
-    <AppShellLite
-      title={workspace?.workspace?.name ?? "Workspace"}
-      subtitle="Platform-backed reads and workspace scope switching are available here. Only deeper organization management and token surfaces still fall back to the auth/API bridge."
-      activeNav="settings"
-    >
+    <>
       <section className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -654,6 +649,6 @@ export function SettingsPage() {
           </div>
         </div>
       </section>
-    </AppShellLite>
+    </>
   );
 }

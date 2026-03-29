@@ -1,13 +1,13 @@
-import { useParams } from "@tanstack/react-router";
+import { useParams } from "react-router-dom";
 import { TeamScopedPage } from "../components/workspace";
 
 export function TeamProjectsRoute() {
-  const params = useParams({ from: "/t/$orgSlug/$teamSlug/projects" });
+  const { orgSlug, teamSlug } = useParams();
 
   return (
     <TeamScopedPage
-      orgSlug={params.orgSlug}
-      teamSlug={params.teamSlug}
+      orgSlug={orgSlug ?? ""}
+      teamSlug={teamSlug ?? ""}
       section="projects"
     />
   );

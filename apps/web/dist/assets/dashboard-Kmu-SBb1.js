@@ -1,0 +1,1 @@
+import{j as o}from"./index-DutXNsJO.js";import{D as r}from"./dashboard-page-CTUF059c.js";import"./platform-BndVUYlY.js";import"./sparkles-C6videEd.js";import"./arrow-right-DvnfdEIP.js";function s(){return o.jsx(r,{})}export{s as DashboardRoute};

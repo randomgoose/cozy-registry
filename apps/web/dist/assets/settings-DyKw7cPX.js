@@ -1,1 +1,0 @@
-import{j as t}from"./index-tOQmWZ0K.js";import{S as o}from"./settings-page-DYAMmiAG.js";import"./auth-control-DZqB_PBN.js";import"./platform-CzvnCkyz.js";import"./runtime-config-AoawrtFJ.js";import"./app-shell-lite-CuFP4PG7.js";import"./cozy-logo-icon-vyW7Y4_v.js";import"./arrow-right-BO6UX-lZ.js";function x(){return t.jsx(o,{})}export{x as SettingsRoute};

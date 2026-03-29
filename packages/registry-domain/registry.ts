@@ -1,11 +1,11 @@
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@cozy/db";
 import {
+  projectItems,
   registryItems,
   registryFiles,
   registryItemVersions,
   registryFileVersions,
-  registryCollectionItems,
   organization,
   team,
   user,
@@ -150,9 +150,9 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
   const allowedItemIds = (() => {
     if (allowedCollectionIds.length === 0) return [] as string[];
     return db
-      .select({ itemId: registryCollectionItems.itemId })
-      .from(registryCollectionItems)
-      .where(inArray(registryCollectionItems.collectionId, allowedCollectionIds));
+      .select({ itemId: projectItems.itemId })
+      .from(projectItems)
+      .where(inArray(projectItems.projectId, allowedCollectionIds));
   })();
 
   const teamPolicyId = policy.ownerTeamId ?? null;
@@ -590,12 +590,12 @@ export async function getRegistryItemByOwnerNameAndVersionScoped(
   }
 
   const [membership] = await db
-    .select({ itemId: registryCollectionItems.itemId })
-    .from(registryCollectionItems)
+    .select({ itemId: projectItems.itemId })
+    .from(projectItems)
     .where(
       and(
-        eq(registryCollectionItems.itemId, item.id),
-        inArray(registryCollectionItems.collectionId, allowedCollectionIds),
+        eq(projectItems.itemId, item.id),
+        inArray(projectItems.projectId, allowedCollectionIds),
       ),
     )
     .limit(1);

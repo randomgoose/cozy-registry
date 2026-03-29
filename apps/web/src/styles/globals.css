@@ -56,12 +56,16 @@
 }
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
+  /* Do not use `* { @apply … }` (even scoped to #root): modal libraries set aria-hidden/inert on
+     huge DOM subtrees inside #root; matching every descendant makes style invalidation O(nodes) and
+     can freeze the whole browser tab. Default border/ring colors come from Tailwind theme +
+     explicit utilities on components (e.g. border-border, focus-visible:ring-*). */
 
   html {
     @apply font-sans;
+    /* Reserve scrollbar gutter so Base UI scroll lock (dialog modal=true) does not toggle
+       viewport width and re-trigger resize in a tight loop (tab freeze). */
+    scrollbar-gutter: stable;
   }
 
   body {

@@ -1,7 +1,7 @@
-import { useParams } from "@tanstack/react-router";
+import { useParams } from "react-router-dom";
 import { DocsPage } from "../components/docs";
 
 export function DocsDetailRoute() {
-  const params = useParams({ from: "/docs/$slug" });
-  return <DocsPage slug={params.slug} />;
+  const { slug } = useParams();
+  return <DocsPage slug={slug ?? ""} />;
 }

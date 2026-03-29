@@ -1,9 +1,27 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="font-sans">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A component registry for design-led teams, Vibe Coding, and AI-assisted workflows."
+    />
     <title>Cozy Registry</title>
+    <script>
+      (function () {
+        try {
+          var d = document.documentElement;
+          var t = localStorage.getItem("cozy-theme");
+          if (t === "light") d.classList.remove("dark");
+          else if (t === "dark") d.classList.add("dark");
+          else {
+            if (window.matchMedia("(prefers-color-scheme: dark)").matches) d.classList.add("dark");
+            else d.classList.remove("dark");
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
