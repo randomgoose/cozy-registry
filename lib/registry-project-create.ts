@@ -77,7 +77,13 @@ export async function createRegistryProject(
         resolvedPublishTarget.code === "AMBIGUOUS_ORG_TARGET"
           ? `${resolvedPublishTarget.message} Use list_publish_targets and set targetRef (e.g. @acme) or organizationSlug.`
           : resolvedPublishTarget.message;
-      return { ok: false, status: 400, error: message };
+      const status =
+        resolvedPublishTarget.code === "INVALID_ORG_TARGET"
+          ? 404
+          : resolvedPublishTarget.code === "NO_ORG_WRITE_ACCESS"
+            ? 403
+            : 400;
+      return { ok: false, status, error: message };
     }
 
     const orgTarget =

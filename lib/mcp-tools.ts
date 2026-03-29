@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { eq, inArray, or } from "drizzle-orm";
 import {
   createRegistryItem,
   createRegistryItemVersion,
@@ -216,60 +216,74 @@ export function createRegistryMcpServer(request?: Request) {
     return { ok: true, note: `Linked to registry project "${slug}".` };
   }
 
-  server.registerTool(
-    "list_collections",
-    {
-      title: "List projects",
-      description:
-        "List your projects (slug + title). Use this to decide a scope like 'dashboard-blocks' before listing or fetching components within that project. (Tool id remains list_collections for compatibility.)",
-      inputSchema: z.object({}).describe("No input required"),
-      annotations: MCP_ANN.readClosed,
-    },
-    async () => {
-      const ctx = request ? await getAuthContextFromToken(request) : null;
-      const userId = ctx?.userId ?? null;
-      if (!userId) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: "Authentication required. Add Authorization: Bearer <token>.",
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      const memberRows = await db
-        .select({ projectId: registryProjectMembers.projectId })
-        .from(registryProjectMembers)
-        .where(eq(registryProjectMembers.userId, userId));
-      const memberIds = memberRows.map((r) => r.projectId);
-      const ownerClause = eq(registryProjects.ownerUserId, userId);
-      const whereClause =
-        memberIds.length > 0 ? or(ownerClause, inArray(registryProjects.id, memberIds)) : ownerClause;
-
-      const rows = await db
-        .select({
-          id: registryProjects.id,
-          slug: registryProjects.slug,
-          title: registryProjects.title,
-          visibility: registryProjects.visibility,
-        })
-        .from(registryProjects)
-        .where(whereClause)
-        .orderBy(registryProjects.slug);
-
-      const lines = rows.map((c) => `- **${c.slug}**: ${c.title} (${c.visibility})`).join("\n");
+  async function listRegistryProjectsForMcp() {
+    const ctx = request ? await getAuthContextFromToken(request) : null;
+    const userId = ctx?.userId ?? null;
+    if (!userId) {
       return {
         content: [
           {
             type: "text" as const,
-            text: rows.length ? `Your projects (${rows.length}):\n\n${lines}` : "You have no projects yet.",
+            text: "Authentication required. Add Authorization: Bearer <token>.",
           },
         ],
+        isError: true,
       };
+    }
+
+    const memberRows = await db
+      .select({ projectId: registryProjectMembers.projectId })
+      .from(registryProjectMembers)
+      .where(eq(registryProjectMembers.userId, userId));
+    const memberIds = memberRows.map((r) => r.projectId);
+    const ownerClause = eq(registryProjects.ownerUserId, userId);
+    const whereClause =
+      memberIds.length > 0 ? or(ownerClause, inArray(registryProjects.id, memberIds)) : ownerClause;
+
+    const rows = await db
+      .select({
+        id: registryProjects.id,
+        slug: registryProjects.slug,
+        title: registryProjects.title,
+        visibility: registryProjects.visibility,
+      })
+      .from(registryProjects)
+      .where(whereClause)
+      .orderBy(registryProjects.slug);
+
+    const lines = rows.map((c) => `- **${c.slug}**: ${c.title} (${c.visibility})`).join("\n");
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: rows.length ? `Your projects (${rows.length}):\n\n${lines}` : "You have no projects yet.",
+        },
+      ],
+    };
+  }
+
+  server.registerTool(
+    "list_projects",
+    {
+      title: "List registry projects",
+      description:
+        "List your registry projects (slug, title, visibility). Use a slug as the `project` argument on `list_components`, `get_component_in_project`, or `publish_component` to scope or link resources. Prefer this tool over the legacy id `list_collections`.",
+      inputSchema: z.object({}).describe("No input required"),
+      annotations: MCP_ANN.readClosed,
     },
+    listRegistryProjectsForMcp,
+  );
+
+  server.registerTool(
+    "list_collections",
+    {
+      title: "List registry projects (legacy tool id)",
+      description:
+        "Same behavior as `list_projects`. Deprecated MCP tool name only — new integrations should call `list_projects`.",
+      inputSchema: z.object({}).describe("No input required"),
+      annotations: MCP_ANN.readClosed,
+    },
+    listRegistryProjectsForMcp,
   );
 
   server.registerTool(
@@ -277,7 +291,7 @@ export function createRegistryMcpServer(request?: Request) {
     {
       title: "Create registry project",
       description:
-        "Create a Cozy registry project to group registry items (blocks, UI, themes). Default scope is personal. For an organization project, set publishScope to organization and pass targetRef (e.g. @acme) or organizationSlug — same as publish_component. Typical flow: create_project → publish_component with the same `project` slug to publish and auto-link items into this project. Requires Bearer token.",
+        "Create a Cozy registry project to group registry items (blocks, UI, themes). Default scope is personal. For an organization project: set publishScope to organization and **always pass targetRef (e.g. @acme) or organizationSlug** with the workspace slug from list_publish_targets (not the display name). Slug matching is case-insensitive. If you belong to multiple orgs and omit both fields, the call may fail as ambiguous. Same targeting rules as publish_component. Typical flow: list_publish_targets → create_project → publish_component with the same `project` slug. Requires Bearer token.",
       inputSchema: z.object({
         title: z.string().describe("Display name, e.g. Marketing blocks"),
         description: z.string().optional().describe("Optional description"),
@@ -295,16 +309,20 @@ export function createRegistryMcpServer(request?: Request) {
           .enum(["personal", "organization", "team"])
           .optional()
           .describe(
-            "personal (default) or organization (use with targetRef / organizationSlug). Legacy team is treated as organization.",
+            "personal (default) or organization. For organization, set targetRef or organizationSlug to the workspace slug from list_publish_targets. Legacy team is treated as organization.",
           ),
         targetRef: z
           .string()
           .optional()
-          .describe("Organization target e.g. @acme. Use list_publish_targets to discover values."),
+          .describe(
+            "Required for organization scope when you have multiple writable orgs (recommended always): e.g. @acme. Slug is from list_publish_targets, not the org display name.",
+          ),
         organizationSlug: z
           .string()
           .optional()
-          .describe("Alternative to targetRef when creating under an organization."),
+          .describe(
+            "Same as targetRef without @ — workspace slug from list_publish_targets (e.g. acme).",
+          ),
       }),
       annotations: MCP_ANN.writeRegistry,
     },
@@ -399,7 +417,7 @@ export function createRegistryMcpServer(request?: Request) {
   server.registerTool("list_components", {
     title: "List components",
     description:
-      "List components and modules available in the registry. Use this to discover what's available before fetching a specific component or before setting `registryDependencies` on publish. Registry dependencies MUST be explicit (see registry-dependency-management-spec §1.1): the system does not auto-link; use `suggest_registry_dependencies` + this list to choose refs. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>. For large registries, pass `limit` (and increase `offset` for the next page) to avoid huge responses—similar to paginated UI lists. For organization-owned items, pass `organizationSlug` (e.g. from `list_publish_targets`); org members see private items. Refs use `@orgSlug/itemName`. Legacy `orgSlug/teamSegment` owner paths still resolve to the parent organization.",
+      "List components and modules available in the registry. Use this to discover what's available before fetching a specific component or before setting `registryDependencies` on publish. Registry dependencies MUST be explicit (see registry-dependency-management-spec §1.1): the system does not auto-link; use `suggest_registry_dependencies` + this list to choose refs. Components are distributed as shadcn-style source bundles (editable TSX), not npm packages. Public components are always listed; private components require Authorization: Bearer <token>. For large registries, pass `limit` (and increase `offset` for the next page) to avoid huge responses—similar to paginated UI lists. To restrict results to items linked to a registry project, pass `project` with the slug from `list_projects`. For organization-owned items, pass `organizationSlug` (e.g. from `list_publish_targets`); org members see private items. Refs use `@orgSlug/itemName`. Legacy `orgSlug/teamSegment` owner paths still resolve to the parent organization.",
     inputSchema: z
       .object({
         organizationSlug: z
@@ -417,7 +435,9 @@ export function createRegistryMcpServer(request?: Request) {
         collection: z
           .string()
           .optional()
-          .describe("Deprecated alias for `project` (same behavior)."),
+          .describe(
+            "Legacy parameter name only — same as `project`. Prefer `project` (registry project slug).",
+          ),
         limit: z
           .number()
           .int()
@@ -541,7 +561,7 @@ export function createRegistryMcpServer(request?: Request) {
   server.registerTool("suggest_registry_dependencies", {
     title: "Suggest registry dependencies (read-only)",
     description:
-      "Analyze a multi-file component bundle (same shape as `publish_component.files`) and suggest which existing registry items might be linked as `registryDependencies`. Read-only: does not write to the database. Uses static imports + optional cozy stub paths; results are suggestions only—confirm before publishing (registry-dependency-management-spec §3.6). Requires Bearer token; catalog is scoped like list_components.",
+      "Analyze a multi-file component bundle (same shape as `publish_component.files`) and suggest which existing registry items might be linked as `registryDependencies`. Read-only: does not write to the database. Uses static imports + optional cozy stub paths; results are suggestions only—confirm before publishing (registry-dependency-management-spec §3.6). Requires Bearer token; optional `project` scopes the catalog like `list_components` (slug from `list_projects`).",
     inputSchema: z.object({
       files: z
         .record(z.string(), z.string())
@@ -555,7 +575,7 @@ export function createRegistryMcpServer(request?: Request) {
       collection: z
         .string()
         .optional()
-        .describe("Deprecated alias for `project`."),
+        .describe("Legacy parameter name only — same as `project`. Prefer `project`."),
     }),
     annotations: MCP_ANN.readOpen,
   }, async ({ files, project, collection }) => {
@@ -733,143 +753,138 @@ ${fileContent}
     },
   );
 
-  // Scoped variant: force the component to be linked to a specific project (by slug). Tool id kept for MCP compatibility.
-  server.registerTool(
-    "get_component_in_collection",
-    {
-      title: "Get component (scoped to project)",
-      description:
-        "Get a specific component, but ONLY if it belongs to the given project slug (via registry project membership). Use this when you want to build a page using only components from a certain project (e.g. dashboard-blocks).",
-      inputSchema: z.object({
-        project: z.string().optional().describe("Project slug, e.g. dashboard-blocks"),
-        collection: z
-          .string()
-          .optional()
-          .describe("Deprecated alias for `project` (provide one of project or collection)."),
-        name: z.string().describe("Component name, e.g. hero-section, faq"),
-        owner: z
-          .string()
-          .optional()
-          .describe("Owner handle (preferred) or legacy userId (from list_components)."),
-      }),
-      annotations: MCP_ANN.readOpen,
-    },
-    async ({ project, collection, name, owner }) => {
-      const { userId } = await getScopedToolContext();
-      if (!userId) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: "Authentication required. Add Authorization: Bearer <token>.",
-            },
-          ],
-          isError: true,
-        };
-      }
+  const getComponentInProjectSchema = z.object({
+    project: z
+      .string()
+      .optional()
+      .describe("Registry project slug, e.g. dashboard-blocks (from list_projects)."),
+    collection: z
+      .string()
+      .optional()
+      .describe("Legacy parameter name for `project` only — prefer `project`."),
+    name: z.string().describe("Component name, e.g. hero-section, faq"),
+    owner: z
+      .string()
+      .optional()
+      .describe("Owner handle (preferred) or legacy userId (from list_components)."),
+  });
 
-      const projectSlug = (project ?? collection)?.trim() ?? "";
-      if (!projectSlug) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: "Missing project slug: pass `project` (or deprecated `collection`).",
-            },
-          ],
-          isError: true,
-        };
-      }
+  async function getComponentInProjectForMcp(args: z.infer<typeof getComponentInProjectSchema>) {
+    const { project, collection, name, owner } = args;
+    const { userId } = await getScopedToolContext();
+    if (!userId) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "Authentication required. Add Authorization: Bearer <token>.",
+          },
+        ],
+        isError: true,
+      };
+    }
 
-      const adhoc = await getAdhocPolicyForProjectSlug(projectSlug, userId);
-      if (!adhoc) {
-        return {
-          content: [{ type: "text" as const, text: `Project "${projectSlug}" not found or no access.` }],
-          isError: true,
-        };
-      }
+    const projectSlug = (project ?? collection)?.trim() ?? "";
+    if (!projectSlug) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "Missing registry project slug: pass `project` (legacy alias: `collection`).",
+          },
+        ],
+        isError: true,
+      };
+    }
 
-      const item = owner
-        ? await getRegistryItemByOwnerNameAndVersionScoped({
-            ownerId: owner,
-            name,
-            version: null,
-            requestUserId: userId,
-            policy: adhoc,
-          })
-        : await getRegistryItemByOwnerNameAndVersionScoped({
-            ownerId: userId,
-            name,
-            version: null,
-            requestUserId: userId,
-            policy: adhoc,
-          });
+    const adhoc = await getAdhocPolicyForProjectSlug(projectSlug, userId);
+    if (!adhoc) {
+      return {
+        content: [{ type: "text" as const, text: `Project "${projectSlug}" not found or no access.` }],
+        isError: true,
+      };
+    }
 
-      if (!item) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Component "${name}" not found in project "${projectSlug}" (or not allowed).`,
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      // Reuse existing get_component rendering by delegating to the same conversion logic
-      const canonicalOwner = await getCanonicalRefOwnerForItem(item, owner ?? "legacy");
-      const currentVersion = getCurrentVersion(item);
-      const latestVersion =
-        (await getLatestVersionForItem({
-          owner: canonicalOwner,
+    const item = owner
+      ? await getRegistryItemByOwnerNameAndVersionScoped({
+          ownerId: owner,
           name,
-          userId,
-        })) ?? currentVersion;
+          version: null,
+          requestUserId: userId,
+          policy: adhoc,
+        })
+      : await getRegistryItemByOwnerNameAndVersionScoped({
+          ownerId: userId,
+          name,
+          version: null,
+          requestUserId: userId,
+          policy: adhoc,
+        });
 
-      const shadcnItem = toShadcnRegistryItem(item);
-      const mainFile = shadcnItem?.files?.[0];
-      const rawFileContent = mainFile?.content ?? "";
-      const installVersion = latestVersion || currentVersion;
-      const headerComment = `// cozy-registry: @${canonicalOwner}/${item.name} v${installVersion}\n`;
-      const isCodeFile = mainFile
-        ? [".tsx", ".ts", ".jsx", ".js"].some((ext) =>
-            mainFile.path.toLowerCase().endsWith(ext),
-          )
-        : false;
-      const fileContent =
-        isCodeFile && !rawFileContent.startsWith("// cozy-registry:")
-          ? `${headerComment}${rawFileContent}`
-          : rawFileContent;
+    if (!item) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Component "${name}" not found in project "${projectSlug}" (or not allowed).`,
+          },
+        ],
+        isError: true,
+      };
+    }
 
-      const baseUrl =
-        process.env.NEXT_PUBLIC_APP_URL ??
-        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
-      const lockSnippet = JSON.stringify(
-        buildLockfileEntry({
-          owner: canonicalOwner,
-          name: item.name,
-          type: item.type,
-          version: installVersion,
-          baseUrl,
-          files: shadcnItem?.files,
-        }),
-        null,
-        2,
-      );
+    const canonicalOwner = await getCanonicalRefOwnerForItem(item, owner ?? "legacy");
+    const currentVersion = getCurrentVersion(item);
+    const latestVersion =
+      (await getLatestVersionForItem({
+        owner: canonicalOwner,
+        name,
+        userId,
+      })) ?? currentVersion;
 
-      const headerLines = [
-        `## ${item.title} (@${canonicalOwner}/${item.name})`,
-        "",
-        item.description || "",
-        "",
-        `- Current version: v${currentVersion}`,
-        `- Latest available: v${latestVersion}`,
-        `- Scoped to project: ${projectSlug}`,
-        "",
-      ];
+    const shadcnItem = toShadcnRegistryItem(item);
+    const mainFile = shadcnItem?.files?.[0];
+    const rawFileContent = mainFile?.content ?? "";
+    const installVersion = latestVersion || currentVersion;
+    const headerComment = `// cozy-registry: @${canonicalOwner}/${item.name} v${installVersion}\n`;
+    const isCodeFile = mainFile
+      ? [".tsx", ".ts", ".jsx", ".js"].some((ext) =>
+          mainFile.path.toLowerCase().endsWith(ext),
+        )
+      : false;
+    const fileContent =
+      isCodeFile && !rawFileContent.startsWith("// cozy-registry:")
+        ? `${headerComment}${rawFileContent}`
+        : rawFileContent;
 
-      const text = `${headerLines.join("\n")}### Usage
+    const baseUrl =
+      process.env.NEXT_PUBLIC_APP_URL ??
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+    const lockSnippet = JSON.stringify(
+      buildLockfileEntry({
+        owner: canonicalOwner,
+        name: item.name,
+        type: item.type,
+        version: installVersion,
+        baseUrl,
+        files: shadcnItem?.files,
+      }),
+      null,
+      2,
+    );
+
+    const headerLines = [
+      `## ${item.title} (@${canonicalOwner}/${item.name})`,
+      "",
+      item.description || "",
+      "",
+      `- Current version: v${currentVersion}`,
+      `- Latest available: v${latestVersion}`,
+      `- Scoped to registry project: ${projectSlug}`,
+      "",
+    ];
+
+    const text = `${headerLines.join("\n")}### Usage
 Import and use in your React component. Props are defined in the interface.
 
 ### Suggested lockfile entry
@@ -883,8 +898,31 @@ ${fileContent}
 \`\`\`
 `;
 
-      return { content: [{ type: "text" as const, text }] };
+    return { content: [{ type: "text" as const, text }] };
+  }
+
+  server.registerTool(
+    "get_component_in_project",
+    {
+      title: "Get component (scoped to registry project)",
+      description:
+        "Fetch a component only if it is linked to the given registry project slug. Use when assembling UI from one project’s resources. Prefer this tool over the legacy id `get_component_in_collection`.",
+      inputSchema: getComponentInProjectSchema,
+      annotations: MCP_ANN.readOpen,
     },
+    getComponentInProjectForMcp,
+  );
+
+  server.registerTool(
+    "get_component_in_collection",
+    {
+      title: "Get component scoped to project (legacy tool id)",
+      description:
+        "Same behavior as `get_component_in_project`. Deprecated MCP tool name only.",
+      inputSchema: getComponentInProjectSchema,
+      annotations: MCP_ANN.readOpen,
+    },
+    getComponentInProjectForMcp,
   );
 
   server.registerTool(
@@ -2057,7 +2095,7 @@ ${fileContent}
   server.registerTool("publish_component", {
     title: "Publish or update component",
     description:
-      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token. New components default to private visibility unless `visibility` is explicitly set to public.\n\nRegistry project: Optional `project` (registry project slug, same as list_collections / create_project). When set, after a successful publish or version bump the component is linked to that project if you have edit access and the item owner matches the project scope (personal item → personal project; org item → org project in the same organization). Omit if you only need to publish without linking.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.\n\nRegistry dependencies (`registryDependencies`): Optional refs `@owner/name` or `@owner/name@version`. MUST be explicit—the system does not auto-link to other registry items (registry-dependency-management-spec §1.1). Use `list_components` and read-only `suggest_registry_dependencies` to discover candidates, then set refs in this payload. Successful responses may append informational dependency health (e.g. outdated vs latest); it does not block publish (§3.7).\n\nPreview props (`previewProps`): Optional. The registry preview still works without it (sensible defaults). Provide `previewProps` when you want designers and reviewers to see representative component states in the browser—variants, labels, disabled/open, sample content—without reading source. Stored in meta.previewProps for the /preview page.",
+      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token. New components default to private visibility unless `visibility` is explicitly set to public.\n\nRegistry project: Optional `project` (registry project slug from `list_projects` or `create_project`). When set, after a successful publish or version bump the component is linked to that project if you have edit access and the item owner matches the project scope (personal item → personal project; org item → org project in the same organization). Omit if you only need to publish without linking.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.\n\nRegistry dependencies (`registryDependencies`): Optional refs `@owner/name` or `@owner/name@version`. MUST be explicit—the system does not auto-link to other registry items (registry-dependency-management-spec §1.1). Use `list_components` and read-only `suggest_registry_dependencies` to discover candidates, then set refs in this payload. Successful responses may append informational dependency health (e.g. outdated vs latest); it does not block publish (§3.7).\n\nPreview props (`previewProps`): Optional. The registry preview still works without it (sensible defaults). Provide `previewProps` when you want designers and reviewers to see representative component states in the browser—variants, labels, disabled/open, sample content—without reading source. Stored in meta.previewProps for the /preview page.",
     annotations: MCP_ANN.writeRegistry,
     inputSchema: z.object({
       name: z
@@ -2154,12 +2192,12 @@ ${fileContent}
         .string()
         .optional()
         .describe(
-          "Optional registry project slug (from create_project / list_collections). After publish, links this component to that project when scopes match and you can edit the project.",
+          "Optional registry project slug (from `create_project` or `list_projects`). After publish, links this component to that project when scopes match and you can edit the project.",
         ),
       collection: z
         .string()
         .optional()
-        .describe("Deprecated alias for `project`."),
+        .describe("Legacy parameter name only — same as `project`. Prefer `project`."),
       registryDependencies: z
         .unknown()
         .optional()

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { member, organization } from "@/lib/db/schema";
@@ -8,7 +8,7 @@ import { resolveTeamByOrgSlugAndTeamSegment } from "@/lib/registry-team";
 export async function resolveOrganizationBySlug(slug: string) {
   const key = slug.trim();
   if (!key) return null;
-  const [row] = await db
+  const [exact] = await db
     .select({
       id: organization.id,
       slug: organization.slug,
@@ -17,7 +17,20 @@ export async function resolveOrganizationBySlug(slug: string) {
     .from(organization)
     .where(eq(organization.slug, key))
     .limit(1);
-  return row ?? null;
+  if (exact) return exact;
+
+  const keyLower = key.toLowerCase();
+  const ciMatches = await db
+    .select({
+      id: organization.id,
+      slug: organization.slug,
+      name: organization.name,
+    })
+    .from(organization)
+    .where(sql`lower(${organization.slug}) = ${keyLower}`)
+    .limit(2);
+  if (ciMatches.length === 1) return ciMatches[0];
+  return null;
 }
 
 export async function isUserOrganizationMember(
