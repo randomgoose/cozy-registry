@@ -1,6 +1,8 @@
 import { headers } from "next/headers";
+import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
-import { getRegistryItemsByUserId } from "@/lib/registry";
+import { db } from "@/lib/db";
+import { user } from "@/lib/db/schema";
 import { ProjectsPanel } from "../../dashboard/CollectionsPanel";
 
 export const dynamic = "force-dynamic";
@@ -22,16 +24,17 @@ export default async function PersonalProjectsPage() {
     );
   }
 
-  const items = await getRegistryItemsByUserId(session.user.id);
+  const [ownerRow] = await db
+    .select({ handle: user.handle })
+    .from(user)
+    .where(eq(user.id, session.user.id))
+    .limit(1);
+  const registryOwner =
+    ownerRow?.handle ?? session.user.email?.split("@")[0] ?? "owner";
 
   return (
     <ProjectsPanel
-      items={items.map((i) => ({
-        id: i.id,
-        name: i.name,
-        title: i.title,
-        type: i.type,
-      }))}
+      registryOwner={registryOwner}
       scopeLabel="Personal"
       isOrgScope={false}
       projectsBasePath="/me/projects"

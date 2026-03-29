@@ -1,7 +1,6 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { getRegistryItemsByOrganizationId } from "@/lib/registry";
 import { isUserOrganizationMember, resolveOrganizationBySlug } from "@/lib/registry-organization";
 import { ProjectsPanel } from "../../../dashboard/CollectionsPanel";
 
@@ -31,18 +30,11 @@ export default async function WorkspaceProjectsPage({ params }: { params: Promis
   const allowed = await isUserOrganizationMember(session.user.id, org.id);
   if (!allowed) notFound();
 
-  const items = await getRegistryItemsByOrganizationId(org.id);
-
   const projectsBasePath = `/workspace/${encodeURIComponent(org.slug)}/projects`;
 
   return (
     <ProjectsPanel
-      items={items.map((i) => ({
-        id: i.id,
-        name: i.name,
-        title: i.title,
-        type: i.type,
-      }))}
+      registryOwner={org.slug}
       scopeLabel={`${org.name} (@${org.slug})`}
       isOrgScope
       projectsBasePath={projectsBasePath}

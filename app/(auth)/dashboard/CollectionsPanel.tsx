@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { ComponentCard } from "@/app/components/ComponentCard";
 import {
   Dialog,
   DialogContent,
@@ -11,13 +12,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { getThumbnailFromMeta } from "@/lib/thumbnail";
 
-type ItemSummary = {
-  id: string;
-  name: string;
-  title: string;
-  type: string;
-};
+function normalizeVisibility(value: string): "public" | "private" {
+  return value === "private" ? "private" : "public";
+}
 
 type Project = {
   id: string;
@@ -35,6 +34,8 @@ type ProjectItemRow = {
   title: string;
   type: string;
   visibility: string;
+  description: string | null;
+  meta: Record<string, unknown> | null;
   addedAt: string;
 };
 
@@ -43,7 +44,8 @@ type CreatedProject = { id: string; slug: string; title: string };
 type MemberRow = { userId: string; role: string; name: string | null; email: string };
 
 export function ProjectsPanel(props: {
-  items: ItemSummary[];
+  /** Registry path segment for item links (`@handle` scope or org slug). */
+  registryOwner: string;
   className?: string;
   scopeLabel?: string;
   isOrgScope?: boolean;
@@ -74,7 +76,6 @@ export function ProjectsPanel(props: {
   const [selectedId, setSelectedId] = useState<string | null>(() => props.initialProjectId ?? null);
   const [projectItems, setProjectItems] = useState<ProjectItemRow[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
-  const [addItemId, setAddItemId] = useState<string>("");
   const [shareOpen, setShareOpen] = useState(false);
 
   const selectedProject = useMemo(
@@ -89,11 +90,6 @@ export function ProjectsPanel(props: {
   const detailSlug = props.initialProjectSlug ?? selectedProject?.slug ?? "";
   const detailVisibility =
     props.initialProjectVisibility ?? selectedProject?.visibility ?? "private";
-
-  const availableToAdd = useMemo(() => {
-    const existing = new Set(projectItems.map((x) => x.itemId));
-    return props.items.filter((i) => !existing.has(i.id));
-  }, [projectItems, props.items]);
 
   async function refreshProjects() {
     const res = await fetch("/api/projects", { cache: "no-store" });
@@ -258,35 +254,6 @@ export function ProjectsPanel(props: {
   function closeCreateDialog() {
     resetCreateWizard();
     setCreateOpen(false);
-  }
-
-  async function addItem() {
-    if (!selectedId || !addItemId) return;
-    const res = await fetch(`/api/projects/${selectedId}/items`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ itemId: addItemId }),
-    });
-    if (!res.ok) {
-      alert("Failed to add item");
-      return;
-    }
-    setAddItemId("");
-    await refreshProjects();
-    await refreshSelectedItems(selectedId);
-  }
-
-  async function removeItem(itemId: string) {
-    if (!selectedId) return;
-    const res = await fetch(`/api/projects/${selectedId}/items/${itemId}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) {
-      alert("Failed to remove item");
-      return;
-    }
-    await refreshProjects();
-    await refreshSelectedItems(selectedId);
   }
 
   return (
@@ -576,82 +543,45 @@ export function ProjectsPanel(props: {
       )}
 
       {isProjectDetail ? (
-        <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="mt-8">
           {!selectedId ? (
             <p className="text-sm text-zinc-500">Loading project…</p>
+          ) : itemsLoading ? (
+            <p className="text-sm text-zinc-500">Loading resources…</p>
+          ) : projectItems.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50/80 px-6 py-14 text-center dark:border-zinc-600 dark:bg-zinc-950/40">
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                No resources in this project yet
+              </p>
+              <p className="mx-auto mt-2 max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
+                Add items to this project from your registry workflow or API when publishing.
+              </p>
+            </div>
           ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={addItemId}
-                  onChange={(e) => setAddItemId(e.target.value)}
-                  className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                >
-                  <option value="">Choose a resource to add…</option>
-                  {availableToAdd.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.title} ({i.type})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={addItem}
-                  disabled={!addItemId}
-                  className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-                >
-                  Add
-                </button>
-              </div>
-
-              <div className="mt-6">
-                <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Resources</h2>
-                {itemsLoading ? (
-                  <p className="mt-3 text-sm text-zinc-500">Loading resources…</p>
-                ) : projectItems.length === 0 ? (
-                  <div className="mt-6 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50/80 px-6 py-14 text-center dark:border-zinc-600 dark:bg-zinc-950/40">
-                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                      No resources in this project yet
-                    </p>
-                    <p className="mx-auto mt-2 max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
-                      Add blocks, components, or themes from your registry using the dropdown above.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {projectItems.map((it) => (
-                      <article
-                        key={it.itemId}
-                        className="flex flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-950/30"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <h3 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                              {it.title}
-                            </h3>
-                            <p className="mt-0.5 truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                              {it.name}
-                            </p>
-                          </div>
-                          <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                            {it.type}
-                          </span>
-                        </div>
-                        <div className="mt-4 flex justify-end border-t border-zinc-100 pt-3 dark:border-zinc-800">
-                          <button
-                            type="button"
-                            onClick={() => removeItem(it.itemId)}
-                            className="text-sm font-medium text-red-600 hover:underline dark:text-red-400"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {projectItems.map((it) => (
+                <div key={it.itemId} className="relative">
+                  <ComponentCard
+                    itemId={it.itemId}
+                    owner={props.registryOwner}
+                    name={it.name}
+                    title={it.title}
+                    description={it.description}
+                    visibility={normalizeVisibility(it.visibility)}
+                    thumbnailUrl={getThumbnailFromMeta(it.meta)?.url ?? null}
+                  />
+                  <span
+                    className={`absolute right-3 top-3 rounded-full px-2 py-0.5 text-xs font-medium ${
+                      it.visibility === "private"
+                        ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                        : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                    }`}
+                  >
+                    {it.visibility === "private" ? "Private" : "Public"}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       ) : loading ? (

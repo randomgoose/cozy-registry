@@ -32,6 +32,7 @@ export async function GET(
       title: registryItems.title,
       description: registryItems.description,
       visibility: registryItems.visibility,
+      meta: registryItems.meta,
       addedAt: registryProjectItems.addedAt,
     })
     .from(registryProjectItems)

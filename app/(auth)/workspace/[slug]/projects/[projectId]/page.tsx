@@ -2,7 +2,6 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getProjectIfAccessible } from "@/lib/project-permissions";
-import { getRegistryItemsByOrganizationId } from "@/lib/registry";
 import { isUserOrganizationMember, resolveOrganizationBySlug } from "@/lib/registry-organization";
 import { ProjectsPanel } from "../../../../dashboard/CollectionsPanel";
 
@@ -41,19 +40,12 @@ export default async function WorkspaceProjectDetailPage({
     notFound();
   }
 
-  const items = await getRegistryItemsByOrganizationId(org.id);
-
   const projectsBasePath = `/workspace/${encodeURIComponent(org.slug)}/projects`;
   const visibility = project.visibility === "public" ? "public" : "private";
 
   return (
     <ProjectsPanel
-      items={items.map((i) => ({
-        id: i.id,
-        name: i.name,
-        title: i.title,
-        type: i.type,
-      }))}
+      registryOwner={org.slug}
       scopeLabel={`${org.name} (@${org.slug})`}
       isOrgScope
       projectsBasePath={projectsBasePath}
