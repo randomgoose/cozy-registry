@@ -37,6 +37,17 @@ import {
 } from "./routes/oauth";
 import { handlePlatformPreviewRoute } from "./routes/preview";
 import {
+  handlePlatformProjectDetailRoute,
+  handlePlatformProjectItemDetailRoute,
+  handlePlatformProjectItemsRoute,
+  handlePlatformProjectsRoute,
+} from "./routes/projects";
+import {
+  handlePlatformProjectInvitationDetailRoute,
+  handlePlatformProjectMemberDetailRoute,
+  handlePlatformProjectMembersRoute,
+} from "./routes/project-members";
+import {
   handlePlatformRegistryCatalogRoute,
   handlePlatformRegistryConsumptionRoute,
   handlePlatformRegistryItemDetailRoute,
@@ -195,6 +206,36 @@ export function createPlatformApp() {
   app.delete(
     "/collections/:id/items/:itemId",
     delegate(handlePlatformCollectionItemDetailRoute),
+  );
+
+  app.on(["GET", "POST"], "/projects", delegate(handlePlatformProjectsRoute));
+  app.on(
+    ["PATCH", "DELETE"],
+    "/projects/:id",
+    delegate(handlePlatformProjectDetailRoute),
+  );
+  app.on(
+    ["GET", "POST"],
+    "/projects/:id/items",
+    delegate(handlePlatformProjectItemsRoute),
+  );
+  app.on(
+    ["GET", "POST"],
+    "/projects/:id/members",
+    delegate(handlePlatformProjectMembersRoute),
+  );
+  app.on(
+    ["PATCH", "DELETE"],
+    "/projects/:id/members/:memberId",
+    delegate(handlePlatformProjectMemberDetailRoute),
+  );
+  app.delete(
+    "/projects/:id/invitations/:invitationId",
+    delegate(handlePlatformProjectInvitationDetailRoute),
+  );
+  app.delete(
+    "/projects/:id/items/:itemId",
+    delegate(handlePlatformProjectItemDetailRoute),
   );
 
   app.get("/r/*", delegate(handlePlatformRegistryConsumptionRoute));

@@ -89,7 +89,7 @@ pnpm web:preview
 1. Open `/`
 2. Sign in
 3. Open `/dashboard`
-4. Open `/collections`
+4. Open `/projects`
 5. Open `/registry`
 6. Open one registry detail page
 7. Open one preview page

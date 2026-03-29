@@ -1,11 +1,11 @@
-Status: draft
+Status: compatibility draft
 Owner: shared
 Last updated: 2026-03-27
 Source of truth: yes
 
-# Team MVP Acceptance Checklist
+# Team/Access-Group Compatibility Checklist
 
-Use this checklist for end-to-end validation of the current team/workspace MVP before broader testing.
+Use this checklist for end-to-end validation of the current access-group compatibility layer while the product model shifts toward project-first surfaces.
 
 ## 1. Workspace Creation
 
@@ -16,14 +16,14 @@ Use this checklist for end-to-end validation of the current team/workspace MVP b
 - [ ] The new workspace appears in the switcher immediately after refresh.
 - [ ] The new team becomes selectable.
 
-## 2. Team Creation
+## 2. Access-Group Creation
 
 - [ ] Inside an existing workspace, the switcher shows `Create team`.
-- [ ] Creating a team succeeds.
-- [ ] The creating user is automatically added to the new team.
-- [ ] The new team gets a stable slug.
-- [ ] The new team becomes the active team after creation.
-- [ ] The new team is visible in the switcher without manual reload issues.
+- [ ] Creating an access group succeeds.
+- [ ] The creating user is automatically added to the new access group.
+- [ ] The new access group gets a stable slug.
+- [ ] The new access group becomes the active access group after creation.
+- [ ] The new access group is visible in the switcher without manual reload issues.
 
 ## 3. Scope Switching
 
@@ -31,7 +31,7 @@ Use this checklist for end-to-end validation of the current team/workspace MVP b
 - [ ] Switching from a team back to `Personal` succeeds.
 - [ ] The active scope label updates correctly.
 - [ ] The dashboard content changes with the selected scope.
-- [ ] The collections page changes with the selected scope.
+- [ ] The projects page changes with the selected scope.
 - [ ] The settings page changes with the selected scope.
 
 ## 4. Dashboard Behavior
@@ -42,26 +42,26 @@ Use this checklist for end-to-end validation of the current team/workspace MVP b
 - [ ] Personal stats reflect only personal items.
 - [ ] Personal empty state is shown when there are no personal items.
 
-### Team scope
+### Access-group scope
 
-- [ ] Team dashboard shows items owned by the active team.
-- [ ] Team stats reflect only team-owned items.
-- [ ] Team empty state is shown when there are no team items.
-- [ ] Team dashboard copy refers to the active team/workspace instead of personal ownership.
+- [ ] The access-group dashboard shows items owned by the active access group.
+- [ ] Stats reflect only access-group-owned items.
+- [ ] The access-group empty state is shown when there are no scoped items.
+- [ ] Dashboard copy refers to the active access group/workspace instead of personal ownership.
 
-## 5. Collections Behavior
+## 5. Project Compatibility Behavior
 
 ### Personal scope
 
-- [ ] Personal collections still list and create correctly.
-- [ ] Personal collections only allow personal items to be added.
+- [ ] Personal projects list and create correctly.
+- [ ] Personal projects only allow personal items to be added.
 
-### Team scope
+### Access-group scope
 
-- [ ] Team collections list correctly for the active team.
-- [ ] A new collection created in team scope is owned by the active team.
-- [ ] Team collections only allow items from the same team.
-- [ ] Personal items cannot be added to a team collection.
+- [ ] Scoped projects list correctly for the active access group.
+- [ ] A new project created in scoped mode is owned by the active access group.
+- [ ] Scoped projects only allow items from the same access group.
+- [ ] Personal items cannot be added to an access-group project.
 
 ## 6. Settings Behavior
 
@@ -70,23 +70,23 @@ Use this checklist for end-to-end validation of the current team/workspace MVP b
 - [ ] Personal settings still load normally.
 - [ ] User API keys and user-scoped policy controls still work.
 
-### Team scope
+### Access-group scope
 
-- [ ] The page shows the current active team scope clearly.
-- [ ] The `Team workspace` section appears.
+- [ ] The page shows the current active access-group scope clearly.
+- [ ] The `Project access` section appears.
 - [ ] The current organization and role are shown.
-- [ ] Team name can be updated by an owner.
-- [ ] Updated team name is reflected in the switcher.
+- [ ] The access-group name can be updated by an owner.
+- [ ] Updated access-group name is reflected in the switcher.
 
-## 7. Team Members and Invites
+## 7. Project Members and Invites
 
-- [ ] Team members list loads in team scope.
-- [ ] Pending invitations list loads in team scope.
-- [ ] An owner can send an invite.
+- [ ] Project members load for the selected project.
+- [ ] Pending invitations load for the selected project.
+- [ ] An owner can send a project invite for an access-group-backed project.
 - [ ] A new invite appears in the pending invitations list.
 - [ ] An owner can cancel a pending invite.
 - [ ] An owner can change a member role between `viewer` and `editor`.
-- [ ] An owner can remove a member from the active team.
+- [ ] An owner can remove a member from the selected project access group.
 - [ ] A non-owner cannot see or use owner-only controls.
 
 ## 8. Team Publish

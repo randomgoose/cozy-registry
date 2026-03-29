@@ -30,7 +30,8 @@
 - [ ] **发布体验**：完善发布页的校验与错误提示、成功后的跳转与反馈
 - [ ] **「Add to project」说明**：在 README 或文档中写清用户如何把组件用到自己的项目（复制代码 / 未来 CLI 示例，如 `npx shadcn add <registry-url>/r/...`）
 - [ ] **组件 schema 扩展**：视需要为组件增加 `tags`、`useWhen` 等 AI 用字段，为后续 `search_components` 做准备
-- [ ] **团队功能 MVP 设计**：基于 [team-workspaces-plan.md](../10-product/team-workspaces-plan.md) 明确 scope 模型、角色权限、Team dashboard / collections / settings 页面范围，并拆出 schema/API/UI 实现任务
+- [ ] **兼容 access-group 能力收口**：基于 [team-workspaces-plan.md](../10-product/team-workspaces-plan.md) 和 [project-model-simplification-spec.md](../20-engineering/project-model-simplification-spec.md) 明确兼容 scope、project access、access-group alias 与 schema/API/UI 收口任务
+- [ ] **Project 模型简化方案落地**：按 [project-model-simplification-spec.md](../20-engineering/project-model-simplification-spec.md) 评估 `collection -> project`、project-level access control 和 team 兼容迁移路径
 
 ---
 

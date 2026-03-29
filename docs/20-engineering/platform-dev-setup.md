@@ -8,7 +8,7 @@ This document describes the current local-development shape for `cozy-platform`.
 
 ## Goals
 
-- run the extracted platform host without booting the full Next.js app
+- run the extracted platform host without booting any legacy Web runtime
 - let Web consume the standalone platform host directly
 - keep product APIs and auth-control under a single backend runtime
 
@@ -18,7 +18,7 @@ The platform host currently lives under:
 
 - `apps/platform/app.ts`
 - `apps/platform/server.ts`
-- `platform/routes/*`
+- `apps/platform/routes/*`
 
 The host now uses `Hono` with `@hono/node-server`, while route handlers still keep standard `Request -> Response` signatures so the service layer stays framework-light.
 
@@ -32,12 +32,12 @@ pnpm cozy-platform
 
 Default port:
 
-- `4000`
+- `3000`
 
 Override port with:
 
 ```bash
-PORT=4100 pnpm cozy-platform
+PORT=3100 pnpm cozy-platform
 ```
 
 ## Web Configuration
@@ -70,6 +70,15 @@ The extracted host currently serves:
 - `POST /auth-control/sign-up/*`
 - `POST /auth-control/organization/*`
 - `GET|POST /auth-control/api-key/*`
+- `GET /projects`
+- `POST /projects`
+- `PATCH|DELETE /projects/:id`
+- `GET /projects/:id/members`
+- `POST /projects/:id/members`
+- `PATCH|DELETE /projects/:id/members/:memberId`
+- `DELETE /projects/:id/invitations/:invitationId`
+- `GET|POST /projects/:id/items`
+- `DELETE /projects/:id/items/:itemId`
 - `GET|POST /collections`
 - `PATCH|DELETE /collections/:id`
 - `GET|POST /collections/:id/items`
@@ -100,5 +109,6 @@ The extracted host currently serves:
 ## Notes
 
 - `GET /registry/owned` requires auth and optionally accepts `teamId`
+- `/projects/*` is the primary product surface; `/collections/*` remains a compatibility alias over the current persistence model
 - `cozy-platform` is now the only backend runtime for product APIs, auth-control, OAuth, and well-known metadata
 - Web + Platform is the current deployment model

@@ -1,13 +1,13 @@
-Status: proposed
+Status: compatibility reference
 Owner: engineering
 Last updated: 2026-03-27
 Source of truth: no
 
-# Team 权限矩阵（MVP）
+# Team 权限矩阵（兼容层参考）
 
 ## 目的
 
-这份文档定义团队功能 MVP 的权限边界，用于指导：
+这份文档定义旧 team/access-group 兼容层的权限边界，用于指导：
 
 - UI 是否展示某个入口
 - API 是否允许某个动作
@@ -16,7 +16,7 @@ Source of truth: no
 这份文档建立在以下前提上：
 
 - Organization 与 Team 由 Better Auth organization plugin 提供
-- Cozy Registry 的业务资源优先归属于 `team`
+- Cozy Registry 的新产品表述正在迁往 `project`，但兼容层仍允许部分资源通过 `team` / access-group 映射
 - 角色先只做：
   - `owner`
   - `editor`
@@ -27,6 +27,10 @@ Source of truth: no
 - [team-workspaces-plan.md](../10-product/team-workspaces-plan.md)
 - [team-data-model.md](./team-data-model.md)
 - [team-publish-target-spec.md](./team-publish-target-spec.md)
+- [project-model-simplification-spec.md](./project-model-simplification-spec.md)
+
+> 注意：
+> 这份文档不再代表长期产品主模型。后续主模型以 `organization -> project` 为准，`team` 仅作为兼容 access group 或内部实现参考。
 
 ---
 

@@ -8,6 +8,9 @@ import {
 import { resolveOwner } from "@cozy/registry-domain/owner";
 import type { PlatformRequestContext } from "@cozy/platform-core/platform-context";
 
+// Compatibility layer:
+// registry_collections remains the current persistence model, but new
+// product-facing APIs should prefer project semantics via project-service.
 function isKebab(value: string): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 }

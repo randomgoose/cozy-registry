@@ -1,0 +1,1 @@
+import{j as t}from"./index-tOQmWZ0K.js";import{C as e}from"./compat-route-redirect-BfPtCTaV.js";function r(){return t.jsx(e,{to:"/projects",title:"Redirecting to projects",description:"Collections now live under the project model. We’re opening the migrated projects view for this compatibility route."})}export{r as CollectionsRoute};

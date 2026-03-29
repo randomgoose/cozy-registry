@@ -24,13 +24,14 @@ Current state:
 - authenticated `/dashboard` now reads `cozy-platform /workspace/current` and `/registry/owned`
 - `/workspace` now renders from `apps/web` and uses `cozy-platform /auth-control/*` for workspace mutations
 - `/notifications` now renders from `apps/web` and reads `cozy-platform /notifications`
-- `/t/:orgSlug/:teamSlug/{dashboard|collections|settings}` now renders from `apps/web`, resolves the team through `cozy-platform /auth-control/*`, syncs active scope, and then renders the migrated surface in-place
+- `/t/:orgSlug/:teamSlug/{dashboard|projects|settings}` now renders from `apps/web`, resolves the compatibility access group through `cozy-platform /auth-control/*`, syncs active scope, and then renders the migrated surface in-place
+- `/collections` and `/t/:orgSlug/:teamSlug/collections` remain as compatibility aliases that redirect into `/projects`
 - `/docs` now renders directly from `apps/web`
-- `/collections` now manages `cozy-platform /collections` and `/collections/:id/items`, including create, edit, delete, and item removal
+- `/projects` now manages `cozy-platform /projects` and `/projects/:id/items`, including create, edit, delete, member access, and item removal
 - `/registry` now browses the public registry catalog from `cozy-platform /registry`
 - `/registry/:itemName`, `/registry/:owner/:name`, and `/preview/:owner/:name` now form a migrated view-only detail and preview chain on the new host
 - `/publish` now submits through `cozy-platform /registry/items`
-- `/settings` now hosts workspace, collections, team collaboration management, migrated shell scope switching, and API key inventory/creation through `cozy-platform /auth-control/*`
+- `/settings` now hosts workspace, projects, project access management, migrated shell scope switching, and API key inventory/creation through `cozy-platform /auth-control/*`
 - the migrated shell now uses `cozy-platform /auth-control/*` for session summary, sign-in/sign-up bootstrap, workspace scope switching, team route resolution, invitation acceptance, onboarding handle setup, workspace org mutations, and API key inventory/lifecycle
 
 Runtime env vars:

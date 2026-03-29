@@ -2,14 +2,24 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, FolderKanban, Lock, Sparkles, Trash2 } from "lucide-react";
 import {
   createCollection,
+  createProject,
   deleteCollection,
+  deleteProject,
   fetchCollectionItems,
   fetchCollections,
   fetchCurrentWorkspace,
+  fetchProjectItems,
+  fetchProjectMembers,
+  fetchProjects,
   removeItemFromCollection,
+  removeItemFromProject,
   type Collection,
   type CollectionItem,
+  type Project,
+  type ProjectMembership,
+  type ProjectItem,
   updateCollection,
+  updateProject,
   type WorkspaceData,
 } from "../../lib/platform";
 import { getPlatformBaseUrl } from "../../lib/runtime-config";
@@ -25,11 +35,21 @@ function slugifyCollectionName(value: string) {
 }
 
 export function CollectionsPage() {
+  return <CollectionWorkspacePage mode="collection" />;
+}
+
+export function ProjectsPage() {
+  return <CollectionWorkspacePage mode="project" />;
+}
+
+function CollectionWorkspacePage(props: { mode: "collection" | "project" }) {
+  const isProjectMode = props.mode === "project";
   const platformBaseUrl = getPlatformBaseUrl();
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
-  const [collections, setCollections] = useState<Collection[] | null>(null);
+  const [collections, setCollections] = useState<Array<Collection | Project> | null>(null);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
-  const [selectedItems, setSelectedItems] = useState<CollectionItem[] | null>(null);
+  const [selectedItems, setSelectedItems] = useState<Array<CollectionItem | ProjectItem> | null>(null);
+  const [selectedMembership, setSelectedMembership] = useState<ProjectMembership | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "signed-out" | "error">(
     platformBaseUrl ? "loading" : "error",
   );
@@ -50,7 +70,7 @@ export function CollectionsPage() {
   async function loadCollections(signal?: AbortSignal) {
     const [workspaceData, collectionData] = await Promise.all([
       fetchCurrentWorkspace(signal),
-      fetchCollections(signal),
+      isProjectMode ? fetchProjects(signal) : fetchCollections(signal),
     ]);
 
     if (!workspaceData || !collectionData) {
@@ -88,13 +108,16 @@ export function CollectionsPage() {
   useEffect(() => {
     if (!selectedCollectionId) {
       setSelectedItems([]);
+      setSelectedMembership(null);
       return;
     }
 
     const controller = new AbortController();
     setItemsLoading(true);
 
-    fetchCollectionItems(selectedCollectionId, controller.signal)
+    ;(isProjectMode
+      ? fetchProjectItems(selectedCollectionId, controller.signal)
+      : fetchCollectionItems(selectedCollectionId, controller.signal))
       .then((items) => {
         setSelectedItems(items ?? []);
       })
@@ -111,6 +134,27 @@ export function CollectionsPage() {
 
     return () => controller.abort();
   }, [selectedCollectionId]);
+
+  useEffect(() => {
+    if (!isProjectMode || !selectedCollectionId) {
+      setSelectedMembership(null);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    fetchProjectMembers(selectedCollectionId, controller.signal)
+      .then((membership) => {
+        setSelectedMembership(membership);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        console.error("Failed to load selected project members", error);
+        setSelectedMembership(null);
+      });
+
+    return () => controller.abort();
+  }, [isProjectMode, selectedCollectionId]);
 
   const selectedCollection = useMemo(
     () => collections?.find((collection) => collection.id === selectedCollectionId) ?? null,
@@ -142,7 +186,7 @@ export function CollectionsPage() {
     setSaving(true);
     setMessage(null);
     try {
-      const response = await createCollection({
+      const response = await (isProjectMode ? createProject : createCollection)({
         title,
         slug: slugifyCollectionName(title),
         description: createDraft.description.trim() || null,
@@ -150,7 +194,7 @@ export function CollectionsPage() {
       });
 
       if (!response.response.ok) {
-        setMessage((response.data?.error as string | undefined) ?? "Failed to create collection.");
+        setMessage((response.data?.error as string | undefined) ?? `Failed to create ${isProjectMode ? "project" : "collection"}.`);
         return;
       }
 
@@ -160,9 +204,9 @@ export function CollectionsPage() {
         description: "",
         visibility: "private",
       });
-      setMessage("Collection created.");
+      setMessage(`${isProjectMode ? "Project" : "Collection"} created.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to create collection.");
+      setMessage(error instanceof Error ? error.message : `Failed to create ${isProjectMode ? "project" : "collection"}.`);
     } finally {
       setSaving(false);
     }
@@ -175,7 +219,7 @@ export function CollectionsPage() {
     setSaving(true);
     setMessage(null);
     try {
-      const response = await updateCollection(selectedCollection.id, {
+      const response = await (isProjectMode ? updateProject : updateCollection)(selectedCollection.id, {
         title: editDraft.title.trim(),
         slug: slugifyCollectionName(editDraft.title),
         description: editDraft.description.trim() || null,
@@ -183,14 +227,14 @@ export function CollectionsPage() {
       });
 
       if (!response.response.ok) {
-        setMessage((response.data?.error as string | undefined) ?? "Failed to update collection.");
+        setMessage((response.data?.error as string | undefined) ?? `Failed to update ${isProjectMode ? "project" : "collection"}.`);
         return;
       }
 
       await loadCollections();
-      setMessage("Collection updated.");
+      setMessage(`${isProjectMode ? "Project" : "Collection"} updated.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to update collection.");
+      setMessage(error instanceof Error ? error.message : `Failed to update ${isProjectMode ? "project" : "collection"}.`);
     } finally {
       setSaving(false);
     }
@@ -206,18 +250,18 @@ export function CollectionsPage() {
     setSaving(true);
     setMessage(null);
     try {
-      const response = await deleteCollection(selectedCollection.id);
+      const response = await (isProjectMode ? deleteProject : deleteCollection)(selectedCollection.id);
 
       if (!response.response.ok) {
-        setMessage((response.data?.error as string | undefined) ?? "Failed to delete collection.");
+        setMessage((response.data?.error as string | undefined) ?? `Failed to delete ${isProjectMode ? "project" : "collection"}.`);
         return;
       }
 
       await loadCollections();
       setSelectedItems([]);
-      setMessage("Collection deleted.");
+      setMessage(`${isProjectMode ? "Project" : "Collection"} deleted.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to delete collection.");
+      setMessage(error instanceof Error ? error.message : `Failed to delete ${isProjectMode ? "project" : "collection"}.`);
     } finally {
       setSaving(false);
     }
@@ -229,7 +273,7 @@ export function CollectionsPage() {
     setSaving(true);
     setMessage(null);
     try {
-      const response = await removeItemFromCollection(selectedCollection.id, itemId);
+      const response = await (isProjectMode ? removeItemFromProject : removeItemFromCollection)(selectedCollection.id, itemId);
 
       if (!response.response.ok) {
         setMessage((response.data?.error as string | undefined) ?? "Failed to remove item.");
@@ -237,14 +281,14 @@ export function CollectionsPage() {
       }
 
       const [nextItems, nextCollections] = await Promise.all([
-        fetchCollectionItems(selectedCollection.id),
-        fetchCollections(),
+        isProjectMode ? fetchProjectItems(selectedCollection.id) : fetchCollectionItems(selectedCollection.id),
+        isProjectMode ? fetchProjects() : fetchCollections(),
       ]);
       setSelectedItems(nextItems ?? []);
       if (nextCollections) {
         setCollections(nextCollections);
       }
-      setMessage("Item removed from collection.");
+      setMessage(`Item removed from ${isProjectMode ? "project" : "collection"}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to remove item.");
     } finally {
@@ -258,10 +302,10 @@ export function CollectionsPage() {
         <div className="max-w-md rounded-[28px] border border-zinc-200 bg-white/92 p-8 text-center shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
           <Lock className="mx-auto size-8 text-zinc-400 dark:text-zinc-500" />
           <h1 className="mt-4 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-            Sign in to manage collections
+            Sign in to manage {isProjectMode ? "projects" : "collections"}
           </h1>
           <p className="mt-3 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-            Sign in through the migrated control plane to manage collections.
+            Sign in through the migrated control plane to manage {isProjectMode ? "projects" : "collections"}.
           </p>
           <div className="mt-6">
             <a
@@ -281,7 +325,7 @@ export function CollectionsPage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
         <div className="max-w-2xl rounded-[28px] border border-rose-200 bg-rose-50 p-8 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">
-          Collections could not reach the extracted platform APIs. Make sure <code className="rounded bg-rose-100 px-1 py-0.5 dark:bg-rose-900/40">VITE_COZY_PLATFORM_BASE_URL</code> points at a running <code className="rounded bg-rose-100 px-1 py-0.5 dark:bg-rose-900/40">cozy-platform</code> host.
+          {isProjectMode ? "Projects" : "Collections"} could not reach the extracted platform APIs. Make sure <code className="rounded bg-rose-100 px-1 py-0.5 dark:bg-rose-900/40">VITE_COZY_PLATFORM_BASE_URL</code> points at a running <code className="rounded bg-rose-100 px-1 py-0.5 dark:bg-rose-900/40">cozy-platform</code> host.
         </div>
       </div>
     );
@@ -290,20 +334,20 @@ export function CollectionsPage() {
   return (
     <AppShellLite
       title={workspace?.workspace?.name ?? "Workspace"}
-      subtitle="Collections are now fully manageable in the new host, including create, edit, delete, and item removal."
-      activeNav="collections"
+      subtitle={`${isProjectMode ? "Projects" : "Collections"} are now fully manageable in the new host, including create, edit, delete, and item removal.`}
+      activeNav="projects"
     >
       <section className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
-              Collection browser
+              {isProjectMode ? "Project browser" : "Collection browser"}
             </p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              Organize reusable item groups
+              {isProjectMode ? "Organize reusable workspaces" : "Organize reusable item groups"}
             </h1>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Browse the collections available in your current workspace scope and manage them directly from the migrated host.
+              Browse the {isProjectMode ? "projects" : "collections"} available in your current workspace scope and manage them directly from the migrated host.
             </p>
           </div>
         </div>
@@ -311,7 +355,7 @@ export function CollectionsPage() {
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-              Collections
+              {isProjectMode ? "Projects" : "Collections"}
             </p>
             <p className="mt-2 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
               {collections?.length ?? 0}
@@ -340,7 +384,7 @@ export function CollectionsPage() {
         <div className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
           <form onSubmit={handleCreateCollection} className="mb-5 rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
             <div className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-              Create collection
+              Create {isProjectMode ? "project" : "collection"}
             </div>
             <input
               value={createDraft.title}
@@ -355,7 +399,7 @@ export function CollectionsPage() {
               onChange={(event) =>
                 setCreateDraft((current) => ({ ...current, description: event.target.value }))
               }
-              placeholder="A short description for this collection"
+              placeholder={`A short description for this ${isProjectMode ? "project" : "collection"}`}
               className="mt-3 min-h-24 w-full rounded-2xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
             />
             <select
@@ -376,18 +420,18 @@ export function CollectionsPage() {
               disabled={saving || !createDraft.title.trim()}
               className="mt-3 inline-flex items-center justify-center rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
-              {saving ? "Saving…" : "Create collection"}
+              {saving ? "Saving…" : `Create ${isProjectMode ? "project" : "collection"}`}
             </button>
           </form>
 
           <div className="flex items-center gap-2 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
             <FolderKanban className="size-4" />
-            Available collections
+            Available {isProjectMode ? "projects" : "collections"}
           </div>
           <div className="mt-4 space-y-2">
             {(collections ?? []).length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                No collections yet.
+                No {isProjectMode ? "projects" : "collections"} yet.
               </p>
             ) : (
               collections?.map((collection) => (
@@ -419,14 +463,14 @@ export function CollectionsPage() {
         <div className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
           {!selectedCollection ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              Select a collection to inspect its items.
+              Select a {isProjectMode ? "project" : "collection"} to inspect its items.
             </p>
           ) : (
             <>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-                    Selected collection
+                    Selected {isProjectMode ? "project" : "collection"}
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
                     {selectedCollection.title}
@@ -442,7 +486,7 @@ export function CollectionsPage() {
                   className="inline-flex items-center gap-2 rounded-full border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60 dark:border-red-900/50 dark:bg-zinc-900 dark:text-red-300 dark:hover:bg-red-950/30"
                 >
                   <Trash2 className="size-4" />
-                  Delete collection
+                  Delete {isProjectMode ? "project" : "collection"}
                 </button>
               </div>
 
@@ -451,7 +495,7 @@ export function CollectionsPage() {
                 className="mt-5 rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-950/40"
               >
                 <div className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                  Edit collection
+                  Edit {isProjectMode ? "project" : "collection"}
                 </div>
                 <input
                   value={editDraft.title}
@@ -495,18 +539,88 @@ export function CollectionsPage() {
                 </p>
               ) : null}
 
+              {isProjectMode && selectedMembership ? (
+                <div className="mt-6 rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+                        Project access
+                      </p>
+                      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                        {selectedMembership.accessScope.kind === "team"
+                          ? `Shared through team ${selectedMembership.accessScope.team?.organizationName ?? "Unknown org"} / ${selectedMembership.accessScope.team?.name ?? "Unknown team"}`
+                          : "Personal project access is currently owner-only."}
+                      </p>
+                    </div>
+                    <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {selectedMembership.members.length} members · {selectedMembership.invitations.length} pending invites
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+                        Members
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        {selectedMembership.members.map((member) => (
+                          <div
+                            key={member.memberId}
+                            className="rounded-2xl border border-zinc-200/80 bg-white/80 px-3 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/80"
+                          >
+                            <div className="font-medium text-zinc-950 dark:text-zinc-50">
+                              {member.name || member.email}
+                            </div>
+                            <div className="text-zinc-500 dark:text-zinc-400">
+                              {member.email} · {member.role}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+                        Pending invites
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        {selectedMembership.invitations.length === 0 ? (
+                          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                            No pending invitations for this project scope.
+                          </p>
+                        ) : (
+                          selectedMembership.invitations.map((invitation) => (
+                            <div
+                              key={invitation.id}
+                              className="rounded-2xl border border-zinc-200/80 bg-white/80 px-3 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/80"
+                            >
+                              <div className="font-medium text-zinc-950 dark:text-zinc-50">
+                                {invitation.email}
+                              </div>
+                              <div className="text-zinc-500 dark:text-zinc-400">
+                                {invitation.role} · {invitation.status}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="mt-6">
                 {itemsLoading ? (
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading collection items...</p>
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading {isProjectMode ? "project" : "collection"} items...</p>
                 ) : (selectedItems?.length ?? 0) === 0 ? (
                   <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                    This collection does not contain any items yet.
+                    This {isProjectMode ? "project" : "collection"} does not contain any items yet.
                   </p>
                 ) : (
                   <>
                     <div className="mb-4 flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
                       <Sparkles className="size-4" />
-                      Items are being read through the extracted collections API surface.
+                      Items are being read through the extracted {isProjectMode ? "projects" : "collections"} API surface.
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       {selectedItems?.map((item) => (

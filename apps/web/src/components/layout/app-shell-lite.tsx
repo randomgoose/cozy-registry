@@ -5,7 +5,7 @@ import { WorkspaceScopeSwitcher } from "../workspace";
 type AppShellLiteProps = {
   title: string;
   subtitle: string;
-  activeNav?: "dashboard" | "collections" | "workspace" | "settings";
+  activeNav?: "dashboard" | "projects" | "workspace" | "settings";
   children: React.ReactNode;
 };
 
@@ -17,7 +17,7 @@ export function AppShellLite({
 }: AppShellLiteProps) {
   const navItems = [
     { label: "Dashboard", href: "/dashboard", icon: Boxes, active: activeNav === "dashboard" },
-    { label: "Collections", href: "/collections", icon: FolderKanban, active: activeNav === "collections" },
+    { label: "Projects", href: "/projects", icon: FolderKanban, active: activeNav === "projects" },
     { label: "Workspace", href: "/workspace", icon: BriefcaseBusiness, active: activeNav === "workspace" },
     { label: "Settings", href: "/settings", icon: Settings, active: activeNav === "settings" },
   ];

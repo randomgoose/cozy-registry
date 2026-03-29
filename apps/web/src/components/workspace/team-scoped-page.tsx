@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchTeamRouteResolution, postAuthControl } from "../../lib/auth-control";
 import { DashboardPage } from "../dashboard";
-import { CollectionsPage } from "../collections";
+import { ProjectsPage } from "../collections";
 import { SettingsPage } from "../settings";
 
-type TeamSection = "dashboard" | "collections" | "settings";
+type TeamSection = "dashboard" | "projects" | "settings";
 
 type TeamResolution = {
   organizationId: string;
@@ -98,12 +98,12 @@ export function TeamScopedPage(props: {
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
         <div className="max-w-md text-center">
           <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-            {status === "syncing" ? "Switching team scope" : "Loading team workspace"}
+            {status === "syncing" ? "Switching access group scope" : "Loading project workspace"}
           </h1>
           <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
             {status === "syncing"
-              ? "We’re syncing your active workspace to the requested team before rendering the migrated view."
-              : "Preparing the team-scoped route in the migrated web host."}
+              ? "We’re syncing your active workspace to the requested access group before rendering the migrated project view."
+              : "Preparing the access-group scoped route in the migrated web host."}
           </p>
         </div>
       </div>
@@ -115,10 +115,10 @@ export function TeamScopedPage(props: {
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
         <div className="max-w-md text-center">
           <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-            Sign in to open this team workspace
+            Sign in to open this project workspace
           </h1>
           <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
-            Team routes now exist in the migrated host too, but they still require your existing session.
+            Project routes can still resolve an access-group context, but they require your existing session.
           </p>
           <a
             href={`/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`}
@@ -136,10 +136,10 @@ export function TeamScopedPage(props: {
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
         <div className="max-w-md text-center">
           <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-            Team route unavailable
+            Access-group route unavailable
           </h1>
           <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
-            This team does not exist or your account does not have access to it.
+            This access group does not exist or your account does not have access to it.
           </p>
         </div>
       </div>
@@ -151,7 +151,7 @@ export function TeamScopedPage(props: {
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 dark:bg-zinc-950">
         <div className="max-w-md text-center">
           <h1 className="text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-            Could not open team route
+            Could not open access-group route
           </h1>
           <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
             Check that the auth-control routes on `cozy-platform` are reachable for team resolution and workspace scope sync.
@@ -163,7 +163,7 @@ export function TeamScopedPage(props: {
 
   const banner = resolvedTeam ? (
     <div className="border-b border-amber-200 bg-amber-50/90 px-6 py-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
-      Team scope: {resolvedTeam.organizationName} / {resolvedTeam.teamName}
+      Access group scope: {resolvedTeam.organizationName} / {resolvedTeam.teamName}
     </div>
   ) : null;
 
@@ -176,11 +176,11 @@ export function TeamScopedPage(props: {
     );
   }
 
-  if (props.section === "collections") {
+  if (props.section === "projects") {
     return (
       <>
         {banner}
-        <CollectionsPage />
+        <ProjectsPage />
       </>
     );
   }

@@ -18,7 +18,7 @@ function DashboardEmptyState() {
         </p>
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
           The new Vite host is now reading your registry data through cozy-platform.
-          Publishing flows already run locally here, while the rest of the authenticated shell continues migrating route by route.
+          Publishing flows already run locally here, while the rest of the authenticated shell continues converging on project-first navigation.
         </p>
         <div className="mt-6 flex justify-center">
           <a
@@ -191,10 +191,10 @@ export function DashboardPage() {
               Publish new item
             </a>
             <a
-              href="/collections"
+              href="/projects"
               className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800/70"
             >
-              Open migrated collections
+              Open projects
             </a>
           </div>
         </div>
@@ -230,7 +230,7 @@ export function DashboardPage() {
           <span className="font-medium text-zinc-900 dark:text-zinc-100">
             {workspace?.teams.length ?? 0}
           </span>{" "}
-          teams,{" "}
+          access groups,{" "}
           <span className="font-medium text-zinc-900 dark:text-zinc-100">
             {workspace?.members.length ?? 0}
           </span>{" "}

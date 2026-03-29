@@ -14,7 +14,7 @@ That means:
 
 - page and component code in `apps/web` should use browser-side client helpers under `apps/web/src/lib/*`
 - product and control-plane HTTP traffic should go directly to `cozy-platform`
-- domain logic should continue to live in `packages/platform-services/*`, `packages/auth-control/*`, and `lib/*`
+- domain logic should continue to live in `packages/platform-services/*`, `packages/auth-control/*`, and other workspace packages
 - do not reintroduce compatibility adapters under `app/api/*`
 
 ## Current Client Modules
@@ -35,7 +35,7 @@ The Web host runs in a single mode:
 The Web host should call:
 
 - `apps/web/src/lib/platform.ts` for product data
-- `apps/web/src/lib/auth-control.ts` for sign-in, session, workspace/team control, invitations, onboarding, and API key lifecycle
+- `apps/web/src/lib/auth-control.ts` for sign-in, session, workspace/access-group control, invitations, onboarding, and API key lifecycle
 
 ## Constraints
 

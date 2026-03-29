@@ -1,1 +1,0 @@
-import{j as o}from"./index-BusfO-Za.js";import{D as r}from"./docs-page-RsQHKX7n.js";import"./cozy-logo-icon-B_Tew26F.js";import"./arrow-left-CxBxgKbf.js";function e(){return o.jsx(r,{slug:"index"})}export{e as DocsRoute};

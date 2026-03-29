@@ -80,6 +80,8 @@ export type Collection = {
   itemCount?: number;
 };
 
+export type Project = Collection;
+
 export type CollectionItem = {
   itemId: string;
   name: string;
@@ -88,6 +90,46 @@ export type CollectionItem = {
   description?: string | null;
   visibility: string;
   addedAt: string;
+};
+
+export type ProjectItem = CollectionItem;
+
+export type ProjectMembership = {
+  project: Project & {
+    ownerUserId?: string | null;
+    ownerTeamId?: string | null;
+  };
+  accessScope:
+    | {
+        kind: "personal";
+      }
+    | {
+        kind: "team";
+        team: {
+          id: string;
+          name: string;
+          slug: string | null;
+          organizationId: string;
+          organizationName: string;
+        } | null;
+      };
+  members: Array<{
+    memberId: string;
+    id: string;
+    name: string | null;
+    email: string;
+    image?: string | null;
+    role: string;
+    joinedAt: string;
+  }>;
+  invitations: Array<{
+    id: string;
+    email: string;
+    role: string;
+    status: string;
+    createdAt: string;
+    expiresAt: string;
+  }>;
 };
 
 export type RegistryItemMeta = {
@@ -408,6 +450,30 @@ export async function fetchCollections(signal?: AbortSignal) {
   return data.collections;
 }
 
+export async function fetchProjects(signal?: AbortSignal) {
+  const baseUrl = getPlatformBaseUrl();
+
+  if (!baseUrl) {
+    return null;
+  }
+
+  const response = await fetch(`${baseUrl}/projects`, {
+    credentials: "include",
+    signal,
+  });
+
+  if (response.status === 401) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch projects: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { projects: Project[] };
+  return data.projects;
+}
+
 export async function createCollection(
   body: {
     slug: string;
@@ -424,6 +490,35 @@ export async function createCollection(
   }
 
   const response = await fetch(`${baseUrl}/collections`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  return { response, data };
+}
+
+export async function createProject(
+  body: {
+    slug: string;
+    title: string;
+    description?: string | null;
+    visibility?: "public" | "private";
+  },
+  signal?: AbortSignal,
+) {
+  const baseUrl = getPlatformBaseUrl();
+
+  if (!baseUrl) {
+    throw new Error("Missing VITE_COZY_PLATFORM_BASE_URL");
+  }
+
+  const response = await fetch(`${baseUrl}/projects`, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -467,6 +562,36 @@ export async function updateCollection(
   return { response, data };
 }
 
+export async function updateProject(
+  id: string,
+  body: {
+    slug?: string;
+    title?: string;
+    description?: string | null;
+    visibility?: "public" | "private";
+  },
+  signal?: AbortSignal,
+) {
+  const baseUrl = getPlatformBaseUrl();
+
+  if (!baseUrl) {
+    throw new Error("Missing VITE_COZY_PLATFORM_BASE_URL");
+  }
+
+  const response = await fetch(`${baseUrl}/projects/${id}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  return { response, data };
+}
+
 export async function deleteCollection(id: string, signal?: AbortSignal) {
   const baseUrl = getPlatformBaseUrl();
 
@@ -475,6 +600,23 @@ export async function deleteCollection(id: string, signal?: AbortSignal) {
   }
 
   const response = await fetch(`${baseUrl}/collections/${id}`, {
+    method: "DELETE",
+    credentials: "include",
+    signal,
+  });
+
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  return { response, data };
+}
+
+export async function deleteProject(id: string, signal?: AbortSignal) {
+  const baseUrl = getPlatformBaseUrl();
+
+  if (!baseUrl) {
+    throw new Error("Missing VITE_COZY_PLATFORM_BASE_URL");
+  }
+
+  const response = await fetch(`${baseUrl}/projects/${id}`, {
     method: "DELETE",
     credentials: "include",
     signal,
@@ -508,6 +650,146 @@ export async function fetchCollectionItems(id: string, signal?: AbortSignal) {
   return data.items;
 }
 
+export async function fetchProjectItems(id: string, signal?: AbortSignal) {
+  const baseUrl = getPlatformBaseUrl();
+
+  if (!baseUrl) {
+    return null;
+  }
+
+  const response = await fetch(`${baseUrl}/projects/${id}/items`, {
+    credentials: "include",
+    signal,
+  });
+
+  if (response.status === 401 || response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch project items: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { items: ProjectItem[] };
+  return data.items;
+}
+
+export async function fetchProjectMembers(id: string, signal?: AbortSignal) {
+  const baseUrl = getPlatformBaseUrl();
+
+  if (!baseUrl) {
+    return null;
+  }
+
+  const response = await fetch(`${baseUrl}/projects/${id}/members`, {
+    credentials: "include",
+    signal,
+  });
+
+  if (response.status === 401 || response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch project members: ${response.status}`);
+  }
+
+  return (await response.json()) as ProjectMembership;
+}
+
+export async function inviteProjectMember(
+  projectId: string,
+  body: { email: string; role: string },
+  signal?: AbortSignal,
+) {
+  const baseUrl = getPlatformBaseUrl();
+
+  if (!baseUrl) {
+    throw new Error("Missing VITE_COZY_PLATFORM_BASE_URL");
+  }
+
+  const response = await fetch(`${baseUrl}/projects/${projectId}/members`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  return { response, data };
+}
+
+export async function updateProjectMemberRole(
+  projectId: string,
+  memberId: string,
+  role: string,
+  signal?: AbortSignal,
+) {
+  const baseUrl = getPlatformBaseUrl();
+
+  if (!baseUrl) {
+    throw new Error("Missing VITE_COZY_PLATFORM_BASE_URL");
+  }
+
+  const response = await fetch(`${baseUrl}/projects/${projectId}/members/${memberId}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ role }),
+    signal,
+  });
+
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  return { response, data };
+}
+
+export async function removeProjectMember(
+  projectId: string,
+  userId: string,
+  signal?: AbortSignal,
+) {
+  const baseUrl = getPlatformBaseUrl();
+
+  if (!baseUrl) {
+    throw new Error("Missing VITE_COZY_PLATFORM_BASE_URL");
+  }
+
+  const response = await fetch(`${baseUrl}/projects/${projectId}/members/${userId}`, {
+    method: "DELETE",
+    credentials: "include",
+    signal,
+  });
+
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  return { response, data };
+}
+
+export async function cancelProjectInvitation(
+  projectId: string,
+  invitationId: string,
+  signal?: AbortSignal,
+) {
+  const baseUrl = getPlatformBaseUrl();
+
+  if (!baseUrl) {
+    throw new Error("Missing VITE_COZY_PLATFORM_BASE_URL");
+  }
+
+  const response = await fetch(`${baseUrl}/projects/${projectId}/invitations/${invitationId}`, {
+    method: "DELETE",
+    credentials: "include",
+    signal,
+  });
+
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  return { response, data };
+}
+
 export async function removeItemFromCollection(
   collectionId: string,
   itemId: string,
@@ -520,6 +802,27 @@ export async function removeItemFromCollection(
   }
 
   const response = await fetch(`${baseUrl}/collections/${collectionId}/items/${itemId}`, {
+    method: "DELETE",
+    credentials: "include",
+    signal,
+  });
+
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  return { response, data };
+}
+
+export async function removeItemFromProject(
+  projectId: string,
+  itemId: string,
+  signal?: AbortSignal,
+) {
+  const baseUrl = getPlatformBaseUrl();
+
+  if (!baseUrl) {
+    throw new Error("Missing VITE_COZY_PLATFORM_BASE_URL");
+  }
+
+  const response = await fetch(`${baseUrl}/projects/${projectId}/items/${itemId}`, {
     method: "DELETE",
     credentials: "include",
     signal,

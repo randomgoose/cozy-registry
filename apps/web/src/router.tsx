@@ -20,6 +20,9 @@ const DashboardRoute = lazy(async () => ({
 const CollectionsRoute = lazy(async () => ({
   default: (await import("./routes/collections")).CollectionsRoute,
 }));
+const ProjectsRoute = lazy(async () => ({
+  default: (await import("./routes/projects")).ProjectsRoute,
+}));
 const RegistryRoute = lazy(async () => ({
   default: (await import("./routes/registry")).RegistryRoute,
 }));
@@ -64,6 +67,9 @@ const TeamDashboardRoute = lazy(async () => ({
 }));
 const TeamCollectionsRoute = lazy(async () => ({
   default: (await import("./routes/team-collections")).TeamCollectionsRoute,
+}));
+const TeamProjectsRoute = lazy(async () => ({
+  default: (await import("./routes/team-projects")).TeamProjectsRoute,
 }));
 const TeamSettingsRoute = lazy(async () => ({
   default: (await import("./routes/team-settings")).TeamSettingsRoute,
@@ -116,6 +122,12 @@ const collectionsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/collections",
   component: withRouteSuspense(CollectionsRoute),
+});
+
+const projectsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects",
+  component: withRouteSuspense(ProjectsRoute),
 });
 
 const registryRoute = createRoute({
@@ -220,6 +232,12 @@ const teamDashboardRoute = createRoute({
   component: withRouteSuspense(TeamDashboardRoute),
 });
 
+const teamProjectsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/t/$orgSlug/$teamSlug/projects",
+  component: withRouteSuspense(TeamProjectsRoute),
+});
+
 const teamCollectionsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/t/$orgSlug/$teamSlug/collections",
@@ -236,6 +254,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
   collectionsRoute,
+  projectsRoute,
   registryRoute,
   registryItemRoute,
   registryDetailRoute,
@@ -252,6 +271,7 @@ const routeTree = rootRoute.addChildren([
   docsRoute,
   docsDetailRoute,
   teamDashboardRoute,
+  teamProjectsRoute,
   teamCollectionsRoute,
   teamSettingsRoute,
 ]);

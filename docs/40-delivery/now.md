@@ -16,7 +16,7 @@ Source of truth: yes
 
 1. 验证 `get_project_registry_status -> analyze_project_registry -> plan_component_upgrade` 在 Figma Make 里的可用性
 2. 把 Project Status 的 AI-first 数据结构接到网页可视化入口
-3. 再继续推进 collections、theme、AI metadata 的产品化
+3. 再继续推进 projects、theme、AI metadata 的产品化，并逐步把 collections 退成兼容 alias
 
 ## 当前风险
 

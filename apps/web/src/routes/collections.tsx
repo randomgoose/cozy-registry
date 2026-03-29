@@ -1,5 +1,11 @@
-import { CollectionsPage } from "../components/collections";
+import { CompatRouteRedirect } from "../components/layout";
 
 export function CollectionsRoute() {
-  return <CollectionsPage />;
+  return (
+    <CompatRouteRedirect
+      to="/projects"
+      title="Redirecting to projects"
+      description="Collections now live under the project model. We’re opening the migrated projects view for this compatibility route."
+    />
+  );
 }

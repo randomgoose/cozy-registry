@@ -5,7 +5,7 @@ Source of truth: yes
 
 # API / Service Extraction Spec
 
-This document defines the near-term architecture plan to extract the product's API and service layer from the current Next.js monolith.
+This document defines the architecture plan that extracted the product's API and service layer out of the old Next.js monolith and continues to guide compatibility cleanup.
 
 The goal is not microservices for their own sake. The goal is to make the system shape match the product shape:
 
@@ -30,29 +30,28 @@ The goal is not microservices for their own sake. The goal is to make the system
 
 ## Current Status
 
-As of 2026-03-27, the extraction work has reached a stable in-repo platform boundary milestone.
+As of 2026-03-29, the extraction work has reached a stable `apps/web + apps/platform` monorepo milestone.
 
 Implemented:
 
-- platform request/session context abstraction under `lib/platform-context.ts` and `lib/platform-auth.ts`
+- platform request/session context abstraction under `packages/platform-core/*` and `packages/auth-control/*`
 - extracted service layer under `packages/platform-services/*`
-- standalone Node-native platform host under `platform/*`
-- platform clients under `lib/platform-client/*`
-- thin compatibility adapters across the main `app/api/*` product surfaces
-- migrated Web reads and selected writes for registry, collections, notifications, workspace, team collaboration, and API key policy
+- standalone Hono platform host under `apps/platform/*`
+- browser-side platform clients under `apps/web/src/lib/*`
+- migrated Web reads and selected writes for registry, projects, notifications, workspace, project access, and API key policy
 - test coverage for platform client fallback, platform route dispatch, and key service behaviors
 
 Current tests:
 
 - `pnpm test` passes with 51 tests green
 
-Still intentionally outside the platform boundary:
+Current follow-up focus:
 
-- auth/session/profile routes
-- organization/team management writes
-- local utility endpoints such as highlight and health
+- compatibility cleanup for legacy `collections` and `team` terminology
+- project-model simplification (`organization -> project`)
+- broader regression coverage around the new project access surface
 
-This means the current phase should be treated as structurally complete, with follow-up work focused on compatibility cleanup, route deprecation planning, and broader regression coverage rather than more large-scale boundary moves.
+This means the extraction phase should now be treated as structurally complete, with current work focused on model simplification and compatibility cleanup rather than more large-scale host extraction.
 
 ---
 
@@ -60,10 +59,9 @@ This means the current phase should be treated as structurally complete, with fo
 
 The current application is a successful monolith, but its deployment and development model now creates friction:
 
-1. Web development is slowed by the current Next.js-centric full-stack workflow.
-2. Platform capabilities are expressed as Next routes instead of as explicit service interfaces.
-3. MCP, preview/build, registry read/write APIs, and OAuth/policy live inside the same host application as the Web UI.
-4. Future private deployment would be harder if core capabilities remain coupled to a Web framework host.
+1. Platform capabilities had been expressed as Web-host routes instead of as explicit service interfaces.
+2. MCP, preview/build, registry read/write APIs, and OAuth/policy needed to live independently of the Web UI runtime.
+3. Future private deployment would be harder if core capabilities remained coupled to a Web framework host.
 
 The monolith is not the problem by itself. The issue is that the product's core capabilities are becoming platform services, while the implementation still treats them as Web-app internals.
 
@@ -194,9 +192,9 @@ Owns:
 
 - dashboard
 - publish UI
-- collections / settings / workspace pages
+- projects / settings / workspace pages
 - component browsing and management UI
-- docs, if convenient
+- docs
 
 ### 5.3 Shared dependencies
 

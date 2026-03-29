@@ -10,12 +10,12 @@ Source of truth: yes
 
 ## 模块
 
-- Web App (`apps/web`): 浏览、发布、预览、设置、dashboard、collections
+- Web App (`apps/web`): 浏览、发布、预览、设置、dashboard、projects
 - Platform (`cozy-platform`): Registry API、auth-control、OAuth、MCP、preview、well-known 元数据
 - MCP Server: 提供 AI 读写工具，支持 HTTP 和 stdio
 - Preview Runtime: 服务端构建浏览器可运行的预览 bundle
 - Auth + Policy: Better Auth 底层能力 + 平台侧 auth-control / OAuth / scope policy
-- Database: PostgreSQL + Drizzle，持久化 item、files、versions、collections 等
+- Database: PostgreSQL + Drizzle，持久化 item、files、versions、projects（当前兼容层仍映射 `registry_collections`）等
 
 ## 核心数据流
 

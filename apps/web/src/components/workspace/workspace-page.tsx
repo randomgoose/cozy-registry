@@ -54,7 +54,7 @@ export function WorkspacePage() {
       return "Choose or create a workspace to manage organization-level settings.";
     }
 
-    return `Workspace-level settings for @${workspace.slug}. Teams remain the scoped spaces where shared registry assets live.`;
+    return `Workspace-level settings for @${workspace.slug}. Projects are the primary collaboration unit; teams remain compatibility access groups for now.`;
   }, [workspace]);
 
   async function handleUpdateWorkspace(event: React.FormEvent) {
@@ -149,7 +149,7 @@ export function WorkspacePage() {
                 No active workspace
               </h2>
               <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-                Create or choose a workspace from the scope switcher first. Team pages and collaboration controls are scoped beneath a workspace.
+                Create or choose a workspace from the scope switcher first. Project access and collaboration controls are scoped beneath a workspace.
               </p>
             </section>
           ) : (
@@ -165,7 +165,7 @@ export function WorkspacePage() {
                 </div>
                 <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
                   <div className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-                    Teams
+                    Access groups
                   </div>
                   <div className="mt-2 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
                     {workspaceData.teams.length}
@@ -226,12 +226,12 @@ export function WorkspacePage() {
           <>
             <section className="grid gap-6 lg:grid-cols-2">
               <div className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
-                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Teams</h2>
+                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Access groups</h2>
                 <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                  Teams are the scoped spaces where shared registry assets, collections, and team publishing live.
+                  Teams still exist as compatibility access groups while project-level ownership and membership continue replacing them.
                 </p>
                 {workspaceData.teams.length === 0 ? (
-                  <p className="mt-4 text-sm text-zinc-500">No teams yet.</p>
+                  <p className="mt-4 text-sm text-zinc-500">No access groups yet.</p>
                 ) : (
                   <ul className="mt-4 space-y-2">
                     {workspaceData.teams.map((team) => (
@@ -256,7 +256,7 @@ export function WorkspacePage() {
                   Members and invites
                 </h2>
                 <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                  Workspace membership controls the top-level access boundary. Team-specific role adjustments still happen from settings.
+                  Workspace membership controls the top-level access boundary. Project access and member adjustments are managed from settings.
                 </p>
                 <div className="mt-4 text-sm text-zinc-900 dark:text-zinc-100">
                   {workspaceData.members.length} members · {workspaceData.invitations.length} pending invites
@@ -285,7 +285,7 @@ export function WorkspacePage() {
                   href="/settings"
                   className="mt-4 inline-flex text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-100"
                 >
-                  Open team settings
+                  Open project settings
                 </a>
               </div>
             </section>
@@ -296,7 +296,7 @@ export function WorkspacePage() {
                   Danger zone
                 </h2>
                 <p className="mt-1 text-sm text-red-700/90 dark:text-red-300/80">
-                  Deleting a workspace removes the organization container and its associated teams.
+                  Deleting a workspace removes the organization container and its associated access groups.
                 </p>
                 <button
                   type="button"

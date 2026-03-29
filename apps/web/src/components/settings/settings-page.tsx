@@ -2,12 +2,16 @@ import { useEffect, useState } from "react";
 import { ArrowRight, KeyRound, Users } from "lucide-react";
 import { fetchApiKeys, postAuthControl } from "../../lib/auth-control";
 import {
-  fetchCollections,
-  fetchCurrentTeamCollaboration,
+  cancelProjectInvitation,
   fetchCurrentWorkspace,
-  type Collection,
-  type TeamCollaboration,
+  fetchProjectMembers,
+  fetchProjects,
+  inviteProjectMember,
+  type Project,
+  type ProjectMembership,
   type WorkspaceData,
+  removeProjectMember,
+  updateProjectMemberRole,
 } from "../../lib/platform";
 import { getPlatformBaseUrl } from "../../lib/runtime-config";
 import { AppShellLite } from "../layout/app-shell-lite";
@@ -15,8 +19,9 @@ import { AppShellLite } from "../layout/app-shell-lite";
 export function SettingsPage() {
   const platformBaseUrl = getPlatformBaseUrl();
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
-  const [collections, setCollections] = useState<Collection[] | null>(null);
-  const [teamCollab, setTeamCollab] = useState<TeamCollaboration | null>(null);
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProjectAccess, setSelectedProjectAccess] = useState<ProjectMembership | null>(null);
   const [apiKeys, setApiKeys] = useState<
     Array<{
       id: string;
@@ -39,20 +44,23 @@ export function SettingsPage() {
   );
 
   async function loadSettings(signal?: AbortSignal) {
-    const [workspaceData, collectionData, teamCollabData] = await Promise.all([
+    const [workspaceData, projectData] = await Promise.all([
       fetchCurrentWorkspace(signal),
-      fetchCollections(signal),
-      fetchCurrentTeamCollaboration(signal).catch(() => null),
+      fetchProjects(signal),
     ]);
 
-    if (!workspaceData || !collectionData) {
+    if (!workspaceData || !projectData) {
       setStatus("signed-out");
       return;
     }
 
     setWorkspace(workspaceData);
-    setCollections(collectionData);
-    setTeamCollab(teamCollabData);
+    setProjects(projectData);
+    setSelectedProjectId((current) =>
+      projectData.some((project) => project.id === current)
+        ? current
+        : projectData[0]?.id ?? null,
+    );
     setStatus("ready");
   }
 
@@ -85,6 +93,27 @@ export function SettingsPage() {
     });
   }, [status, workspace]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+
+    if (status !== "ready" || !selectedProjectId) {
+      setSelectedProjectAccess(null);
+      return () => controller.abort();
+    }
+
+    fetchProjectMembers(selectedProjectId, controller.signal)
+      .then((data) => {
+        setSelectedProjectAccess(data);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        console.error("Failed to load selected project access", error);
+        setSelectedProjectAccess(null);
+      });
+
+    return () => controller.abort();
+  }, [selectedProjectId, status]);
+
   async function refreshCollaboration() {
     await loadSettings();
   }
@@ -95,21 +124,18 @@ export function SettingsPage() {
 
   async function handleInviteMember(event: React.FormEvent) {
     event.preventDefault();
-    if (!teamCollab?.activeOrganizationId || !teamCollab.activeTeamId || busy) return;
+    if (!selectedProjectAccess || !selectedProjectId || selectedProjectAccess.accessScope.kind !== "team" || busy) return;
 
     setBusy(true);
     setMessage(null);
     try {
-      const result = await postAuthControl("/organization/invite-member", {
+      const result = await inviteProjectMember(selectedProjectId, {
         email: inviteEmail.trim(),
         role: inviteRole,
-        organizationId: teamCollab.activeOrganizationId,
-        teamId: teamCollab.activeTeamId,
       });
-      const resultData = result.data as { message?: string } | null;
 
       if (!result.response.ok) {
-        setMessage(resultData?.message ?? "Failed to invite member.");
+        setMessage((result.data?.message as string | undefined) ?? (result.data?.error as string | undefined) ?? "Failed to invite member.");
         return;
       }
 
@@ -124,18 +150,18 @@ export function SettingsPage() {
   }
 
   async function handleCancelInvitation(invitationId: string) {
-    if (busy) return;
+    if (!selectedProjectId || busy) return;
 
     setBusy(true);
     setMessage(null);
     try {
-      const result = await postAuthControl("/organization/cancel-invitation", {
-        invitationId,
-      });
+      const result = await cancelProjectInvitation(selectedProjectId, invitationId);
 
       if (!result.response.ok) {
         setMessage(
-          (result.data?.message as string | undefined) ?? "Failed to cancel invitation.",
+          (result.data?.message as string | undefined) ??
+            (result.data?.error as string | undefined) ??
+            "Failed to cancel invitation.",
         );
         return;
       }
@@ -150,25 +176,26 @@ export function SettingsPage() {
   }
 
   async function handleRemoveMember(userId: string) {
-    if (!teamCollab?.activeTeamId || busy) return;
-    const confirmed = window.confirm("Remove this member from the active team?");
+    if (!selectedProjectId || busy) return;
+    const confirmed = window.confirm("Remove this member from the selected project access group?");
     if (!confirmed) return;
 
     setBusy(true);
     setMessage(null);
     try {
-      const result = await postAuthControl("/organization/remove-team-member", {
-        teamId: teamCollab.activeTeamId,
-        userId,
-      });
+      const result = await removeProjectMember(selectedProjectId, userId);
 
       if (!result.response.ok) {
-        setMessage((result.data?.message as string | undefined) ?? "Failed to remove member.");
+        setMessage(
+          (result.data?.message as string | undefined) ??
+            (result.data?.error as string | undefined) ??
+            "Failed to remove member.",
+        );
         return;
       }
 
       await refreshCollaboration();
-      setMessage("Member removed from team.");
+      setMessage("Member removed from project access.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to remove member.");
     } finally {
@@ -177,19 +204,19 @@ export function SettingsPage() {
   }
 
   async function handleUpdateRole(memberId: string, role: string) {
-    if (!teamCollab?.activeOrganizationId || busy) return;
+    if (!selectedProjectId || busy) return;
 
     setBusy(true);
     setMessage(null);
     try {
-      const result = await postAuthControl("/organization/update-member-role", {
-        memberId,
-        role,
-        organizationId: teamCollab.activeOrganizationId,
-      });
+      const result = await updateProjectMemberRole(selectedProjectId, memberId, role);
 
       if (!result.response.ok) {
-        setMessage((result.data?.message as string | undefined) ?? "Failed to update role.");
+        setMessage(
+          (result.data?.message as string | undefined) ??
+            (result.data?.error as string | undefined) ??
+            "Failed to update role.",
+        );
         return;
       }
 
@@ -265,7 +292,12 @@ export function SettingsPage() {
   }
 
   const canManageTeam =
-    teamCollab?.role === "owner" || teamCollab?.role === "admin" || teamCollab?.role === "editor";
+    selectedProjectAccess?.members.some(
+      (member) =>
+        member.role === "owner" || member.role === "admin" || member.role === "editor",
+    ) ?? false;
+  const canManageSelectedProject =
+    selectedProjectAccess?.accessScope.kind === "team" ? canManageTeam : true;
 
   if (status === "signed-out") {
     return (
@@ -314,16 +346,16 @@ export function SettingsPage() {
               Settings overview
             </p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              Workspace and collaboration status
+              Workspace and project access
             </h1>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              This page now reads workspace, collections, and team collaboration through cozy-platform. Workspace scope switching also stays inside the migrated shell.
+              This page now reads workspace, projects, and project access through cozy-platform. Workspace scope switching also stays inside the migrated shell.
             </p>
           </div>
 
         <div className="flex flex-wrap gap-3">
           <div className="inline-flex items-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-            Team collaboration now works directly from the migrated host
+            Project access now works directly from the migrated host
           </div>
         </div>
       </div>
@@ -339,10 +371,10 @@ export function SettingsPage() {
           </div>
           <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-              Collections
+              Projects
             </p>
             <p className="mt-2 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-              {collections?.length ?? 0}
+              {projects?.length ?? 0}
             </p>
           </div>
           <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
@@ -376,20 +408,38 @@ export function SettingsPage() {
         <div className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
           <div className="flex items-center gap-2 text-lg font-semibold text-zinc-950 dark:text-zinc-50">
             <Users className="size-5" />
-            Team collaboration
+            Project access
           </div>
-          {teamCollab?.team ? (
+          {selectedProjectAccess ? (
             <>
               <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
-                Active team: <span className="font-medium text-zinc-900 dark:text-zinc-100">{teamCollab.team.organizationName} / {teamCollab.team.name}</span>
+                Selected project:{" "}
+                <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                  {selectedProjectAccess.project.title}
+                </span>
               </p>
+              {projects && projects.length > 0 ? (
+                <select
+                  value={selectedProjectId ?? ""}
+                  onChange={(event) => setSelectedProjectId(event.target.value)}
+                  className="mt-3 w-full rounded-2xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                >
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.title}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
                   <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-                    Role
+                    Access
                   </p>
                   <p className="mt-2 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                    {teamCollab.role ?? "viewer"}
+                    {selectedProjectAccess.accessScope.kind === "team"
+                      ? `${selectedProjectAccess.accessScope.team?.organizationName ?? "Unknown org"} / ${selectedProjectAccess.accessScope.team?.name ?? "Unknown team"}`
+                      : "Personal owner scope"}
                   </p>
                 </div>
                 <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
@@ -397,7 +447,7 @@ export function SettingsPage() {
                     Members
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-                    {teamCollab.members.length}
+                    {selectedProjectAccess.members.length}
                   </p>
                 </div>
                 <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
@@ -405,17 +455,17 @@ export function SettingsPage() {
                     Invitations
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-zinc-950 dark:text-zinc-50">
-                    {teamCollab.invitations.length}
+                    {selectedProjectAccess.invitations.length}
                   </p>
                 </div>
               </div>
-              {canManageTeam ? (
+              {selectedProjectAccess.accessScope.kind === "team" && canManageSelectedProject ? (
                 <form
                   onSubmit={handleInviteMember}
                   className="mt-5 rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-950/40"
                 >
                   <div className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                    Invite to active team
+                    Invite to project access group
                   </div>
                   <input
                     type="email"
@@ -443,12 +493,12 @@ export function SettingsPage() {
                 </form>
               ) : null}
 
-              {teamCollab.members.length > 0 ? (
+              {selectedProjectAccess.members.length > 0 ? (
                 <div className="mt-5 space-y-3">
                   <div className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                    Team members
+                    Project members
                   </div>
-                  {teamCollab.members.map((member) => (
+                  {selectedProjectAccess.members.map((member) => (
                     <div
                       key={member.memberId}
                       className="rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-950/40"
@@ -465,7 +515,7 @@ export function SettingsPage() {
                         <div className="flex items-center gap-2">
                           <select
                             value={member.role}
-                            disabled={!canManageTeam || busy}
+                            disabled={!canManageSelectedProject || busy || selectedProjectAccess.accessScope.kind !== "team"}
                             onChange={(event) =>
                               void handleUpdateRole(member.memberId, event.target.value)
                             }
@@ -475,7 +525,7 @@ export function SettingsPage() {
                             <option value="admin">Admin</option>
                             <option value="owner">Owner</option>
                           </select>
-                          {canManageTeam ? (
+                          {selectedProjectAccess.accessScope.kind === "team" && canManageSelectedProject ? (
                             <button
                               type="button"
                               disabled={busy}
@@ -492,12 +542,12 @@ export function SettingsPage() {
                 </div>
               ) : null}
 
-              {teamCollab.invitations.length > 0 ? (
+              {selectedProjectAccess.invitations.length > 0 ? (
                 <div className="mt-5 space-y-3">
                   <div className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
                     Pending invitations
                   </div>
-                  {teamCollab.invitations.map((invitation) => (
+                  {selectedProjectAccess.invitations.map((invitation) => (
                     <div
                       key={invitation.id}
                       className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-950/40"
@@ -510,7 +560,7 @@ export function SettingsPage() {
                           {invitation.role} · pending
                         </div>
                       </div>
-                      {canManageTeam ? (
+                      {selectedProjectAccess.accessScope.kind === "team" && canManageSelectedProject ? (
                         <button
                           type="button"
                           disabled={busy}
@@ -527,7 +577,7 @@ export function SettingsPage() {
             </>
           ) : (
             <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-              No active team scope right now. Team collaboration controls will appear here when a team is active.
+              No project access data yet. Project access controls will appear here when a project is available in the current workspace scope.
             </p>
           )}
         </div>
@@ -541,7 +591,7 @@ export function SettingsPage() {
             Policy reads and writes already live behind extracted platform endpoints, and key inventory now runs inside the migrated host through the auth API bridge.
           </p>
           <ul className="mt-4 space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
-            <li>Collections available for policy scoping: {collections?.length ?? 0}</li>
+            <li>Projects available for policy scoping: {projects?.length ?? 0}</li>
             <li>Active workspace members: {workspace?.members.length ?? 0}</li>
             <li>Pending invitations: {workspace?.invitations.length ?? 0}</li>
           </ul>
