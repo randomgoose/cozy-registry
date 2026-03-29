@@ -334,23 +334,38 @@ export async function getRegistryDependencyAccessForRef(
   }
 
   const resolved = await resolveOwner(ownerHandle);
-  if (!resolved) return "not_found";
-  const [row] = await db
-    .select({
-      userId: registryItems.userId,
-      visibility: registryItems.visibility,
-    })
-    .from(registryItems)
-    .where(
-      and(
-        eq(registryItems.userId, resolved.userId),
-        eq(registryItems.name, itemName),
-      ),
-    )
-    .limit(1);
-  if (!row || !row.userId) return "not_found";
-  if (row.visibility === "private" && row.userId !== requestUserId) return "denied";
-  return "ok";
+  if (resolved) {
+    const [row] = await db
+      .select({
+        userId: registryItems.userId,
+        visibility: registryItems.visibility,
+      })
+      .from(registryItems)
+      .where(
+        and(
+          eq(registryItems.userId, resolved.userId),
+          eq(registryItems.name, itemName),
+        ),
+      )
+      .limit(1);
+    if (!row || !row.userId) return "not_found";
+    if (row.visibility === "private" && row.userId !== requestUserId) return "denied";
+    return "ok";
+  }
+
+  // Org-scoped registry: owner segment is organization slug (same as getRegistryItemByOwnerNameAndVersion).
+  const orgOnly = await resolveOrganizationBySlug(ownerHandle);
+  if (orgOnly) {
+    const item = await getRegistryItemByOrganizationAndName(orgOnly.id, itemName);
+    if (!item) return "not_found";
+    if (item.visibility === "private") {
+      if (!requestUserId) return "denied";
+      if (!(await isUserOrganizationMember(requestUserId, orgOnly.id))) return "denied";
+    }
+    return "ok";
+  }
+
+  return "not_found";
 }
 
 export type RegistryItemReferrer = {
