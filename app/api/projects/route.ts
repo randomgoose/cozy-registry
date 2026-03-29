@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { getProjectScopeContext } from "@/lib/project-scope";
 import { resolveOwner } from "@/lib/owner";
-import { registryProjectItems, registryProjectMembers, registryProjects } from "@/lib/db/schema";
+import {
+  registryItems,
+  registryProjectItems,
+  registryProjectMembers,
+  registryProjects,
+} from "@/lib/db/schema";
 import { createRegistryProject } from "@/lib/registry-project-create";
 
 export async function POST(request: Request) {
@@ -89,9 +94,17 @@ export async function GET(request: Request) {
         )
         .orderBy(registryProjects.slug);
 
-      const counts = await itemCountsForProjects(rows.map((r) => r.id));
+      const ids = rows.map((r) => r.id);
+      const [counts, previews] = await Promise.all([
+        itemCountsForProjects(ids),
+        previewItemsForProjects(ids),
+      ]);
       return NextResponse.json({
-        projects: rows.map((r) => ({ ...r, itemCount: counts.get(r.id) ?? 0 })),
+        projects: rows.map((r) => ({
+          ...r,
+          itemCount: counts.get(r.id) ?? 0,
+          previewItems: previews.get(r.id) ?? [],
+        })),
       });
     }
 
@@ -116,9 +129,17 @@ export async function GET(request: Request) {
       )
       .orderBy(registryProjects.slug);
 
-    const counts = await itemCountsForProjects(rows.map((r) => r.id));
+    const ids = rows.map((r) => r.id);
+    const [counts, previews] = await Promise.all([
+      itemCountsForProjects(ids),
+      previewItemsForProjects(ids),
+    ]);
     return NextResponse.json({
-      projects: rows.map((r) => ({ ...r, itemCount: counts.get(r.id) ?? 0 })),
+      projects: rows.map((r) => ({
+        ...r,
+        itemCount: counts.get(r.id) ?? 0,
+        previewItems: previews.get(r.id) ?? [],
+      })),
     });
   }
 
@@ -150,10 +171,48 @@ export async function GET(request: Request) {
     )
     .orderBy(registryProjects.slug);
 
-  const counts = await itemCountsForProjects(rows.map((r) => r.id));
+  const ids = rows.map((r) => r.id);
+  const [counts, previews] = await Promise.all([
+    itemCountsForProjects(ids),
+    previewItemsForProjects(ids),
+  ]);
   return NextResponse.json({
-    projects: rows.map((r) => ({ ...r, itemCount: counts.get(r.id) ?? 0 })),
+    projects: rows.map((r) => ({
+      ...r,
+      itemCount: counts.get(r.id) ?? 0,
+      previewItems: previews.get(r.id) ?? [],
+    })),
   });
+}
+
+/** Up to 4 most recently linked items per project (for list cards). */
+async function previewItemsForProjects(
+  projectIds: string[],
+): Promise<Map<string, Array<{ title: string; name: string; type: string }>>> {
+  const map = new Map<string, Array<{ title: string; name: string; type: string }>>();
+  if (projectIds.length === 0) return map;
+  for (const id of projectIds) {
+    map.set(id, []);
+  }
+
+  const rows = await db
+    .select({
+      projectId: registryProjectItems.projectId,
+      title: registryItems.title,
+      name: registryItems.name,
+      type: registryItems.type,
+    })
+    .from(registryProjectItems)
+    .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
+    .where(inArray(registryProjectItems.projectId, projectIds))
+    .orderBy(desc(registryProjectItems.addedAt));
+
+  for (const row of rows) {
+    const list = map.get(row.projectId);
+    if (!list || list.length >= 4) continue;
+    list.push({ title: row.title, name: row.name, type: row.type });
+  }
+  return map;
 }
 
 async function itemCountsForProjects(projectIds: string[]): Promise<Map<string, number>> {

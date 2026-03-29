@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
@@ -27,6 +26,7 @@ type Project = {
   description: string | null;
   visibility: "public" | "private";
   itemCount?: number;
+  previewItems?: Array<{ title: string; name: string; type: string }>;
 };
 
 type ProjectItemRow = {
@@ -56,7 +56,6 @@ export function ProjectsPanel(props: {
   initialProjectSlug?: string;
   initialProjectVisibility?: "public" | "private";
 }) {
-  const router = useRouter();
   const isProjectDetail = Boolean(props.initialProjectId);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,9 +124,9 @@ export function ProjectsPanel(props: {
   }, []);
 
   useEffect(() => {
-    if (!selectedId) return;
+    if (!isProjectDetail || !selectedId) return;
     refreshSelectedItems(selectedId).catch(() => {});
-  }, [selectedId]);
+  }, [selectedId, isProjectDetail]);
 
   useEffect(() => {
     if (props.initialProjectId) {
@@ -415,40 +414,29 @@ export function ProjectsPanel(props: {
           ) : null}
         </div>
       ) : (
-        <>
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Projects</h2>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            Organize blocks, components, and themes into reusable groups. Each project has its own
-            members and permissions; use them to scope what AI tools can access.
-          </p>
-          <p className="mt-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-            Current scope: {props.scopeLabel ?? "Personal"}
-          </p>
-        </>
-      )}
-
-      <div className={isProjectDetail ? "mt-6" : "mt-4"}>
-        <Dialog
-          open={createOpen}
-          onOpenChange={(open) => {
-            setCreateOpen(open);
-            resetCreateWizard();
-            if (!open) setCreating(false);
-          }}
-        >
-          {!isProjectDetail ? (
+        <div className="mb-8 flex flex-col gap-4 sm:mb-10 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+            Projects
+          </h2>
+          <Dialog
+            open={createOpen}
+            onOpenChange={(open) => {
+              setCreateOpen(open);
+              resetCreateWizard();
+              if (!open) setCreating(false);
+            }}
+          >
             <DialogTrigger
               render={
                 <button
                   type="button"
-                  className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                  className="shrink-0 rounded-full bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
                 />
               }
             >
-              New project
+              Create project
             </DialogTrigger>
-          ) : null}
-          <DialogContent className="max-w-md gap-5 px-5 pt-5 pb-5">
+            <DialogContent className="max-w-md gap-5 px-5 pt-5 pb-5">
             <DialogHeader>
               <DialogTitle>Create project</DialogTitle>
               <DialogDescription>
@@ -582,9 +570,10 @@ export function ProjectsPanel(props: {
                 </DialogFooter>
               </div>
             ) : null}
-          </DialogContent>
-        </Dialog>
-      </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      )}
 
       {isProjectDetail ? (
         <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
@@ -666,118 +655,74 @@ export function ProjectsPanel(props: {
           )}
         </div>
       ) : loading ? (
-        <p className="mt-4 text-sm text-zinc-500">Loading...</p>
+        <p className="text-sm text-zinc-500">Loading...</p>
       ) : projects.length === 0 ? (
-        <p className="mt-4 text-sm text-zinc-500">
+        <p className="text-sm text-zinc-500">
           {props.isOrgScope ? "No organization projects yet." : "No projects yet."}
         </p>
       ) : (
-        <div className="mt-4 grid gap-4">
-          <div className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {props.isOrgScope ? "Organization projects" : "Your projects"}
-            </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {projects.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setSelectedId(c.id)}
-                  onDoubleClick={(e) => {
-                    e.preventDefault();
-                    if (props.projectsBasePath) {
-                      router.push(`${props.projectsBasePath}/${c.id}`);
-                    }
-                  }}
-                  title={
-                    props.projectsBasePath
-                      ? "Double-click to open this project in its own page"
-                      : undefined
-                  }
-                  className={`w-full rounded-xl border px-3 py-3 text-left text-sm transition-colors ${
-                    selectedId === c.id
-                      ? "border-zinc-300 bg-zinc-100 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-                      : "border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/60"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium">{c.title}</span>
-                    <span className="text-xs text-zinc-500">{c.itemCount ?? 0}</span>
-                  </div>
-                  <div className="mt-0.5 text-xs text-zinc-500">
-                    {c.slug} · {c.visibility === "private" ? "Private" : "Public"}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {projects.map((c) => {
+            const href = props.projectsBasePath ? `${props.projectsBasePath}/${c.id}` : undefined;
+            const previews = c.previewItems ?? [];
+            const total = c.itemCount ?? 0;
+            const extra = total > 4 ? total - 4 : 0;
+            const cardClass =
+              "block rounded-2xl border border-zinc-200 bg-white p-4 text-left shadow-sm transition hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700";
 
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            {!selectedId ? (
-              <p className="text-sm text-zinc-500">Select a project to view and manage its items.</p>
-            ) : (
+            const inner = (
               <>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={addItemId}
-                    onChange={(e) => setAddItemId(e.target.value)}
-                    className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                  >
-                    <option value="">Choose an item to add…</option>
-                    {availableToAdd.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.title} ({i.type})
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={addItem}
-                    disabled={!addItemId}
-                    className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-                  >
-                    Add
-                  </button>
+                <div className="flex items-start justify-between gap-2">
+                  <span className="min-w-0 truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                    {c.title}
+                  </span>
+                  <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+                    {c.visibility === "private" ? "Private" : "Public"}
+                  </span>
                 </div>
-
-                <div className="mt-4">
-                  <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    Project items
-                  </div>
-                  {itemsLoading ? (
-                    <p className="mt-2 text-sm text-zinc-500">Loading...</p>
-                  ) : projectItems.length === 0 ? (
-                    <p className="mt-2 text-sm text-zinc-500">No items yet.</p>
-                  ) : (
-                    <ul className="mt-2 max-h-[45vh] space-y-2 overflow-auto pr-1">
-                      {projectItems.map((it) => (
-                        <li
-                          key={it.itemId}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                <p className="mt-1 truncate text-xs text-zinc-500 dark:text-zinc-400">
+                  <span className="font-mono">{c.slug}</span>
+                  {extra > 0 ? (
+                    <span className="ml-2 font-sans text-zinc-400 dark:text-zinc-500">
+                      +{extra} more
+                    </span>
+                  ) : null}
+                </p>
+                <div className="mt-3 grid grid-cols-2 grid-rows-2 gap-1.5">
+                  {[0, 1, 2, 3].map((i) => {
+                    const it = previews[i];
+                    return (
+                      <div
+                        key={`${c.id}-slot-${i}`}
+                        className="flex min-h-[4.25rem] flex-col justify-center rounded-xl border border-zinc-100 bg-zinc-50/90 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/50"
+                      >
+                        {it ? (
+                          <>
+                            <span className="line-clamp-2 text-[11px] font-medium leading-tight text-zinc-800 dark:text-zinc-200">
                               {it.title}
-                            </div>
-                            <div className="truncate text-xs text-zinc-500">
-                              {it.name} · {it.type}
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeItem(it.itemId)}
-                            className="text-sm text-red-600 hover:underline dark:text-red-400"
-                          >
-                            Remove
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                            </span>
+                            <span className="mt-0.5 truncate text-[10px] text-zinc-500 dark:text-zinc-400">
+                              {it.type}
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
               </>
-            )}
-          </div>
+            );
+
+            return href ? (
+              <Link key={c.id} href={href} className={cardClass}>
+                {inner}
+              </Link>
+            ) : (
+              <div key={c.id} className={cardClass}>
+                {inner}
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
