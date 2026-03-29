@@ -7,7 +7,7 @@ import {
   installRegistryBundle,
   upgradeInstalledItem,
   type RegistryCoordinate,
-} from "@/lib/install-protocol";
+} from "@cozy/tooling/install-protocol";
 
 type RegistryBundleFile = {
   path: string;

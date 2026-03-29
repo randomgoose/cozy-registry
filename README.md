@@ -47,14 +47,94 @@ pnpm db:seed   # Seed example components
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+Open [http://localhost:5173](http://localhost:5173)
+
+Recommended local start:
+
+```bash
+pnpm cozy-platform
+VITE_COZY_PLATFORM_BASE_URL=http://localhost:3000 \
+pnpm cozy-web
+```
+
+Optional local stdio MCP server:
+
+```bash
+COZY_PLATFORM_BASE_URL=http://localhost:3000 \
+pnpm cozy-mcp
+```
+
+Monorepo-wide task commands:
+
+```bash
+pnpm turbo:build
+pnpm turbo:typecheck
+pnpm turbo:lint
+pnpm turbo:test
+```
+
+### 4. Optional: run the extracted platform host
+
+```bash
+pnpm cozy-platform
+```
+
+Default platform URL: [http://localhost:3000](http://localhost:3000)
+
+If you want Web to consume the external platform host:
+
+```bash
+COZY_PLATFORM_BASE_URL=http://localhost:3000
+```
+
+More details:
+
+- [Platform dev setup](docs/20-engineering/platform-dev-setup.md)
+- [Deployment runbook](docs/20-engineering/deployment-runbook.md)
+- [Repository structure guidelines](docs/20-engineering/repo-structure-guidelines.md)
+
+Docs content now lives with the web host under `apps/web/content/docs/*`.
+Database migration artifacts now live under `packages/db/migrations/*`.
+
+Current migrated routes in `apps/web`:
+
+- `/`
+- `/sign-in`
+- `/sign-up`
+- `/post-auth`
+- `/accept-invitation`
+- `/onboarding/handle`
+- `/dashboard`
+- `/workspace`
+- `/notifications`
+- `/collections`
+- `/registry`
+- `/registry/:itemName`
+- `/registry/:owner/:name`
+- `/preview/:owner/:name`
+- `/publish`
+- `/settings`
+
+If you want to preview the production build of the migrated host locally:
+
+```bash
+pnpm web:build
+pnpm web:preview
+```
+
+More details:
+
+- [Web framework migration plan](docs/20-engineering/web-framework-migration-plan.md)
+- [Packages overview](packages/README.md)
 
 ## Deploy to Vercel
 
 1. Push the project to GitHub, or deploy locally with `vercel`
 2. Configure environment variables in your Vercel project:
    - `DATABASE_URL`: use [Vercel Postgres](https://vercel.com/storage/postgres), [Neon](https://neon.tech), [Supabase](https://supabase.com), or another Postgres provider
-   - `NEXT_PUBLIC_APP_URL`: your deployed URL (for example `https://xxx.vercel.app`), used for MCP and registry links
+   - `APP_URL`: your deployed URL (for example `https://xxx.vercel.app`), used for MCP and registry links
+   - `COZY_WEB_BASE_URL`: your deployed Web URL
+   - `COZY_PLATFORM_BASE_URL`: your deployed platform URL
 3. After deployment, connect to the production database locally and apply schema + seed data
 
 ### After the first deployment

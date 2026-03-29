@@ -7,8 +7,11 @@ import {
   failThumbnailJob,
   processPreviewCaptureThumbnailJob,
   processThemeThumbnailJob,
-} from "@/lib/thumbnail-jobs";
-import { normalizeRegistryItemType, REGISTRY_THEME_TYPE } from "@/lib/registry-types";
+} from "@cozy/thumbnail/thumbnail-jobs";
+import {
+  normalizeRegistryItemType,
+  REGISTRY_THEME_TYPE,
+} from "@cozy/registry-domain/registry-types";
 
 async function main() {
   const args = new Set(process.argv.slice(2));

@@ -1,0 +1,9 @@
+{
+  "name": "@cozy/ui",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./components/*": "./src/components/*.tsx"
+  }
+}

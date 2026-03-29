@@ -17,7 +17,7 @@
 - [x] **定义基线快照读取方式**：明确升级时如何通过 `installedVersion + source` 获取安装基线
 - [x] **AI-first 项目状态分析**：补齐 `analyze_project_registry`，让 Figma Make 等远程 AI 能基于 `projectStatus` 快照回答“装了什么、哪些可升级、下一步做什么”
 - [ ] **MCP 验证**：在 Cursor 中通过 Cozy MCP 说「列出组件」「获取 hero-section 代码」，确认改名与流程正常
-- [ ] **部署验证**：推送到 Vercel，配置 `DATABASE_URL`、`NEXT_PUBLIC_APP_URL`，确认生产环境可访问
+- [ ] **部署验证**：推送到 Vercel，配置 `DATABASE_URL`、`APP_URL`、`COZY_WEB_BASE_URL`、`COZY_PLATFORM_BASE_URL`，确认生产环境可访问
 - [ ] **Figma Make 状态链路验证**：实测 `get_project_registry_status -> analyze_project_registry -> plan_component_upgrade`，确认 AI 能稳定回答项目状态与升级建议
 - [x] **排查 theme 发布问题**：记录并修复 theme 资源在发布流程中的异常，补一个最小复现样例，并验证 theme thumbnail 生成与回写链路
 

@@ -1,0 +1,9 @@
+{
+  "name": "@cozy/tooling",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./*": "./*.ts"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@cozy/extraction",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./types": "./types.ts"
+  }
+}

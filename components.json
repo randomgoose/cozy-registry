@@ -14,9 +14,9 @@
   "rtl": false,
   "aliases": {
     "components": "@/components",
-    "utils": "@/lib/utils",
-    "ui": "@/components/ui",
-    "lib": "@/lib",
+    "utils": "@cozy/shared/utils",
+    "ui": "@cozy/ui/components",
+    "lib": "@cozy/shared",
     "hooks": "@/hooks"
   },
   "menuColor": "default",

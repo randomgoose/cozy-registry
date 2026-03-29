@@ -1,0 +1,9 @@
+{
+  "name": "@cozy/auth-control",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./*": "./*.ts"
+  }
+}

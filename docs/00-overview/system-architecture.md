@@ -1,6 +1,6 @@
 Status: active
 Owner: engineering
-Last updated: 2026-03-26
+Last updated: 2026-03-28
 Source of truth: yes
 
 # 系统架构与数据流
@@ -9,7 +9,7 @@ Source of truth: yes
 
 ## 1. 系统定位
 
-**Cozy Registry** 是基于 **Next.js** 的一体化应用：**Web** 负责浏览、发布、设置等；**Registry API** 输出 **shadcn 兼容**的条目 JSON；**MCP** 提供 AI 读写能力；**Preview Runtime** 在服务端用 **esbuild** 生成可在 iframe 中运行的预览产物。持久化使用 **PostgreSQL（Drizzle）**。资产形态为**源码 bundle**，而非向消费方分发 npm 编译产物。
+**Cozy Registry** 现在采用 **两层运行时**：`apps/web` 负责 Web 界面与路由；`cozy-platform` 负责 Registry API、auth-control、OAuth、MCP、preview 和 policy。持久化使用 **PostgreSQL（Drizzle）**。资产形态为**源码 bundle**，而非向消费方分发 npm 编译产物。
 
 ## 2. 逻辑模块
 
@@ -21,12 +21,15 @@ flowchart LR
     CLI[CLI / Future IDE]
   end
 
-  subgraph cozy [Cozy Monolith - Next.js]
+  subgraph web [apps/web]
     WebUI[Web UI]
+  end
+
+  subgraph platform [cozy-platform - Hono]
     RegAPI[Registry API]
-    MCP[MCP /api/mcp]
+    MCP[MCP]
     Preview[Preview Runtime]
-    AuthZ[Auth + API Key Policy]
+    AuthZ[Auth Control + OAuth + Policy]
   end
 
   subgraph data [Data and Jobs]
@@ -35,17 +38,14 @@ flowchart LR
   end
 
   Browser --> WebUI
-  Browser --> RegAPI
-  Browser --> Preview
+  WebUI --> RegAPI
+  WebUI --> Preview
+  WebUI --> AuthZ
   AI --> MCP
   AI --> RegAPI
   CLI -.-> RegAPI
-
-  WebUI --> AuthZ
   RegAPI --> AuthZ
   MCP --> AuthZ
-
-  WebUI --> PG
   RegAPI --> PG
   MCP --> PG
   Preview --> PG
@@ -56,36 +56,47 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  subgraph app [app/ - Routes and UI]
+  subgraph web [apps/web - Routes and UI]
     Pages[Pages and React]
-    Routes[Route Handlers - REST]
-    PrevRoute[preview/... dynamic routes]
   end
 
-  subgraph lib [lib/ - Domain and Infra]
-    Registry[registry.ts - CRUD and queries]
-    Contract[registry-publish-contract.ts]
-    Resolver[registry-resolver.ts + registry-graph]
-    Install[install-protocol.ts]
-    PreviewBuild[preview-build.ts]
+  subgraph platform [apps/platform - Hono host]
+    PlatformRoutes[Hono routes]
+  end
+
+  subgraph packages [packages/ - Shared modules]
+    PlatformSvc[platform-services]
+    AuthCtl[auth-control]
+    RegistryDomain[registry-domain]
+    PreviewPkg[preview]
+    OAuthPkg[oauth]
+    DBPkg[db]
+  end
+
+  subgraph lib [lib/ - Thin shared utilities]
     Validate[validate-tsx.ts]
+    Install[install-protocol.ts]
+    Utils[utils/storage/theme-tokens]
     MCPImpl[mcp-tools.ts]
-    DB[(db/schema + Drizzle)]
   end
 
-  Pages --> Registry
-  Routes --> Registry
-  Routes --> Contract
-  Routes --> Validate
-  PrevRoute --> PreviewBuild
-  PrevRoute --> Resolver
-  MCPImpl --> Registry
-  MCPImpl --> Contract
-  Registry --> DB
-  PreviewBuild --> Validate
+  Pages --> PlatformRoutes
+  PlatformRoutes --> PlatformSvc
+  PlatformRoutes --> AuthCtl
+  PlatformRoutes --> OAuthPkg
+  PlatformSvc --> RegistryDomain
+  PlatformSvc --> PreviewPkg
+  PlatformSvc --> AuthCtl
+  RegistryDomain --> DBPkg
+  AuthCtl --> DBPkg
+  OAuthPkg --> DBPkg
+  PreviewPkg --> Validate
+  RegistryDomain --> Utils
+  MCPImpl --> RegistryDomain
+  MCPImpl --> Install
 ```
 
-要点：业务规则尽量集中在 `lib/`（`registry*`、`normalizePublishContract`、resolver、install 协议）；`lib/extraction/` 为组件抽取阶段类型骨架（与发布分层）；`app/` 主要负责 HTTP/MCP 适配与 UI。
+要点：业务与领域规则优先集中在 `packages/*`；`apps/platform` 负责 HTTP / OAuth / MCP / auth-control 宿主；`apps/web` 负责 UI；`lib/` 只保留更薄的共享工具层。
 
 ## 4. Registry 核心数据流
 
@@ -190,3 +201,5 @@ Registry 条目格式保持 shadcn 兼容；项目内安装状态由 Cozy 自定
 - [System Overview](./system-overview.md)
 - [Registry Dependency Management Spec](../20-engineering/registry-dependency-management-spec.md)
 - [Install Protocol](../20-engineering/install-protocol.md)
+- [API / Service Extraction Spec](../20-engineering/api-service-extraction-spec.md)
+- [Repository Structure Guidelines](../20-engineering/repo-structure-guidelines.md)

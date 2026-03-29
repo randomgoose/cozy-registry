@@ -1,0 +1,17 @@
+{
+  "name": "@cozy/platform",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "COZY_PLATFORM_AUTOSTART=1 tsx server.ts",
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json",
+    "lint": "eslint .",
+    "test": "pnpm --dir ../.. exec vitest run apps/platform/platform-app.test.ts --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@cozy/auth-control": "workspace:*",
+    "@cozy/auth-runtime": "workspace:*",
+    "@cozy/oauth": "workspace:*",
+    "@cozy/platform-services": "workspace:*"
+  }
+}

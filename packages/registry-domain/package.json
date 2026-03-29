@@ -1,0 +1,9 @@
+{
+  "name": "@cozy/registry-domain",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./*": "./*.ts"
+  }
+}

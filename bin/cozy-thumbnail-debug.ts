@@ -4,7 +4,7 @@ import "dotenv/config";
 import process from "node:process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { capturePreviewThumbnail } from "@/lib/thumbnail-jobs";
+import { capturePreviewThumbnail } from "@cozy/thumbnail/thumbnail-jobs";
 
 function getArg(name: string) {
   const prefix = `--${name}=`;

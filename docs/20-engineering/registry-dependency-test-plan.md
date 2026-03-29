@@ -57,7 +57,7 @@
 - [x] split + dirty → `PROV_SPLIT_NOT_IMPLEMENTED`
 - [x] `inlineVendor`：registry 路径保留源码而非 stub
 
-### 3.4 `lib/registry-resolver.test.ts`（mock `@/lib/registry`）
+### 3.4 `lib/registry-resolver.test.ts`（mock `/registry-domain/registry`）
 
 - [x] 依赖环检测抛出 `RegistryDependencyCycleError`
 - [x] `getRegistryDependencyAccessForRef === "denied"` → `RegistryDependencyPermissionDeniedError`

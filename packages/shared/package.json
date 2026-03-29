@@ -1,0 +1,9 @@
+{
+  "name": "@cozy/shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./*": "./*.ts"
+  }
+}

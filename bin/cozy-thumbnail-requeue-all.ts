@@ -3,10 +3,10 @@
 import "dotenv/config";
 import process from "node:process";
 import { eq } from "drizzle-orm";
-import { db } from "@/lib/db";
-import { registryItems, registryItemVersions, user } from "@/lib/db/schema";
-import { getCurrentVersion } from "@/lib/registry";
-import { enqueueThumbnailJob } from "@/lib/thumbnail-jobs";
+import { db } from "@cozy/db";
+import { registryItems, registryItemVersions, user } from "@cozy/db/schema";
+import { getCurrentVersion } from "@cozy/registry-domain/registry";
+import { enqueueThumbnailJob } from "@cozy/thumbnail/thumbnail-jobs";
 
 function removeThumbnail(meta: Record<string, unknown> | null | undefined) {
   const next = meta && typeof meta === "object" ? { ...meta } : {};

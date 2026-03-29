@@ -1,6 +1,6 @@
 Status: active
 Owner: engineering
-Last updated: 2025-02-14
+Last updated: 2026-03-28
 Source of truth: yes
 
 # System Overview
@@ -10,11 +10,11 @@ Source of truth: yes
 
 ## 模块
 
-- Web App: 浏览、发布、预览、设置、dashboard、collections
-- Registry API: 输出组件列表和单组件 bundle，兼容 shadcn registry 消费方式
+- Web App (`apps/web`): 浏览、发布、预览、设置、dashboard、collections
+- Platform (`cozy-platform`): Registry API、auth-control、OAuth、MCP、preview、well-known 元数据
 - MCP Server: 提供 AI 读写工具，支持 HTTP 和 stdio
 - Preview Runtime: 服务端构建浏览器可运行的预览 bundle
-- Auth + Policy: 会话、API key、OAuth 和 scope policy
+- Auth + Policy: Better Auth 底层能力 + 平台侧 auth-control / OAuth / scope policy
 - Database: PostgreSQL + Drizzle，持久化 item、files、versions、collections 等
 
 ## 核心数据流
@@ -25,8 +25,8 @@ Source of truth: yes
    服务端做基础校验、提取依赖、写入 `registry_items` / `registry_files` / version 快照
 
 2. 浏览与消费
-   Web 页面和 `/api/registry` 从数据库读取 item
-   `/api/r/...` 输出 shadcn 风格条目 JSON
+   Web 页面通过 `cozy-platform` 读取 item
+   `/r/...` 输出 shadcn 风格条目 JSON
 
 3. 预览
    服务端将源码 bundle 写入临时目录
@@ -34,7 +34,7 @@ Source of truth: yes
    浏览器在 iframe 中加载运行时 HTML 和产物
 
 4. AI 使用
-   AI 客户端通过 `/api/mcp` 或本地 `mcp-server.ts` 调用 `list_components` / `get_component` / `publish_component`
+   AI 客户端通过 `/mcp` 或本地 `bin/cozy-mcp-stdio.ts` 调用 `list_components` / `get_component` / `publish_component`
 
 ## 当前实现特点
 
@@ -48,3 +48,4 @@ Source of truth: yes
 
 - [项目优化与健康状况（非测试）](../20-engineering/project-optimization.md)：CI、安全、可观测性、性能与后续优先级。
 - [Registry 依赖测试方案](../20-engineering/registry-dependency-test-plan.md)：自动化测试与集成建议。
+- [API / Service Extraction Spec](../20-engineering/api-service-extraction-spec.md)：将平台能力从 Web 宿主中抽离的阶段性架构方案。

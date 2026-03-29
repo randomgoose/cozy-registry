@@ -1,0 +1,9 @@
+{
+  "name": "@cozy/platform-services",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./*": "./*.ts"
+  }
+}
