@@ -36,7 +36,7 @@ stub 扫描与显式声明合并后写入 `registryDependencies`，形成隐式�
 ### 已知后续风险（2026-03-26 复盘）
 
 1. **`_deps` 目录尚未按版本隔离**
-   - 当前 install/materialize 仍写入 `_deps/<owner>/<name>/...`。
+   - 该讨论基于旧方案；当前 V1 安装协议已改为平铺安装到 `src/components/registry/{owner}/{name}/...`。
    - 这与 [Install Protocol](./install-protocol.md) 中“建议包含版本以避免升级冲突”的方向不一致。
    - 风险：根组件升级或依赖浮动时，旧 stub 可能在不知情的情况下指向新实现。
    - 结论：当前不阻塞主线，但应作为后续补强项优先排期。

@@ -219,7 +219,7 @@ async function seed() {
     if (inserted) {
       await db.insert(registryFiles).values({
         itemId: inserted.id,
-        path: `registry/modules/${item.name}.tsx`,
+        path: "index.tsx",
         content: item.code,
         type: item.type,
       });

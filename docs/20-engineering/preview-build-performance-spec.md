@@ -18,7 +18,7 @@ Today, a preview request typically performs all of the following from scratch:
 1. Load the root registry item and its files
 2. Resolve transitive registry dependencies
 3. Resolve transitive theme CSS
-4. Materialize transitive component source files under `_deps/...`
+4. Materialize the resolved registry graph into the same flat install layout used by the installer (`src/components/registry/{owner}/{name}/...`)
 5. Create a fresh temp directory
 6. Write the full source bundle to disk
 7. Generate `preview-entry.tsx`

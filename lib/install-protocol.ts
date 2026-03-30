@@ -2,6 +2,12 @@ import fs from "fs/promises";
 import path from "path";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 import { sha256Utf8, type CozyProvenanceManifestV1 } from "@/lib/cozy-provenance";
+import {
+  getDefaultInstallDir,
+  pickInstallEntryPath,
+  rewriteInstalledRegistryImports,
+  type InstallDependencyTarget,
+} from "@/lib/registry-install-layout";
 
 export type RegistryCoordinate =
   | `@${string}/${string}`
@@ -107,13 +113,13 @@ type RegistryBundle = {
   name: string;
   type: string;
   files: RegistryBundleFile[];
+  registryDependencies?: string[];
 };
 
 type FetchLike = typeof fetch;
 
 const LOCKFILE_NAME = "cozy-registry.lock.json";
 const PROVENANCE_FILE_NAME = "cozy.provenance.json";
-
 async function writeProvenanceManifest(params: {
   projectRoot: string;
   installBaseDir: string;
@@ -303,90 +309,27 @@ export async function installRegistryBundle(params: {
   fetchImpl?: FetchLike;
 }): Promise<InstallRegistryItemResult> {
   const validatedProjectRoot = validateProjectRoot(params.projectRoot);
-  const { owner, name } = parseCoordinate(params.coordinate);
-  const installBaseDir = getDefaultInstallDir({ owner, name });
-  const changedFiles: string[] = [];
-  const unchangedFiles: string[] = [];
   const fetchImpl = params.fetchImpl ?? fetch;
-
-  const provenanceInputFiles: Array<{
-    projectRelative: string;
-    originalPath: string;
-    content: string;
-  }> = [];
-
-  for (const file of params.files) {
-    const projectRelative = normalizePosix(
-      path.posix.join(installBaseDir, normalizePosix(file.path)),
-    );
-    const absolutePath = path.join(validatedProjectRoot, projectRelative);
-    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-
-    let previous = "";
-    try {
-      previous = await fs.readFile(absolutePath, "utf8");
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    }
-
-    if (previous === file.content) {
-      unchangedFiles.push(projectRelative);
-      provenanceInputFiles.push({
-        projectRelative,
-        originalPath: normalizePosix(file.path),
-        content: file.content,
-      });
-      continue;
-    }
-
-    await fs.writeFile(absolutePath, file.content, "utf8");
-    changedFiles.push(projectRelative);
-    provenanceInputFiles.push({
-      projectRelative,
-      originalPath: normalizePosix(file.path),
-      content: file.content,
-    });
-  }
-
-  const provenanceWrite = await writeProvenanceManifest({
+  const state: InstallTraversalState = {
     projectRoot: validatedProjectRoot,
-    installBaseDir,
-    coordinate: params.coordinate,
-    version: params.version,
-    files: provenanceInputFiles,
-  });
-  if (provenanceWrite.changed) changedFiles.push(provenanceWrite.projectRelativePath);
-  else unchangedFiles.push(provenanceWrite.projectRelativePath);
-
-  // Materialize registryDependencies under `_deps/...` so generated stubs can resolve.
-  const depInstall = await materializeRegistryDependencies({
-    projectRoot: validatedProjectRoot,
-    installBaseDir,
-    rootSource: params.source,
-    dependencies: params.registryDependencies ?? [],
     registryBaseUrl: params.registryBaseUrl,
     fetchImpl,
-  });
-  changedFiles.push(...depInstall.changedFiles);
-  unchangedFiles.push(...depInstall.unchangedFiles);
+    changedFiles: [],
+    unchangedFiles: [],
+    visited: new Set<string>(),
+  };
 
-  await upsertLockfileItem({
-    projectRoot: validatedProjectRoot,
-    coordinate: params.coordinate,
-    item: buildLockfileItem({
+  const rootInstall = await installRegistryBundleNode(
+    {
+      coordinate: params.coordinate,
       type: params.type,
       version: params.version,
       source: params.source,
-      installedFiles: [
-        ...params.files.map((file) =>
-          normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path))),
-        ),
-        provenanceWrite.projectRelativePath,
-        ...depInstall.installedFiles,
-      ],
+      files: params.files,
       registryDependencies: params.registryDependencies ?? [],
-    }),
-  });
+    },
+    state,
+  );
 
   return {
     ok: true,
@@ -399,11 +342,9 @@ export async function installRegistryBundle(params: {
     lockfileUpdated: true,
     protocolApplied: true,
     entryCoordinate: params.coordinate,
-    installedFiles: params.files.map((file) =>
-      normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path))),
-    ),
-    changedFiles,
-    unchangedFiles,
+    installedFiles: rootInstall.installedFiles,
+    changedFiles: state.changedFiles,
+    unchangedFiles: state.unchangedFiles,
   };
 }
 
@@ -519,10 +460,93 @@ export async function upgradeInstalledItem(params: {
     };
   }
 
+  const state: InstallTraversalState = {
+    projectRoot: validatedProjectRoot,
+    registryBaseUrl: params.registryBaseUrl,
+    fetchImpl,
+    changedFiles: [],
+    unchangedFiles: [],
+    visited: new Set<string>(),
+  };
+
+  await installRegistryBundleNode(
+    {
+      coordinate: params.coordinate,
+      type: targetBundle.type,
+      version: targetVersion,
+      source: buildVersionedSourceUrl({
+        coordinate: params.coordinate,
+        source: lockItem.source,
+        version: targetVersion,
+        registryBaseUrl: params.registryBaseUrl,
+      }),
+      files: targetBundle.files,
+      registryDependencies: targetBundle.registryDependencies ?? [],
+    },
+    state,
+  );
+
+  return {
+    ok: true,
+    action: "upgrade",
+    coordinate: params.coordinate,
+    fromVersion: lockItem.version,
+    toVersion: targetVersion,
+    status: "upgraded",
+    forced: !!params.force,
+    changedFiles: state.changedFiles,
+    unchangedFiles: state.unchangedFiles,
+  };
+}
+
+type InstallTraversalState = {
+  projectRoot: string;
+  registryBaseUrl?: string;
+  fetchImpl: FetchLike;
+  changedFiles: string[];
+  unchangedFiles: string[];
+  visited: Set<string>;
+};
+
+type InstallRegistryBundleNodeInput = {
+  coordinate: RegistryCoordinate;
+  type: string;
+  version: string;
+  source: string;
+  files: RegistryBundleFile[];
+  registryDependencies: string[];
+};
+
+async function installRegistryBundleNode(
+  params: InstallRegistryBundleNodeInput,
+  state: InstallTraversalState,
+): Promise<{ installedFiles: string[] }> {
+  const visitKey = `${params.coordinate}@${params.version}`;
+  if (state.visited.has(visitKey)) {
+    const { owner, name } = parseCoordinate(params.coordinate);
+    const installBaseDir = getDefaultInstallDir({ owner, name });
+    return {
+      installedFiles: params.files.map((file) =>
+        normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path))),
+      ),
+    };
+  }
+  state.visited.add(visitKey);
+
+  const dependencyTargets = await installRegistryDependenciesFlat({
+    rootSource: params.source,
+    dependencies: params.registryDependencies,
+    state,
+  });
+
   const { owner, name } = parseCoordinate(params.coordinate);
   const installBaseDir = getDefaultInstallDir({ owner, name });
-  const changedFiles: string[] = [];
-  const unchangedFiles: string[] = [];
+  const rewrittenFiles = rewriteInstalledRegistryImports({
+    files: params.files,
+    rootOwner: owner,
+    rootName: name,
+    dependencyTargets,
+  });
 
   const provenanceInputFiles: Array<{
     projectRelative: string;
@@ -530,9 +554,11 @@ export async function upgradeInstalledItem(params: {
     content: string;
   }> = [];
 
-  for (const file of targetBundle.files) {
-    const projectRelative = normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path)));
-    const absolutePath = path.join(validatedProjectRoot, projectRelative);
+  for (const file of rewrittenFiles) {
+    const projectRelative = normalizePosix(
+      path.posix.join(installBaseDir, normalizePosix(file.path)),
+    );
+    const absolutePath = path.join(state.projectRoot, projectRelative);
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
 
     let previous = "";
@@ -543,17 +569,12 @@ export async function upgradeInstalledItem(params: {
     }
 
     if (previous === file.content) {
-      unchangedFiles.push(projectRelative);
-      provenanceInputFiles.push({
-        projectRelative,
-        originalPath: normalizePosix(file.path),
-        content: file.content,
-      });
-      continue;
+      state.unchangedFiles.push(projectRelative);
+    } else {
+      await fs.writeFile(absolutePath, file.content, "utf8");
+      state.changedFiles.push(projectRelative);
     }
 
-    await fs.writeFile(absolutePath, file.content, "utf8");
-    changedFiles.push(projectRelative);
     provenanceInputFiles.push({
       projectRelative,
       originalPath: normalizePosix(file.path),
@@ -562,79 +583,47 @@ export async function upgradeInstalledItem(params: {
   }
 
   const provenanceWrite = await writeProvenanceManifest({
-    projectRoot: validatedProjectRoot,
+    projectRoot: state.projectRoot,
     installBaseDir,
     coordinate: params.coordinate,
-    version: targetVersion,
+    version: params.version,
     files: provenanceInputFiles,
   });
-  if (provenanceWrite.changed) changedFiles.push(provenanceWrite.projectRelativePath);
-  else unchangedFiles.push(provenanceWrite.projectRelativePath);
+  if (provenanceWrite.changed) state.changedFiles.push(provenanceWrite.projectRelativePath);
+  else state.unchangedFiles.push(provenanceWrite.projectRelativePath);
 
-  const depInstall = await materializeRegistryDependencies({
-    projectRoot: validatedProjectRoot,
-    installBaseDir,
-    rootSource: lockItem.source,
-    dependencies: lockItem.registryDependencies ?? [],
-    registryBaseUrl: params.registryBaseUrl,
-    fetchImpl,
-  });
-  changedFiles.push(...depInstall.changedFiles);
-  unchangedFiles.push(...depInstall.unchangedFiles);
+  const installedFiles = rewrittenFiles.map((file) =>
+    normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path))),
+  );
 
   await upsertLockfileItem({
-    projectRoot: validatedProjectRoot,
+    projectRoot: state.projectRoot,
     coordinate: params.coordinate,
-    item: {
-      ...lockItem,
-      version: targetVersion,
-      source: buildVersionedSourceUrl({
-        coordinate: params.coordinate,
-        source: lockItem.source,
-        version: targetVersion,
-        registryBaseUrl: params.registryBaseUrl,
-      }),
-      installedFiles: [
-        ...targetBundle.files.map((file) =>
-          normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path))),
-        ),
-        provenanceWrite.projectRelativePath,
-        ...depInstall.installedFiles,
-      ],
-      installedAt: new Date().toISOString(),
-    },
+    item: buildLockfileItem({
+      type: params.type,
+      version: params.version,
+      source: params.source,
+      installedFiles,
+      registryDependencies: params.registryDependencies,
+    }),
   });
 
-  return {
-    ok: true,
-    action: "upgrade",
-    coordinate: params.coordinate,
-    fromVersion: lockItem.version,
-    toVersion: targetVersion,
-    status: "upgraded",
-    forced: !!params.force,
-    changedFiles,
-    unchangedFiles,
-  };
+  return { installedFiles };
 }
 
-async function materializeRegistryDependencies(params: {
-  projectRoot: string;
-  installBaseDir: string;
+async function installRegistryDependenciesFlat(params: {
   rootSource: string;
   dependencies: string[];
-  registryBaseUrl?: string;
-  fetchImpl: FetchLike;
-}): Promise<{ installedFiles: string[]; changedFiles: string[]; unchangedFiles: string[] }> {
-  const installedFiles: string[] = [];
-  const changedFiles: string[] = [];
-  const unchangedFiles: string[] = [];
-
-  const base = resolveBaseUrl(params.rootSource, params.registryBaseUrl);
+  state: InstallTraversalState;
+}): Promise<Map<string, InstallDependencyTarget>> {
+  const out = new Map<string, InstallDependencyTarget>();
+  const byName = new Map<string, InstallDependencyTarget[]>();
+  const base = resolveBaseUrl(params.rootSource, params.state.registryBaseUrl);
 
   for (const raw of params.dependencies) {
     const parsed = parseRegistryDependencyRef(raw);
     if (!parsed) continue;
+
     const coordinate = `@${parsed.owner}/${parsed.name}` as RegistryCoordinate;
     const source = new URL(
       `/api/r/${encodeURIComponent(parsed.owner)}/${parsed.name}`,
@@ -645,50 +634,58 @@ async function materializeRegistryDependencies(params: {
       (await fetchLatestVersion({
         coordinate,
         source,
-        registryBaseUrl: params.registryBaseUrl,
-        fetchImpl: params.fetchImpl,
+        registryBaseUrl: params.state.registryBaseUrl,
+        fetchImpl: params.state.fetchImpl,
       }));
 
     const bundle = await fetchRegistryBundle({
       coordinate,
       source,
       version,
-      registryBaseUrl: params.registryBaseUrl,
-      fetchImpl: params.fetchImpl,
+      registryBaseUrl: params.state.registryBaseUrl,
+      fetchImpl: params.state.fetchImpl,
     });
 
-    // Write dependency files under root install dir:
-    // src/registry/<rootOwner>/<rootName>/_deps/<depOwner>/<depName>/...
-    const depBaseDir = normalizePosix(
-      path.posix.join(params.installBaseDir, "_deps", parsed.owner, parsed.name),
+    const entryPath = pickInstallEntryPath(bundle.files);
+    const target: InstallDependencyTarget = {
+      owner: parsed.owner,
+      name: parsed.name,
+      version,
+      entryPath,
+    };
+    out.set(raw.trim(), target);
+    out.set(`@${parsed.owner}/${parsed.name}`, target);
+    out.set(`@${parsed.owner}/${parsed.name}@${version}`, target);
+
+    const list = byName.get(parsed.name) ?? [];
+    list.push(target);
+    byName.set(parsed.name, list);
+
+    await installRegistryBundleNode(
+      {
+        coordinate,
+        type: bundle.type,
+        version,
+        source: buildVersionedSourceUrl({
+          coordinate,
+          source,
+          version,
+          registryBaseUrl: params.state.registryBaseUrl,
+        }),
+        files: bundle.files,
+        registryDependencies: bundle.registryDependencies ?? [],
+      },
+      params.state,
     );
+  }
 
-    for (const f of bundle.files) {
-      const projectRelative = normalizePosix(
-        path.posix.join(depBaseDir, normalizePosix(f.path)),
-      );
-      const absolutePath = path.join(params.projectRoot, projectRelative);
-      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-
-      let previous = "";
-      try {
-        previous = await fs.readFile(absolutePath, "utf8");
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-      }
-
-      if (previous === f.content) {
-        unchangedFiles.push(projectRelative);
-      } else {
-        await fs.writeFile(absolutePath, f.content, "utf8");
-        changedFiles.push(projectRelative);
-      }
-
-      installedFiles.push(projectRelative);
+  for (const [name, matches] of byName) {
+    if (matches.length === 1) {
+      out.set(name, matches[0]);
     }
   }
 
-  return { installedFiles, changedFiles, unchangedFiles };
+  return out;
 }
 
 export async function detectUpgradeConflicts(params: {
@@ -828,10 +825,6 @@ function parseCoordinate(coordinate: RegistryCoordinate): { owner: string; name:
   throw new Error(`Invalid registry coordinate: ${coordinate}`);
 }
 
-function getDefaultInstallDir(params: { owner: string; name: string }): string {
-  return normalizePosix(path.posix.join("src/registry", params.owner, params.name));
-}
-
 async function fetchLatestVersion(params: {
   coordinate: RegistryCoordinate;
   source: string;
@@ -885,6 +878,11 @@ async function fetchRegistryBundle(params: {
     type: typeof payload.type === "string" ? payload.type : "registry:block",
     files: Array.isArray(payload.files)
       ? payload.files.filter(isBundleFile)
+      : [],
+    registryDependencies: Array.isArray(payload.registryDependencies)
+      ? payload.registryDependencies.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
       : [],
   };
 }

@@ -215,8 +215,8 @@ function pickDependencyEntryPath(files: { path: string; content: string }[]): st
 }
 
 /**
- * Materialize transitive non-theme registryDependencies into a file map under `_deps/<owner>/<name>/...`.
- * Intended for preview/build environments so that stub files can re-export from dependencies.
+ * Legacy helper: materialize transitive non-theme registryDependencies into a file map under `_deps/<owner>/<name>/...`.
+ * Kept for backward compatibility with older preview/publish flows that still reason about Cozy stubs.
  */
 export async function resolveTransitiveComponentSourceFiles(params: {
   owner: string;

@@ -19,6 +19,7 @@ type RegistryBundlePayload = {
   name: string;
   type: string;
   files: RegistryBundleFile[];
+  registryDependencies?: string[];
 };
 
 async function main() {
@@ -92,6 +93,7 @@ async function runAdd(args: string[]) {
     version: resolvedVersion,
     source,
     files: bundle.files,
+    registryDependencies: bundle.registryDependencies ?? [],
   });
 
   process.stdout.write(`Installed ${result.coordinate} at v${result.version}\n`);
@@ -253,6 +255,11 @@ async function fetchRegistryBundle(sourceUrl: string): Promise<RegistryBundlePay
     name: typeof payload.name === "string" ? payload.name : "unknown",
     type: typeof payload.type === "string" ? payload.type : "registry:block",
     files: payload.files.filter(isRegistryBundleFile),
+    registryDependencies: Array.isArray(payload.registryDependencies)
+      ? payload.registryDependencies.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
+      : [],
   };
 }
 

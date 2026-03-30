@@ -22,9 +22,9 @@ import { extractDependencies } from "@/lib/validate-tsx";
 import {
   collectThemeCssFromResolvedGraph,
   createRegistryResolverMemo,
-  materializeComponentSourceFilesFromResolvedGraph,
   resolveRegistryDependencies,
 } from "@/lib/registry-resolver";
+import { materializeInstalledRegistryFilesFromResolvedGraph } from "@/lib/registry-install-layout";
 import {
   RegistryDependencyCycleError,
   RegistryDependencyNotFoundError,
@@ -371,25 +371,7 @@ ${versionToolbarHtml}
       ? rawPreviewExport.trim()
       : undefined;
 
-  // 运行时依赖来源：
-  // - 存储在 DB 中的 item.dependencies（兼容旧数据）
-  // - 从所有源码文件中动态提取的 bare imports
-  const depsFromDb = (item.dependencies ?? []) as string[];
-  const depsFromFiles = new Set<string>();
-  for (const source of Object.values(files)) {
-    for (const dep of extractDependencies(source)) {
-      depsFromFiles.add(dep);
-    }
-  }
-  const allDependencies = Array.from(
-    new Set<string>([...depsFromDb, ...depsFromFiles]),
-  ).sort();
-  // 仅对裸模块依赖构建 import map / external；相对路径交给 esbuild 走本地文件
-  const runtimeDependencies = allDependencies.filter(isBareModuleSpecifier);
-
-  const rootFilesHash = hashFiles(files);
   const previewPropsHash = sha256(stableStringify(previewProps ?? {}));
-  const runtimeDepsHash = sha256(stableStringify(runtimeDependencies));
 
   let componentDepSources: string[] = [];
   let themeSources: string[] = [];
@@ -410,13 +392,17 @@ ${versionToolbarHtml}
     timings.mark("dependencyResolution", stepStartedAt);
 
     stepStartedAt = performance.now();
-    const materialized = materializeComponentSourceFilesFromResolvedGraph(
+    const installedLayout = materializeInstalledRegistryFilesFromResolvedGraph(
       resolvedGraph.ordered,
-      { owner, name, version },
     );
-    componentDepSources = materialized.sources;
-    for (const [p, c] of Object.entries(materialized.files)) {
-      if (!(p in files)) files[p] = c;
+    componentDepSources = installedLayout.sources.filter(
+      (ref) => ref !== resolvedGraph.ordered[resolvedGraph.ordered.length - 1]?.ref.ref,
+    );
+    for (const key of Object.keys(files)) {
+      delete files[key];
+    }
+    for (const [p, c] of Object.entries(installedLayout.files)) {
+      files[p] = c;
     }
     timings.mark("componentMaterialization", stepStartedAt);
 
@@ -457,6 +443,24 @@ ${versionToolbarHtml}
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
+
+  // 运行时依赖来源：
+  // - 存储在 DB 中的 item.dependencies（兼容旧数据）
+  // - 从安装布局模拟后的源码文件中动态提取的 bare imports
+  const depsFromDb = (item.dependencies ?? []) as string[];
+  const depsFromFiles = new Set<string>();
+  for (const source of Object.values(files)) {
+    for (const dep of extractDependencies(source)) {
+      depsFromFiles.add(dep);
+    }
+  }
+  const allDependencies = Array.from(
+    new Set<string>([...depsFromDb, ...depsFromFiles]),
+  ).sort();
+  // 仅对裸模块依赖构建 import map / external；相对路径交给 esbuild 走本地文件
+  const runtimeDependencies = allDependencies.filter(isBareModuleSpecifier);
+  const rootFilesHash = hashFiles(files);
+  const runtimeDepsHash = sha256(stableStringify(runtimeDependencies));
 
   const cacheKeySummary = {
     owner,

@@ -50,6 +50,7 @@ import {
   type ProjectRegistryStatusItem,
   type RegistryCoordinate,
 } from "./install-protocol";
+import { getDefaultInstallDir } from "@/lib/registry-install-layout";
 import { getBaseUrl } from "@/lib/oauth";
 import type { RegistryPolicy } from "@/lib/registry-policy";
 import {
@@ -162,7 +163,8 @@ export function createRegistryMcpServer(request?: Request) {
           version: params.version,
           source,
           installedFiles: (params.files ?? []).map(
-            (f) => `src/registry/${params.owner}/${params.name}/${f.path}`,
+            (f) =>
+              `${getDefaultInstallDir({ owner: params.owner, name: params.name })}/${f.path}`,
           ),
         },
       },
@@ -1181,8 +1183,12 @@ ${fileContent}
           process.env.NEXT_PUBLIC_APP_URL ??
           (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
         const coordinate = `@${canonicalOwner}/${item.name}` as RegistryCoordinate;
+        const targetDir = getDefaultInstallDir({
+          owner: canonicalOwner,
+          name: item.name,
+        });
         const installedFiles = (shadcnItem?.files ?? []).map(
-          (file) => `src/registry/${canonicalOwner}/${item.name}/${file.path}`,
+          (file) => `${targetDir}/${file.path}`,
         );
         const existingItem =
           projectStatus?.items?.find((entry) => entry.coordinate === coordinate) ?? null;
@@ -1206,7 +1212,7 @@ ${fileContent}
           source: baseUrl
             ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`
             : `/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`,
-          targetDir: `src/registry/${canonicalOwner}/${item.name}`,
+          targetDir,
           installedFiles,
           files: shadcnItem?.files ?? [],
           lockfileEntry: buildLockfileEntry({
@@ -1333,11 +1339,15 @@ ${fileContent}
           (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
         const canonicalCoordinate =
           `@${canonicalOwner}/${item.name}` as RegistryCoordinate;
+        const targetDir = getDefaultInstallDir({
+          owner: canonicalOwner,
+          name: item.name,
+        });
         const installedFiles =
           existingItem.installedFiles?.length
             ? existingItem.installedFiles
             : (shadcnItem?.files ?? []).map(
-                (file) => `src/registry/${canonicalOwner}/${item.name}/${file.path}`,
+                (file) => `${targetDir}/${file.path}`,
               );
         const alreadyUpToDate = existingItem.version === targetVersion;
 
@@ -1353,7 +1363,7 @@ ${fileContent}
           source: baseUrl
             ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}?v=${targetVersion}`
             : `/api/r/${canonicalOwner}/${item.name}?v=${targetVersion}`,
-          targetDir: `src/registry/${canonicalOwner}/${item.name}`,
+          targetDir,
           installedFiles,
           files: shadcnItem?.files ?? [],
           nextLockfileEntry: buildLockfileEntry({

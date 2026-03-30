@@ -25,7 +25,7 @@ The system must provide:
 3. **Deterministic transitive resolution** (including version pin support and cycle detection).
 4. **Stable preview behavior** for:
    - theme dependencies (CSS injection),
-   - component dependencies (future source-level composition).
+   - component dependencies (using the same flat install layout and import rewrite rules as the installer).
 5. **Actionable diagnostics** for missing refs, cycles, permission issues, and silent drops.
 6. **Divergence-aware install metadata** so local instances can be classified as clean / modified / forked.
 7. **Sync planning primitives** that help tools decide whether a new upstream version is safe to apply automatically or needs review.
@@ -33,7 +33,7 @@ The system must provide:
 Non-goals (for this version):
 
 - npm package dependency solving (handled by `dependencies` / bare import extraction).
-- lockfile-level install protocol redesign.
+- advanced private dependency directory layouts such as `_deps/` / `_themes/`.
 - fully automatic AST-level migration / merge of local forks.
 
 ---
@@ -48,14 +48,15 @@ These principles govern **product and agent behavior** alongside the technical c
 2. **Dependencies SHOULD be version-pinned for reproducibility**  
    Refs MAY use either personal form `@user/name` or team form `@org/team/name`, with optional version pinning (`@...@version`); see §7. Pinned refs are recommended for stable, debuggable builds. Stricter “no floating” policies are a future policy flag, not required by Contract v1.
 
-3. **The system MAY suggest; it MUST NOT auto-decide**  
+3. **The system MAY suggest; it MUST NOT auto-decide persisted graph changes**  
    Code analysis or catalog matching MAY produce **suggestions** (§3.6). Persisted `registryDependencies` MUST only change when the user/agent **explicitly** confirms them in the publish payload (or equivalent confirmed action). No automatic linking, no automatic import rewrites, no silent DB writes.
+   Project-local install/preview import rewrites are allowed because they do not mutate the persisted registry graph.
 
 4. **Publish MUST be deterministic with respect to declared inputs**  
    Given the same declared `registryDependencies` and source bundle, publish normalization MUST NOT “re-guess” dependencies or override confirmed values. Stub inference (§3.5.2) remains opt-in and diagnostic-first.
 
 5. **Runtime resolution MUST NOT depend on provenance or stub heuristics**  
-   Preview, install, and graph resolution (§4) MUST use **persisted** refs and resolver output only. Provenance manifests (§3.3–§3.4) are **publish-time aids** for de-vendoring and explicit derivation when provided; they MUST NOT define an alternate implicit resolution path at preview/install time. Stub scanning MUST NOT substitute for declared deps unless the caller explicitly opts in (`applyStubInference`).
+   Preview, install, and graph resolution (§4) MUST use **persisted** refs and resolver output only. Provenance manifests (§3.3–§3.4) are **publish-time aids** for de-vendoring and explicit derivation when provided; they MUST NOT define an alternate implicit resolution path at preview/install time. Stub scanning MUST NOT substitute for declared deps unless the caller explicitly opts in (`applyStubInference`). Once refs are resolved, install/preview MAY rewrite source imports to match the target flat layout.
 
 6. **Outdated-dependency signals MUST be non-blocking by default**  
    Health or version-drift warnings (§3.7) MUST NOT block publish or auto-upgrade refs unless a separate, explicit policy is introduced later.
@@ -260,15 +261,14 @@ Direct vs transitive dependencies:
 - prefer declaring only **direct** dependencies on the root item, and rely on graph resolution for transitive deps.
 - declaring transitive deps is allowed but should be avoided unless needed for policy reasons.
 
-#### Stub + `_deps` strategy (Recommended)
+#### Stub + `_deps` strategy (Legacy publish compatibility)
 
-To support cases where root source code imports dependencies via relative paths (e.g. `import { Button } from "./Button"`),
-the system MAY normalize expanded dependency files into **stubs** instead of deleting them.
+To support older publish flows where expanded dependency files are present in the local bundle, the system MAY normalize those files into **stubs** instead of deleting them.
 
 Concept:
 
 - The local bundle may include a file like `Button.tsx` solely to satisfy `./Button` imports.
-- On publish, `Button.tsx` is rewritten into a thin re-export stub that forwards to a materialized dependency under `_deps/...`.
+- On publish, `Button.tsx` can be rewritten into a thin re-export stub that forwards to a materialized dependency under `_deps/...`.
 
 Stub goals:
 
@@ -286,12 +286,35 @@ export * from "./_deps/<owner>/<name>/index";
 Notes:
 
 - Avoid emitting `export { default } ...` unless the dependency is known to have a default export.
-- `_deps` location MUST be stable relative to the stub file to avoid complex `../../` path calculations; recommended to place `_deps` under the root bundle directory.
+- This is a publish-time compatibility strategy. It is not the V1 consumer install layout.
 
-Materialized dependency directory:
+Materialized dependency directory in this legacy strategy:
 
 - `_deps/<namespace>/<name>/...`
 - includes the dependency’s source files and a synthetic `index.tsx` that re-exports from a chosen entry file.
+
+### 3.3.3A Consumer install layout (V1)
+
+Consumer projects use a flat install layout:
+
+```text
+src/components/registry/{owner}/{name}/...
+```
+
+Examples:
+
+```text
+src/components/registry/alice/dialog/index.tsx
+src/components/registry/alice/button/index.tsx
+src/components/registry/alice/theme-default/theme.css
+```
+
+Rules:
+
+- Direct `registryDependencies` are installed as sibling registry items, not nested under the root item.
+- Theme items (`registry:theme`) use the same flat layout in V1.
+- The project lockfile remains the source of truth for dependency relationships.
+- Installers and preview builders MAY rewrite source imports so the resolved graph works inside this flat layout.
 
 Version pinning:
 
@@ -317,10 +340,11 @@ Normative clarification:
 
 ### 3.3.5 Preview Semantics with Provenance
 
-Preview should remain consistent with publish normalization:
+Preview should remain consistent with install behavior:
 
-- root preview uses root files + resolved dependency refs.
-- expanded local copies are only an editor convenience and should not change the registry graph.
+- root preview uses the same resolved dependency graph as install.
+- preview materialization should simulate the flat consumer install layout, then build from that file tree.
+- expanded local copies or legacy stub layouts are editor/publish conveniences and should not change the registry graph.
 
 ---
 

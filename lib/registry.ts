@@ -29,6 +29,7 @@ import { maybeBuildRegistryThumbnail } from "@/lib/thumbnail";
 import { enqueueThumbnailJob } from "@/lib/thumbnail-jobs";
 
 const INITIAL_VERSION = "0.1.0";
+const DEFAULT_COMPONENT_ENTRY_PATH = "index.tsx";
 
 // owner resolution is centralized in lib/owner.ts
 
@@ -49,6 +50,12 @@ function withCozyHeader(params: {
     return params.content;
   }
   return `${header}${params.content}`;
+}
+
+function getDefaultRegistryEntryPath(type: string): string {
+  return normalizeRegistryItemType(type) === REGISTRY_THEME_TYPE
+    ? "theme.css"
+    : DEFAULT_COMPONENT_ENTRY_PATH;
 }
 
 /** 根据 bump 类型计算下一版本号（简单 semver） */
@@ -778,10 +785,7 @@ export async function createRegistryItemVersion(params: {
     if (!params.content) {
       throw new Error("Either files or content must be provided when creating new version");
     }
-    const entryPath = item.files[0]?.path
-      ?? (normalizedType === REGISTRY_THEME_TYPE
-        ? "theme.css"
-        : `registry/modules/${params.name}.tsx`);
+    const entryPath = item.files[0]?.path ?? getDefaultRegistryEntryPath(normalizedType);
     return { [entryPath]: params.content };
   })();
   const ownerLabelForThumb =
@@ -1147,10 +1151,7 @@ export async function createRegistryItem(data: {
     if (!data.content) {
       throw new Error("Either files or content must be provided when creating registry item");
     }
-    const singlePath =
-      normalizedType === REGISTRY_THEME_TYPE
-        ? "theme.css"
-        : `registry/modules/${data.name}.tsx`;
+    const singlePath = getDefaultRegistryEntryPath(normalizedType);
     return { [singlePath]: data.content };
   })();
   const thumbOwner =
@@ -1450,10 +1451,7 @@ export function toShadcnRegistryItemSummary(item: {
   ownerHandle?: string | null;
 }) {
   const owner = item.ownerHandle ?? item.userId ?? "legacy";
-  const path =
-    normalizeRegistryItemType(item.type) === REGISTRY_THEME_TYPE
-      ? "theme.css"
-      : `registry/modules/${item.name}.tsx`;
+  const path = getDefaultRegistryEntryPath(item.type);
   return {
     name: item.name,
     owner,
