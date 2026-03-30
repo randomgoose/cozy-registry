@@ -277,9 +277,25 @@ async function runNodeModule(
     );
     const runtime = loadHostReactRuntime(appRequire);
     const runtimeRequire = ((spec: string) => {
-      if (spec === "react") return runtime.React;
-      if (spec === "react/jsx-runtime") return runtime.jsxRuntime;
-      if (spec === "react/jsx-dev-runtime") return runtime.jsxRuntime;
+      if (
+        isRuntimeModuleRequest(spec, [
+          "react",
+          "react/index.js",
+          "react/index",
+        ])
+      ) {
+        return runtime.React;
+      }
+      if (
+        isRuntimeModuleRequest(spec, [
+          "react/jsx-runtime",
+          "react/jsx-runtime.js",
+          "react/jsx-dev-runtime",
+          "react/jsx-dev-runtime.js",
+        ])
+      ) {
+        return runtime.jsxRuntime;
+      }
       return appRequire(spec);
     }) as NodeJS.Require;
     runtimeRequire.resolve = appRequire.resolve.bind(appRequire);
@@ -346,6 +362,12 @@ function loadHostReactRuntime(appRequire: NodeJS.Require) {
     renderToString: (node: unknown) => string;
   };
   return { React, jsxRuntime, renderToString };
+}
+
+function isRuntimeModuleRequest(spec: string, candidates: string[]) {
+  return candidates.some((candidate) => {
+    return spec === candidate || spec.endsWith(`/${candidate}`);
+  });
 }
 
 function safeSerialize(value: unknown) {
