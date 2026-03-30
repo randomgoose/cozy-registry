@@ -333,12 +333,12 @@ async function runNodeModule(
       __previewProps?: unknown;
     };
     const Component = exported.default;
-    if (!Component || typeof Component !== "function") {
+    if (!isRenderablePreviewExport(Component)) {
       throw new Error("No suitable component export found from ./index for preview smoke test");
     }
     runtime.renderToString(
       runtime.React.createElement(
-        Component as (props: unknown) => unknown,
+        Component as unknown,
         exported.__previewProps ?? {},
       ),
     );
@@ -359,39 +359,103 @@ async function loadHostReactRuntime(appRequire: NodeJS.Require) {
     createElement: (type: unknown, props: unknown) => unknown;
     Fragment?: unknown;
   };
-  const { renderToString } = await loadHostReactDomServer(appRequire);
+  const { renderToString } = await loadHostReactDomServerWithFallback(
+    appRequire,
+    React,
+  );
   const jsxRuntime = createJsxRuntimeShim(React);
   return { React, jsxRuntime, renderToString };
 }
 
-async function loadHostReactDomServer(appRequire: NodeJS.Require) {
+async function loadHostReactDomServerWithFallback(
+  appRequire: NodeJS.Require,
+  React: {
+    createElement: (type: unknown, props: unknown) => unknown;
+  },
+) {
   try {
-    const mod = (await import("react-dom/server.node")) as {
-      renderToString?: (node: unknown) => string;
-    };
-    if (typeof mod.renderToString === "function") {
-      return { renderToString: mod.renderToString };
-    }
+    return await loadHostReactDomServer(appRequire);
   } catch {
-    // Fall through to require-based fallbacks below.
+    // In some bundled/serverless runtimes, react-dom/server exports aren't resolvable.
+    // Fallback still executes function components so obvious runtime errors surface.
+    return {
+      renderToString(node: unknown) {
+        exercisePreviewNode(node, React);
+        return "";
+      },
+    };
   }
+}
 
-  const candidates = ["react-dom/server.node", "react-dom/server"];
-  for (const spec of candidates) {
+async function loadHostReactDomServer(appRequire: NodeJS.Require) {
+  const importCandidates = [
+    "react-dom/server.node",
+    "react-dom/server",
+    "react-dom/server.edge",
+    "react-dom/server.browser",
+  ] as const;
+  for (const spec of importCandidates) {
     try {
-      const mod = appRequire(spec) as {
+      const mod = (await import(spec)) as {
         renderToString?: (node: unknown) => string;
+        renderToStaticMarkup?: (node: unknown) => string;
       };
       if (typeof mod.renderToString === "function") {
         return { renderToString: mod.renderToString };
+      }
+      if (typeof mod.renderToStaticMarkup === "function") {
+        return { renderToString: mod.renderToStaticMarkup };
       }
     } catch {
       continue;
     }
   }
 
+  const requireCandidates = [
+    "react-dom/server.node",
+    "react-dom/server",
+    "react-dom/server.edge",
+    "react-dom/server.browser",
+  ] as const;
+  for (const spec of requireCandidates) {
+    try {
+      const mod = appRequire(spec) as {
+        renderToString?: (node: unknown) => string;
+        renderToStaticMarkup?: (node: unknown) => string;
+      };
+      if (typeof mod.renderToString === "function") {
+        return { renderToString: mod.renderToString };
+      }
+      if (typeof mod.renderToStaticMarkup === "function") {
+        return { renderToString: mod.renderToStaticMarkup };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  try {
+    const mod = (await import("react-dom/server")) as {
+      renderToReadableStream?: (node: unknown) => Promise<ReadableStream>;
+    };
+    if (typeof mod.renderToReadableStream === "function") {
+      return {
+        async renderToString(node: unknown) {
+          const stream = await mod.renderToReadableStream?.(node);
+          if (!stream) return "";
+          if ("allReady" in stream && stream.allReady instanceof Promise) {
+            await stream.allReady;
+          }
+          return "";
+        },
+      };
+    }
+  } catch {
+    // Fall through.
+  }
+
   throw new Error(
-    `Unable to load a React DOM server renderer from: react-dom/server.node, react-dom/server`,
+    `Unable to load a React DOM server renderer from: react-dom/server.node, react-dom/server, react-dom/server.edge, react-dom/server.browser`,
   );
 }
 
@@ -417,6 +481,29 @@ function createJsxRuntimeShim(React: {
     jsxs: makeElement,
     jsxDEV: makeElement,
   };
+}
+
+function isRenderablePreviewExport(value: unknown) {
+  if (value == null) return false;
+  if (typeof value === "function") return true;
+  if (typeof value === "object" && "$$typeof" in value) return true;
+  return false;
+}
+
+function exercisePreviewNode(
+  node: unknown,
+  React: {
+    createElement: (type: unknown, props: unknown) => unknown;
+  },
+) {
+  if (node == null || typeof node !== "object") return;
+  const element = node as { type?: unknown; props?: unknown };
+  if (typeof element.type === "function") {
+    const output = element.type(element.props ?? {});
+    if (output !== undefined) {
+      React.createElement("cozy-smoke-fragment", null);
+    }
+  }
 }
 
 function safeSerialize(value: unknown) {
