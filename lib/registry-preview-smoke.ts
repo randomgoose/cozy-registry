@@ -358,11 +358,35 @@ function loadHostReactRuntime(appRequire: NodeJS.Require) {
     createElement: (type: unknown, props: unknown) => unknown;
     Fragment?: unknown;
   };
-  const { renderToString } = appRequire("react-dom/server") as {
-    renderToString: (node: unknown) => string;
-  };
+  const { renderToString } = loadHostReactDomServer(appRequire);
   const jsxRuntime = createJsxRuntimeShim(React);
   return { React, jsxRuntime, renderToString };
+}
+
+function loadHostReactDomServer(appRequire: NodeJS.Require) {
+  const candidates = [
+    "react-dom/server.node",
+    "react-dom/server",
+    "react-dom/server.browser",
+    "react-dom/server.edge",
+  ];
+
+  for (const spec of candidates) {
+    try {
+      const mod = appRequire(spec) as {
+        renderToString?: (node: unknown) => string;
+      };
+      if (typeof mod.renderToString === "function") {
+        return { renderToString: mod.renderToString };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(
+    `Unable to load a React DOM server renderer from: ${candidates.join(", ")}`,
+  );
 }
 
 function isRuntimeModuleRequest(spec: string, candidates: string[]) {
