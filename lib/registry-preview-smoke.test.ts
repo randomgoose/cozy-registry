@@ -37,4 +37,25 @@ describe("registry-preview-smoke", () => {
     expect(result.code).toBe("PREVIEW_RENDER_FAILED");
     expect(result.message).toContain("Element type is invalid");
   });
+
+  it("fails when importing unsupported bare modules", async () => {
+    const result = await runRegistryPreviewSmokeTest({
+      name: "unknown-dep-card",
+      files: {
+        "index.tsx": `
+          import React from "react";
+          import { Nope } from "totally-unknown-package";
+          export default function UnknownDepCard() {
+            return <Nope />;
+          }
+        `,
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("PREVIEW_BUILD_FAILED");
+    expect(result.message).toContain("Unsupported bare module imports");
+    expect(result.message).toContain("totally-unknown-package");
+  });
 });
