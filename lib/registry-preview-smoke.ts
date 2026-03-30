@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import Module from "node:module";
 import os from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 import * as parser from "@babel/parser";
 import {
   resolveRegistryDependencies,
@@ -269,15 +270,35 @@ async function runNodeModule(
   | { ok: false; message: string; stack?: string }
 > {
   try {
-    const moduleApi = Module as typeof Module & {
-      _nodeModulePaths(from: string): string[];
+    const appRequire = Module.createRequire(
+      path.join(process.cwd(), "package.json"),
+    );
+    const exportsObject: Record<string, unknown> = {};
+    const moduleObject = {
+      exports: exportsObject,
+      filename: modulePath,
+      id: modulePath,
+      loaded: false,
+      path: path.dirname(modulePath),
+      paths: (Module as typeof Module & { _nodeModulePaths(from: string): string[] })
+        ._nodeModulePaths(process.cwd()),
     };
-    const smokeModule = new Module.Module(modulePath) as Module & {
-      _compile(code: string, filename: string): void;
-    };
-    smokeModule.filename = modulePath;
-    smokeModule.paths = moduleApi._nodeModulePaths(process.cwd());
-    smokeModule._compile(source, modulePath);
+    const wrapper = Module.wrap(source);
+    const compiled = vm.runInThisContext(wrapper, { filename: modulePath }) as (
+      exports: Record<string, unknown>,
+      require: NodeJS.Require,
+      module: typeof moduleObject,
+      __filename: string,
+      __dirname: string,
+    ) => void;
+    compiled.call(
+      moduleObject.exports,
+      moduleObject.exports,
+      appRequire,
+      moduleObject,
+      modulePath,
+      path.dirname(modulePath),
+    );
     return { ok: true };
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
