@@ -356,11 +356,12 @@ async function runNodeModule(
 function loadHostReactRuntime(appRequire: NodeJS.Require) {
   const React = appRequire("react") as {
     createElement: (type: unknown, props: unknown) => unknown;
+    Fragment?: unknown;
   };
-  const jsxRuntime = appRequire("react/jsx-runtime") as Record<string, unknown>;
   const { renderToString } = appRequire("react-dom/server") as {
     renderToString: (node: unknown) => string;
   };
+  const jsxRuntime = createJsxRuntimeShim(React);
   return { React, jsxRuntime, renderToString };
 }
 
@@ -368,6 +369,24 @@ function isRuntimeModuleRequest(spec: string, candidates: string[]) {
   return candidates.some((candidate) => {
     return spec === candidate || spec.endsWith(`/${candidate}`);
   });
+}
+
+function createJsxRuntimeShim(React: {
+  createElement: (type: unknown, props: unknown) => unknown;
+  Fragment?: unknown;
+}) {
+  const makeElement = (type: unknown, props: Record<string, unknown> | null, key?: unknown) => {
+    const nextProps =
+      key === undefined ? props : { ...(props ?? {}), key };
+    return React.createElement(type, nextProps ?? {});
+  };
+
+  return {
+    Fragment: React.Fragment ?? "fragment",
+    jsx: makeElement,
+    jsxs: makeElement,
+    jsxDEV: makeElement,
+  };
 }
 
 function safeSerialize(value: unknown) {
