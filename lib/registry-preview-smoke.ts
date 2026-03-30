@@ -229,7 +229,7 @@ export const __smoke = true;
     const result = await esbuild.build({
       entryPoints: [entryPath],
       bundle: true,
-      format: "esm",
+      format: "cjs",
       platform: "node",
       target: ["node20"],
       jsx: "automatic",
@@ -248,7 +248,7 @@ export const __smoke = true;
       };
     }
 
-    const smokeBundlePath = path.join(tmpDir, "smoke-bundle.mjs");
+    const smokeBundlePath = path.join(tmpDir, "smoke-bundle.cjs");
     await fs.writeFile(smokeBundlePath, output, "utf8");
     const execution = await runNodeModule(smokeBundlePath);
     if (execution.ok) {
@@ -280,22 +280,40 @@ async function runNodeModule(
   | { ok: false; message: string; stack?: string }
 > {
   return new Promise((resolve) => {
-    execFile(process.execPath, [modulePath], (error, stdout, stderr) => {
-      if (!error) {
-        resolve({ ok: true });
-        return;
-      }
+    execFile(
+      process.execPath,
+      [modulePath],
+      {
+        env: {
+          ...process.env,
+          NODE_PATH: [
+            process.env.NODE_PATH,
+            path.join(process.cwd(), "node_modules"),
+          ]
+            .filter(
+              (value): value is string =>
+                typeof value === "string" && value.length > 0,
+            )
+            .join(path.delimiter),
+        },
+      },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve({ ok: true });
+          return;
+        }
 
-      const details = [stderr, stdout]
-        .filter((value) => typeof value === "string" && value.trim().length > 0)
-        .join("\n")
-        .trim();
-      resolve({
-        ok: false,
-        message: details || error.message,
-        stack: error.stack,
-      });
-    });
+        const details = [stderr, stdout]
+          .filter((value) => typeof value === "string" && value.trim().length > 0)
+          .join("\n")
+          .trim();
+        resolve({
+          ok: false,
+          message: details || error.message,
+          stack: error.stack,
+        });
+      },
+    );
   });
 }
 
