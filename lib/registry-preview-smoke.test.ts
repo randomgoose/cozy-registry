@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
+import {
+  __previewSmokeInternals,
+  runRegistryPreviewSmokeTest,
+} from "@/lib/registry-preview-smoke";
 
 describe("registry-preview-smoke", () => {
   it("passes a simple renderable component", async () => {
@@ -97,5 +100,32 @@ describe("registry-preview-smoke", () => {
     if (result.ok) return;
     expect(result.code).toBe("PREVIEW_RENDER_FAILED");
     expect(result.message).toContain("process is not defined");
+  });
+
+});
+
+describe("registry-preview-smoke internals", () => {
+  it("times out unresolved work", async () => {
+    const never = new Promise<string>(() => {
+      // Never resolves.
+    });
+    const started = Date.now();
+    const result = await __previewSmokeInternals.withTimeout(
+      never,
+      30,
+      () => "timeout-value",
+    );
+    const elapsed = Date.now() - started;
+
+    expect(result).toBe("timeout-value");
+    expect(elapsed).toBeGreaterThanOrEqual(20);
+  });
+
+  it("adds actionable hint for invalid element type failures", () => {
+    const message = __previewSmokeInternals.withSmokeFailureHint(
+      "Element type is invalid: expected a string or class/function.",
+    );
+    expect(message).toContain("Hint:");
+    expect(message).toContain("default/named exports");
   });
 });

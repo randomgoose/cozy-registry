@@ -11,6 +11,7 @@ import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 import { materializeInstalledRegistryFilesFromResolvedGraph } from "@/lib/registry-install-layout";
 
 type SmokeTestCode = "PREVIEW_BUILD_FAILED" | "PREVIEW_RENDER_FAILED";
+const SMOKE_EXECUTION_TIMEOUT_MS = 3000;
 
 export type RegistryPreviewSmokeTestResult =
   | { ok: true }
@@ -258,7 +259,7 @@ export const __previewProps = PREVIEW_PROPS;
     return {
       ok: false,
       code: "PREVIEW_RENDER_FAILED",
-      message: execution.message,
+      message: withSmokeFailureHint(execution.message),
       stack: execution.stack,
     };
   } catch (error) {
@@ -281,7 +282,10 @@ async function runNodeModule(
   | { ok: true }
   | { ok: false; message: string; stack?: string }
 > {
-  try {
+  const execute = async (): Promise<
+    | { ok: true }
+    | { ok: false; message: string; stack?: string }
+  > => {
     const appRequire = Module.createRequire(
       path.join(process.cwd(), "package.json"),
     );
@@ -354,14 +358,23 @@ async function runNodeModule(
       ),
     );
     return { ok: true };
-  } catch (error) {
+  };
+
+  return withTimeout(execute(), SMOKE_EXECUTION_TIMEOUT_MS, () => {
+    return {
+      ok: false,
+      message:
+        `Preview smoke execution timed out after ${SMOKE_EXECUTION_TIMEOUT_MS}ms.` +
+        ` This usually means the component entered a render loop or performs long-running synchronous work during render.`,
+    };
+  }).catch((error) => {
     const err = error instanceof Error ? error : new Error(String(error));
     return {
       ok: false,
       message: err.message,
       stack: err.stack,
     };
-  }
+  });
 }
 
 function createSmokeVmContext(modulePath: string) {
@@ -516,6 +529,53 @@ function isRuntimeJsxRequest(spec: string) {
     "react/jsx-dev-runtime.js",
   ]);
 }
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => T,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      resolve(onTimeout());
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function withSmokeFailureHint(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes("element type is invalid")) {
+    return (
+      `${message}\n\nHint: Check your default/named exports and ensure rendered components are defined (not undefined/null).`
+    );
+  }
+  if (lower.includes("timed out")) {
+    return (
+      `${message}\n\nHint: Avoid long-running sync work in render; move heavy logic outside render or behind lazy boundaries.`
+    );
+  }
+  if (lower.includes("process is not defined")) {
+    return (
+      `${message}\n\nHint: Preview smoke runs in a restricted sandbox; avoid accessing Node globals like process in component render code.`
+    );
+  }
+  return message;
+}
+
+export const __previewSmokeInternals = {
+  withTimeout,
+  withSmokeFailureHint,
+};
 
 function createJsxRuntimeShim(React: {
   createElement: (type: unknown, props: unknown) => unknown;
