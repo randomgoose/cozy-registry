@@ -1,3 +1,4 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import Module from "node:module";
 import os from "node:os";
@@ -424,9 +425,6 @@ export const __esModule = true;
 }
 
 function createRuntimeExternalAliasPlugin(): import("esbuild").Plugin {
-  const appRequire = Module.createRequire(
-    path.join(process.cwd(), "package.json"),
-  );
   const runtimeModules = new Set([
     "react",
     "react-dom/server",
@@ -439,10 +437,108 @@ function createRuntimeExternalAliasPlugin(): import("esbuild").Plugin {
       build.onResolve({ filter: /^[^./].*/ }, (args) => {
         if (!runtimeModules.has(args.path)) return null;
         return {
-          path: appRequire.resolve(args.path),
+          path: resolveRuntimeModulePath(args.path),
           external: true,
         };
       });
     },
   };
+}
+
+function resolveRuntimeModulePath(spec: string): string {
+  const appRequire = Module.createRequire(
+    path.join(process.cwd(), "package.json"),
+  );
+
+  const direct = tryResolveModule(appRequire, spec);
+  if (direct && fsSync.existsSync(direct)) {
+    return direct;
+  }
+
+  if (spec === "react") {
+    return path.join(resolvePackageRoot("react", appRequire), "index.js");
+  }
+
+  if (spec === "react/jsx-runtime") {
+    return resolveFromPackageRoot("react", appRequire, [
+      "jsx-runtime.js",
+      "jsx-runtime",
+    ]);
+  }
+
+  return resolveFromPackageRoot("react-dom", appRequire, [
+    "server.node.js",
+    "server.js",
+    "server.node",
+    "server",
+  ]);
+}
+
+function resolveFromPackageRoot(
+  packageName: string,
+  appRequire: NodeJS.Require,
+  candidates: string[],
+): string {
+  const root = resolvePackageRoot(packageName, appRequire);
+  for (const candidate of candidates) {
+    const resolved = path.join(root, candidate);
+    if (fsSync.existsSync(resolved)) {
+      return resolved;
+    }
+  }
+  throw new Error(
+    `Unable to resolve runtime module from package ${packageName} (tried: ${candidates.join(", ")})`,
+  );
+}
+
+function resolvePackageRoot(
+  packageName: string,
+  appRequire: NodeJS.Require,
+): string {
+  const directPackageJson = tryResolveModule(
+    appRequire,
+    `${packageName}/package.json`,
+  );
+  if (directPackageJson && fsSync.existsSync(directPackageJson)) {
+    return path.dirname(directPackageJson);
+  }
+
+  const rootPackageJson = path.join(
+    process.cwd(),
+    "node_modules",
+    packageName,
+    "package.json",
+  );
+  if (fsSync.existsSync(rootPackageJson)) {
+    return path.dirname(rootPackageJson);
+  }
+
+  const pnpmRoot = path.join(process.cwd(), "node_modules", ".pnpm");
+  if (fsSync.existsSync(pnpmRoot)) {
+    for (const entry of fsSync.readdirSync(pnpmRoot)) {
+      const candidate = path.join(
+        pnpmRoot,
+        entry,
+        "node_modules",
+        packageName,
+        "package.json",
+      );
+      if (fsSync.existsSync(candidate)) {
+        return path.dirname(candidate);
+      }
+    }
+  }
+
+  throw new Error(`Unable to locate package root for ${packageName}`);
+}
+
+function tryResolveModule(
+  appRequire: NodeJS.Require,
+  spec: string,
+): string | null {
+  try {
+    return appRequire.resolve(spec);
+  } catch {
+    return null;
+  }
 }
