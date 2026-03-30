@@ -58,4 +58,44 @@ describe("registry-preview-smoke", () => {
     expect(result.message).toContain("Unsupported bare module imports");
     expect(result.message).toContain("totally-unknown-package");
   });
+
+  it("fails when importing Node built-in modules", async () => {
+    const result = await runRegistryPreviewSmokeTest({
+      name: "builtin-module-card",
+      files: {
+        "index.tsx": `
+          import React from "react";
+          import fs from "node:fs";
+          export default function BuiltinModuleCard() {
+            return <div>{String(!!fs)}</div>;
+          }
+        `,
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("PREVIEW_BUILD_FAILED");
+    expect(result.message).toContain("Unsupported bare module imports");
+    expect(result.message).toContain("node:fs");
+  });
+
+  it("blocks access to process in smoke runtime", async () => {
+    const result = await runRegistryPreviewSmokeTest({
+      name: "process-access-card",
+      files: {
+        "index.tsx": `
+          import React from "react";
+          export default function ProcessAccessCard() {
+            return <div>{process.env.NODE_ENV}</div>;
+          }
+        `,
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("PREVIEW_RENDER_FAILED");
+    expect(result.message).toContain("process is not defined");
+  });
 });

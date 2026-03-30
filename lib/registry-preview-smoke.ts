@@ -287,28 +287,24 @@ async function runNodeModule(
     );
     const runtime = await loadHostReactRuntime(appRequire);
     const runtimeRequire = ((spec: string) => {
-      if (
-        isRuntimeModuleRequest(spec, [
-          "react",
-          "react/index.js",
-          "react/index",
-        ])
-      ) {
+      if (isRuntimeReactRequest(spec)) {
         return runtime.React;
       }
-      if (
-        isRuntimeModuleRequest(spec, [
-          "react/jsx-runtime",
-          "react/jsx-runtime.js",
-          "react/jsx-dev-runtime",
-          "react/jsx-dev-runtime.js",
-        ])
-      ) {
+      if (isRuntimeJsxRequest(spec)) {
         return runtime.jsxRuntime;
       }
-      return appRequire(spec);
+      throw new Error(
+        `Preview smoke runtime blocked module import: "${spec}". Only React runtime modules are allowed.`,
+      );
     }) as NodeJS.Require;
-    runtimeRequire.resolve = appRequire.resolve.bind(appRequire);
+    runtimeRequire.resolve = ((spec: string) => {
+      if (!isRuntimeReactRequest(spec) && !isRuntimeJsxRequest(spec)) {
+        throw new Error(
+          `Preview smoke runtime blocked module resolution: "${spec}". Only React runtime modules are allowed.`,
+        );
+      }
+      return appRequire.resolve(spec);
+    }) as NodeJS.Require["resolve"];
     runtimeRequire.cache = appRequire.cache;
     runtimeRequire.extensions = appRequire.extensions;
     runtimeRequire.main = appRequire.main;
@@ -323,7 +319,10 @@ async function runNodeModule(
         ._nodeModulePaths(process.cwd()),
     };
     const wrapper = Module.wrap(source);
-    const compiled = vm.runInThisContext(wrapper, { filename: modulePath }) as (
+    const context = createSmokeVmContext(modulePath);
+    const compiled = vm.runInContext(wrapper, context, {
+      filename: modulePath,
+    }) as (
       exports: Record<string, unknown>,
       require: NodeJS.Require,
       module: typeof moduleObject,
@@ -363,6 +362,18 @@ async function runNodeModule(
       stack: err.stack,
     };
   }
+}
+
+function createSmokeVmContext(modulePath: string) {
+  const sandbox: Record<string, unknown> = {
+    console,
+  };
+  sandbox.globalThis = sandbox;
+  sandbox.global = sandbox;
+  sandbox.self = sandbox;
+  return vm.createContext(sandbox, {
+    name: `cozy-preview-smoke:${path.basename(modulePath)}`,
+  });
 }
 
 async function loadHostReactRuntime(appRequire: NodeJS.Require) {
@@ -487,6 +498,23 @@ function isRuntimeModuleRequest(spec: string, candidates: string[]) {
   return candidates.some((candidate) => {
     return spec === candidate || spec.endsWith(`/${candidate}`);
   });
+}
+
+function isRuntimeReactRequest(spec: string) {
+  return isRuntimeModuleRequest(spec, [
+    "react",
+    "react/index.js",
+    "react/index",
+  ]);
+}
+
+function isRuntimeJsxRequest(spec: string) {
+  return isRuntimeModuleRequest(spec, [
+    "react/jsx-runtime",
+    "react/jsx-runtime.js",
+    "react/jsx-dev-runtime",
+    "react/jsx-dev-runtime.js",
+  ]);
 }
 
 function createJsxRuntimeShim(React: {
@@ -636,12 +664,6 @@ function findUnsupportedBareImports(specifiers: Map<string, BareImportSpecifiers
 
 function getSupportedBareImportRoots() {
   const out = new Set<string>();
-  for (const mod of Module.builtinModules) {
-    out.add(mod);
-    if (!mod.startsWith("node:")) {
-      out.add(`node:${mod}`);
-    }
-  }
   try {
     const appRequire = Module.createRequire(path.join(process.cwd(), "package.json"));
     const pkg = appRequire("./package.json") as {
