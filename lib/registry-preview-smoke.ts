@@ -1,5 +1,5 @@
-import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import Module from "node:module";
 import os from "node:os";
 import path from "node:path";
 import * as parser from "@babel/parser";
@@ -8,7 +8,6 @@ import {
 } from "@/lib/registry-resolver";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 import { materializeInstalledRegistryFilesFromResolvedGraph } from "@/lib/registry-install-layout";
-import { extractDependencies } from "@/lib/validate-tsx";
 
 type SmokeTestCode = "PREVIEW_BUILD_FAILED" | "PREVIEW_RENDER_FAILED";
 
@@ -131,19 +130,8 @@ export async function runRegistryPreviewSmokeTest(params: {
       `export { default } from "./${rootEntry}";\nexport * from "./${rootEntry}";\n`;
   }
 
-  const runtimeDependencies = Array.from(
-    new Set(
-      Object.values(files).flatMap((source) => extractDependencies(source)),
-    ),
-  ).filter((dep) => isBareModuleSpecifier(dep) && !dep.startsWith("@__local__/"));
-
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "cozy-preview-smoke-"));
   try {
-    const workspaceNodeModules = path.join(tmpDir, "node_modules");
-    await fs
-      .symlink(path.join(process.cwd(), "node_modules"), workspaceNodeModules, "dir")
-      .catch(() => {});
-
     for (const [relPath, content] of Object.entries(files)) {
       const abs = path.join(tmpDir, relPath);
       await fs.mkdir(path.dirname(abs), { recursive: true });
@@ -250,7 +238,7 @@ export const __smoke = true;
 
     const smokeBundlePath = path.join(tmpDir, "smoke-bundle.cjs");
     await fs.writeFile(smokeBundlePath, output, "utf8");
-    const execution = await runNodeModule(smokeBundlePath);
+    const execution = await runNodeModule(smokeBundlePath, output);
     if (execution.ok) {
       return { ok: true };
     }
@@ -275,46 +263,30 @@ export const __smoke = true;
 
 async function runNodeModule(
   modulePath: string,
+  source: string,
 ): Promise<
   | { ok: true }
   | { ok: false; message: string; stack?: string }
 > {
-  return new Promise((resolve) => {
-    execFile(
-      process.execPath,
-      [modulePath],
-      {
-        env: {
-          ...process.env,
-          NODE_PATH: [
-            process.env.NODE_PATH,
-            path.join(process.cwd(), "node_modules"),
-          ]
-            .filter(
-              (value): value is string =>
-                typeof value === "string" && value.length > 0,
-            )
-            .join(path.delimiter),
-        },
-      },
-      (error, stdout, stderr) => {
-        if (!error) {
-          resolve({ ok: true });
-          return;
-        }
-
-        const details = [stderr, stdout]
-          .filter((value) => typeof value === "string" && value.trim().length > 0)
-          .join("\n")
-          .trim();
-        resolve({
-          ok: false,
-          message: details || error.message,
-          stack: error.stack,
-        });
-      },
-    );
-  });
+  try {
+    const moduleApi = Module as typeof Module & {
+      _nodeModulePaths(from: string): string[];
+    };
+    const smokeModule = new Module.Module(modulePath) as Module & {
+      _compile(code: string, filename: string): void;
+    };
+    smokeModule.filename = modulePath;
+    smokeModule.paths = moduleApi._nodeModulePaths(process.cwd());
+    smokeModule._compile(source, modulePath);
+    return { ok: true };
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    return {
+      ok: false,
+      message: err.message,
+      stack: err.stack,
+    };
+  }
 }
 
 function safeSerialize(value: unknown) {
