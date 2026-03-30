@@ -85,6 +85,13 @@ cozy-figma-make
 - 你已经在 Vibe coding 流程里产出组件
 - 想直接发布并继续迭代
 
+在 AI 工作流中，建议先做一次只读预检再发布：
+
+1. `diagnose_publish_readiness`（传 `runPreviewSmoke: true`）
+2. 结果 `ok: true` 后再调用 `publish_component`
+
+这样可以提前拿到结构化失败原因（例如 `PREVIEW_BUILD_FAILED`、`PREVIEW_RENDER_FAILED`），减少反复发布重试。
+
 ### 发布到团队（Team scope）
 
 MCP 的 `publish_component` 在团队场景下**必须**同时提供：

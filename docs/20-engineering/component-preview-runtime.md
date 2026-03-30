@@ -8,6 +8,7 @@ This document defines the v1 technical specification for the Component Registry 
 
 - [Registry Dependency Management Spec](./registry-dependency-management-spec.md): dependency declaration, graph resolution, and preview dependency behavior contract.
 - [Preview Build Performance Spec](./preview-build-performance-spec.md): request-path and build-path performance plan for preview generation.
+- [Publish Preview Smoke Gate](./publish-preview-smoke-gate.md): publish-time smoke gate behavior, failure categories, and runtime hardening guarantees.
 
 ---
 
