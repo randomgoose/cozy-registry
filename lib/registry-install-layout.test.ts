@@ -32,5 +32,42 @@ describe("registry install layout helpers", () => {
     expect(result.files["src/components/registry/alice/dialog/index.tsx"]).toContain(
       'from "../button/index"',
     );
+    expect(result.rootEntries["@alice/dialog@1.0.0"]).toBe(
+      "src/components/registry/alice/dialog/index",
+    );
+  });
+
+  it("rewrites missing relative imports to a uniquely named direct dependency in preview/install layout", () => {
+    const result = materializeInstalledRegistryFilesFromResolvedGraph([
+      {
+        ref: { owner: "alice", name: "button", version: "1.0.0", ref: "@alice/button@1.0.0" },
+        item: {
+          type: "registry:ui",
+          registryDependencies: [],
+          files: [{ path: "index.tsx", content: "export function Button() { return <button />; }" }],
+        },
+      },
+      {
+        ref: { owner: "alice", name: "dialog", version: "1.0.0", ref: "@alice/dialog@1.0.0" },
+        item: {
+          type: "registry:block",
+          registryDependencies: ["@alice/button"],
+          files: [
+            {
+              path: "index.tsx",
+              content:
+                'import { Button } from "./Button";\nexport function Dialog() { return <Button />; }',
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(result.files["src/components/registry/alice/dialog/index.tsx"]).toContain(
+      'from "../button/index"',
+    );
+    expect(result.files["src/components/registry/alice/dialog/index.tsx"]).not.toContain(
+      'from "./Button"',
+    );
   });
 });

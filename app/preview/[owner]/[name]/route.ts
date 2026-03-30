@@ -18,6 +18,11 @@ import {
   sha256,
   stableStringify,
 } from "@/lib/preview-build-cache";
+import {
+  buildPreviewResolveCacheKey,
+  getPreviewResolveCache,
+  setPreviewResolveCache,
+} from "@/lib/preview-resolve-cache";
 import { extractDependencies } from "@/lib/validate-tsx";
 import {
   collectThemeCssFromResolvedGraph,
@@ -233,8 +238,9 @@ export async function GET(
   const { owner, name } = await params;
   const url = new URL(request.url);
   const version = url.searchParams.get("v") ?? null;
-  const debugTheme = url.searchParams.get("debugTheme") === "1";
-  const debugDeps = url.searchParams.get("debugDeps") === "1";
+  const debug = url.searchParams.get("debug") === "1";
+  const debugTheme = debug || url.searchParams.get("debugTheme") === "1";
+  const debugDeps = debug || url.searchParams.get("debugDeps") === "1";
   const previewMode: PreviewMode =
     url.searchParams.get("thumbnail") === "1" ? "thumbnail" : "default";
 
@@ -378,41 +384,85 @@ ${versionToolbarHtml}
   let themeCss = "";
   let registryGraphHash = "";
   let resolvedNodeCount = 1;
+  let resolveCacheHit = false;
 
   try {
-    stepStartedAt = performance.now();
-    const resolvedGraph = await resolveRegistryDependencies({
+    const resolveCacheKey = buildPreviewResolveCacheKey({
       owner,
       name,
-      version,
-      requestUserId: userId,
-      memo: resolverMemo,
+      version: effectiveVersion,
+      requestUserId: userId ?? null,
     });
-    resolvedNodeCount = resolvedGraph.ordered.length;
-    timings.mark("dependencyResolution", stepStartedAt);
+    const cachedResolved = getPreviewResolveCache(resolveCacheKey);
 
-    stepStartedAt = performance.now();
-    const installedLayout = materializeInstalledRegistryFilesFromResolvedGraph(
-      resolvedGraph.ordered,
-    );
-    componentDepSources = installedLayout.sources.filter(
-      (ref) => ref !== resolvedGraph.ordered[resolvedGraph.ordered.length - 1]?.ref.ref,
-    );
-    for (const key of Object.keys(files)) {
-      delete files[key];
+    if (cachedResolved) {
+      resolveCacheHit = true;
+      resolvedNodeCount = cachedResolved.resolvedNodeCount;
+      componentDepSources = cachedResolved.componentDepSources;
+      themeSources = cachedResolved.themeSources;
+      themeCss = cachedResolved.themeCss;
+      registryGraphHash = cachedResolved.registryGraphHash;
+      for (const key of Object.keys(files)) {
+        delete files[key];
+      }
+      for (const [p, c] of Object.entries(cachedResolved.files)) {
+        files[p] = c;
+      }
+      timings.mark("dependencyResolution", stepStartedAt);
+      timings.mark("componentMaterialization", stepStartedAt);
+      timings.mark("themeCssDerivation", stepStartedAt);
+    } else {
+      stepStartedAt = performance.now();
+      const resolvedGraph = await resolveRegistryDependencies({
+        owner,
+        name,
+        version,
+        requestUserId: userId,
+        memo: resolverMemo,
+      });
+      resolvedNodeCount = resolvedGraph.ordered.length;
+      timings.mark("dependencyResolution", stepStartedAt);
+
+      stepStartedAt = performance.now();
+      const installedLayout = materializeInstalledRegistryFilesFromResolvedGraph(
+        resolvedGraph.ordered,
+      );
+      const rootRef =
+        resolvedGraph.ordered[resolvedGraph.ordered.length - 1]?.ref.ref ?? null;
+      componentDepSources = installedLayout.sources.filter(
+        (ref) => ref !== rootRef,
+      );
+      for (const key of Object.keys(files)) {
+        delete files[key];
+      }
+      for (const [p, c] of Object.entries(installedLayout.files)) {
+        files[p] = c;
+      }
+      if (rootRef) {
+        const rootEntry = installedLayout.rootEntries[rootRef];
+        if (rootEntry) {
+          files["index.tsx"] =
+            `export { default } from "./${rootEntry}";\nexport * from "./${rootEntry}";\n`;
+        }
+      }
+      timings.mark("componentMaterialization", stepStartedAt);
+
+      stepStartedAt = performance.now();
+      const resolvedTheme = collectThemeCssFromResolvedGraph(resolvedGraph.ordered);
+      themeSources = resolvedTheme.sources;
+      themeCss = resolvedTheme.css;
+      timings.mark("themeCssDerivation", stepStartedAt);
+
+      registryGraphHash = hashResolvedRegistryGraph(resolvedGraph.ordered);
+      setPreviewResolveCache(resolveCacheKey, {
+        files: { ...files },
+        componentDepSources: [...componentDepSources],
+        themeSources: [...themeSources],
+        themeCss,
+        registryGraphHash,
+        resolvedNodeCount,
+      });
     }
-    for (const [p, c] of Object.entries(installedLayout.files)) {
-      files[p] = c;
-    }
-    timings.mark("componentMaterialization", stepStartedAt);
-
-    stepStartedAt = performance.now();
-    const resolvedTheme = collectThemeCssFromResolvedGraph(resolvedGraph.ordered);
-    themeSources = resolvedTheme.sources;
-    themeCss = resolvedTheme.css;
-    timings.mark("themeCssDerivation", stepStartedAt);
-
-    registryGraphHash = hashResolvedRegistryGraph(resolvedGraph.ordered);
   } catch (err) {
     const code =
       err instanceof RegistryDependencyPermissionDeniedError
@@ -467,6 +517,7 @@ ${versionToolbarHtml}
     name,
     version: effectiveVersion,
     mode: previewMode,
+    debug,
     rootFilesHash,
     previewExport: previewExport ?? null,
     previewPropsHash,
@@ -479,6 +530,7 @@ ${versionToolbarHtml}
     name,
     version: effectiveVersion,
     mode: previewMode,
+    debug,
     rootFilesHash,
     previewExport: previewExport ?? null,
     runtimeDepsHash,
@@ -511,7 +563,7 @@ ${versionToolbarHtml}
         previewExport,
       },
       previewProps,
-      { mode: previewMode, workspaceKey: previewWorkspaceKey },
+      { mode: previewMode, workspaceKey: previewWorkspaceKey, debug },
     );
     timings.mark("previewBuildExecution", stepStartedAt);
 
@@ -555,7 +607,8 @@ ${versionToolbarHtml}
   }
 
   // 根据环境切换 React dev / prod 版本
-  const isDev = process.env.NODE_ENV !== "production";
+  const isDev =
+    previewMode === "default" || process.env.NODE_ENV !== "production" || debug;
 
   const reactBase = "https://esm.sh/react@19";
   const reactDomBase = "https://esm.sh/react-dom@19";
@@ -624,6 +677,15 @@ ${versionToolbarHtml}
               key: previewCacheKey,
               keySummary: cacheKeySummary,
             },
+            resolveCache: {
+              hit: resolveCacheHit,
+              key: buildPreviewResolveCacheKey({
+                owner,
+                name,
+                version: effectiveVersion,
+                requestUserId: userId ?? null,
+              }),
+            },
             resolverMemo: {
               accessEntries: resolverMemo.access.size,
               itemEntries: resolverMemo.item.size,
@@ -636,6 +698,33 @@ ${versionToolbarHtml}
       : "";
   const depsDebugScript = debugDeps
     ? `\n    <script>\nwindow.__COZY_DEPS_DEBUG__ = ${depsDebug};\nconsole.info("[preview:deps-debug]", window.__COZY_DEPS_DEBUG__);\n</script>`
+    : "";
+  const diagnosticsPanel = debug
+    ? `\n    <details open style="position:fixed;right:16px;bottom:16px;z-index:99999;max-width:min(560px,calc(100vw - 32px));border:1px solid #d4d4d8;border-radius:14px;background:rgba(255,255,255,0.96);box-shadow:0 18px 48px rgba(0,0,0,0.18);backdrop-filter:blur(10px);">
+      <summary style="cursor:pointer;list-style:none;padding:12px 14px;font:600 12px/1.4 system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;color:#18181b;">Preview diagnostics</summary>
+      <pre style="margin:0;padding:0 14px 14px;max-height:min(42vh,420px);overflow:auto;white-space:pre-wrap;word-break:break-word;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#27272a;">${escapeHtml(
+        JSON.stringify(
+          {
+            owner,
+            name,
+            version: effectiveVersion,
+            mode: previewMode,
+            debug,
+            cacheHit,
+            resolveCacheHit,
+            previewCacheKey,
+            previewWorkspaceKey,
+            resolvedNodeCount,
+            runtimeDependencies,
+            componentDepSources,
+            themeSources,
+            timings: timings.done({}),
+          },
+          null,
+          2,
+        ),
+      )}</pre>
+    </details>`
     : "";
   const bundleStyles =
     buildCss != null && buildCss !== ""
@@ -650,14 +739,14 @@ ${versionToolbarHtml}
       version: effectiveVersion,
       mode: previewMode,
       cacheHit,
+      resolveCacheHit,
       cacheKey: previewCacheKey,
       resolvedNodes: resolvedNodeCount,
       resolverMemoAccessEntries: resolverMemo.access.size,
       resolverMemoItemEntries: resolverMemo.item.size,
-      materializedDependencyFiles: Object.keys(files).filter((filePath) =>
-        filePath.startsWith("_deps/"),
-      ).length,
+      materializedFiles: Object.keys(files).length,
       runtimeBareDependencies: runtimeDependencies.length,
+      debug,
     }),
   );
 
@@ -675,7 +764,7 @@ ${importMapJson}
   <body class="${previewMode === "thumbnail" ? "min-h-screen overflow-hidden bg-transparent" : "min-h-screen bg-white"}" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}${toolbarBodyPadding}">
 ${versionToolbarHtml}
     <div id="root"></div>
-${themeDebugScript}${depsDebugScript}
+${themeDebugScript}${depsDebugScript}${diagnosticsPanel}
     <script type="module">
 ${buildCode}
     </script>

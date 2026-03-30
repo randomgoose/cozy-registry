@@ -2,6 +2,11 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { createHash } from "node:crypto";
+import {
+  PREVIEW_MSG_INITIAL_PROPS,
+  PREVIEW_MSG_RUNTIME_ERROR,
+  PREVIEW_MSG_SET_PROPS,
+} from "@/lib/preview-messages";
 
 type EsbuildModule = typeof import("esbuild");
 
@@ -150,7 +155,11 @@ const previewWorkspaceStates = new Map<string, PreviewWorkspaceState>();
 export async function buildPreviewBundle(
   bundle: ComponentBundle,
   previewProps: unknown,
-  options?: { mode?: "default" | "thumbnail"; workspaceKey?: string },
+  options?: {
+    mode?: "default" | "thumbnail";
+    workspaceKey?: string;
+    debug?: boolean;
+  },
 ): Promise<PreviewBuildResult> {
   // 注意：为了避免 Next.js 在服务器 bundle 时把 esbuild 的可执行文件等一起打包，
   // 我们只在运行时动态引入它，而不是作为顶层静态依赖。
@@ -219,6 +228,7 @@ export async function buildPreviewBundle(
     }
 
     const mode = options?.mode === "thumbnail" ? "thumbnail" : "default";
+    const debugEnabled = options?.debug === true;
     const previewHints = JSON.stringify({
       previewExport:
         typeof bundle.previewExport === "string" && bundle.previewExport.trim()
@@ -231,8 +241,10 @@ export async function buildPreviewBundle(
 import { createRoot } from "react-dom/client";
 import * as Mod from "./index";
 
-const COZY_PREVIEW_INITIAL = "cozy-preview-initial-props";
-const COZY_PREVIEW_SET = "cozy-preview-set-props";
+const COZY_PREVIEW_INITIAL = ${JSON.stringify(PREVIEW_MSG_INITIAL_PROPS)};
+const COZY_PREVIEW_SET = ${JSON.stringify(PREVIEW_MSG_SET_PROPS)};
+const COZY_PREVIEW_RUNTIME_ERROR = ${JSON.stringify(PREVIEW_MSG_RUNTIME_ERROR)};
+const DEBUG_ENABLED = ${JSON.stringify(debugEnabled)};
 
 const PREVIEW_HINTS = ${previewHints};
 
@@ -319,6 +331,102 @@ function cozyResolvePreviewComponent(Mod, hints) {
 
   return null;
 }
+
+function cozyToErrorLike(error) {
+  if (error instanceof Error) return error;
+  if (typeof error === "string") return new Error(error);
+  try {
+    return new Error(JSON.stringify(error));
+  } catch {
+    return new Error(String(error));
+  }
+}
+
+function cozyReportToParent(payload) {
+  try {
+    const targetOrigin = window.location.origin;
+    window.parent.postMessage(
+      { type: COZY_PREVIEW_RUNTIME_ERROR, payload: payload },
+      targetOrigin && targetOrigin !== "null" ? targetOrigin : "*",
+    );
+  } catch {
+    try {
+      window.parent.postMessage(
+        { type: COZY_PREVIEW_RUNTIME_ERROR, payload: payload },
+        "*",
+      );
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function cozyRenderRuntimeError(payload) {
+  var existing = document.getElementById("cozy-preview-runtime-error");
+  if (existing) existing.remove();
+  var host = document.createElement("div");
+  host.id = "cozy-preview-runtime-error";
+  host.setAttribute(
+    "style",
+    [
+      "position:fixed",
+      "inset:0",
+      "z-index:2147483647",
+      "overflow:auto",
+      "background:rgba(17,24,39,0.9)",
+      "padding:24px",
+      "box-sizing:border-box",
+      "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
+      "color:#f9fafb",
+    ].join(";"),
+  );
+  var stack = payload.stack ? "\\n\\n" + payload.stack : "";
+  var componentStack = payload.componentStack
+    ? "\\n\\nComponent stack:\\n" + payload.componentStack
+    : "";
+  var hint = payload.debugEnabled
+    ? ""
+    : "\\n\\nTip: reopen this preview with ?debug=1 for dev React and richer diagnostics.";
+  host.innerHTML =
+    '<div style="max-width:960px;margin:0 auto;border:1px solid rgba(248,113,113,0.55);background:rgba(127,29,29,0.32);border-radius:16px;padding:18px 20px;box-shadow:0 12px 30px rgba(0,0,0,0.35)">' +
+    '<div style="font:600 14px/1.4 system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;margin-bottom:10px;color:#fecaca">Preview runtime failed</div>' +
+    '<div style="font:500 12px/1.5 system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;margin-bottom:14px;color:#fca5a5">Phase: ' +
+    String(payload.phase) +
+    "</div>" +
+    '<pre style="margin:0;white-space:pre-wrap;word-break:break-word;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#fff">' +
+    String(payload.message || "Unknown preview runtime error") +
+    stack +
+    componentStack +
+    hint +
+    "</pre>" +
+    "</div>";
+  document.body.appendChild(host);
+}
+
+function cozyHandleRuntimeError(phase, rawError, extra) {
+  var error = cozyToErrorLike(rawError);
+  var payload = {
+    phase: phase,
+    message: error.message || String(rawError),
+    stack: typeof error.stack === "string" ? error.stack : null,
+    componentStack:
+      extra && typeof extra.componentStack === "string"
+        ? extra.componentStack
+        : null,
+    debugEnabled: DEBUG_ENABLED,
+  };
+  console.error("[preview-runtime]", phase, error, extra || null);
+  cozyRenderRuntimeError(payload);
+  cozyReportToParent(payload);
+}
+
+window.addEventListener("error", function (event) {
+  cozyHandleRuntimeError("window-error", event.error || event.message, null);
+});
+
+window.addEventListener("unhandledrejection", function (event) {
+  cozyHandleRuntimeError("unhandledrejection", event.reason, null);
+});
 
 var Component = cozyResolvePreviewComponent(Mod, PREVIEW_HINTS);
 
@@ -409,13 +517,45 @@ function App() {
   );
 }
 
+class PreviewRuntimeBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error: cozyToErrorLike(error) };
+  }
+
+  componentDidCatch(error, info) {
+    cozyHandleRuntimeError("render", error, {
+      componentStack:
+        info && typeof info.componentStack === "string"
+          ? info.componentStack
+          : null,
+    });
+  }
+
+  render() {
+    if (this.state.error) return null;
+    return this.props.children;
+  }
+}
+
 const container = document.getElementById("root");
 if (!container) {
   throw new Error("Missing #root element for preview runtime");
 }
 
 const root = createRoot(container);
-root.render(<App />);
+root.render(
+  <PreviewRuntimeBoundary>
+    <App />
+  </PreviewRuntimeBoundary>,
+);
 `;
 
     desiredFiles.set("preview-entry.tsx", previewEntryContent);
@@ -470,7 +610,7 @@ root.render(<App />);
       jsx: "automatic",
       outfile: "preview.js",
       target: ["es2018"],
-      sourcemap: false,
+      sourcemap: debugEnabled ? "inline" : false,
       plugins: [cssPlugin, figmaAssetPlugin],
       // React 相关始终由 runtime import map 提供
       external: [

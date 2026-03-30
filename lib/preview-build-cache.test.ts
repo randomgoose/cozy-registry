@@ -53,6 +53,7 @@ describe("preview-build-cache", () => {
       name: "dialog",
       version: "1.2.0",
       mode: "default" as const,
+      debug: false,
       rootFilesHash: "sha256:root",
       previewExport: "Dialog",
       previewPropsHash: "sha256:props-a",
@@ -75,6 +76,7 @@ describe("preview-build-cache", () => {
       name: "dialog",
       version: "1.2.0",
       mode: "default" as const,
+      debug: false,
       rootFilesHash: "sha256:root",
       previewExport: "Dialog",
       runtimeDepsHash: "sha256:deps",
@@ -85,6 +87,28 @@ describe("preview-build-cache", () => {
     const second = buildPreviewWorkspaceKey({ ...base });
 
     expect(first).toBe(second);
+  });
+
+  it("buildPreviewWorkspaceKey changes when debug mode changes", () => {
+    const base = {
+      owner: "alice",
+      name: "dialog",
+      version: "1.2.0",
+      mode: "default" as const,
+      debug: false,
+      rootFilesHash: "sha256:root",
+      previewExport: "Dialog",
+      runtimeDepsHash: "sha256:deps",
+      registryGraphHash: "sha256:graph",
+    };
+
+    const first = buildPreviewWorkspaceKey(base);
+    const second = buildPreviewWorkspaceKey({
+      ...base,
+      debug: true,
+    });
+
+    expect(first).not.toBe(second);
   });
 
   it("keeps most recently used entries", () => {
@@ -98,6 +122,7 @@ describe("preview-build-cache", () => {
         name: `comp-${i}`,
         version: "1.0.0",
         mode: "default" as const,
+        debug: false,
         rootFilesHash: `sha256:root-${i}`,
         previewExport: null,
         previewPropsHash: `sha256:props-${i}`,

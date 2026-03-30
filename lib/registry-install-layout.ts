@@ -5,7 +5,8 @@ import {
   resolveRelativeImport,
 } from "@/lib/validate-tsx";
 
-const DEFAULT_INSTALL_BASE_DIR = "src/components/registry";
+/** Cozy default install root: `{REGISTRY_INSTALL_ROOT}/{owner}/{name}/`. */
+export const REGISTRY_INSTALL_ROOT = "src/components/registry";
 
 export type InstallDependencyTarget = {
   owner: string;
@@ -16,7 +17,7 @@ export type InstallDependencyTarget = {
 
 export function getDefaultInstallDir(params: { owner: string; name: string }): string {
   return normalizePosix(
-    path.posix.join(DEFAULT_INSTALL_BASE_DIR, params.owner, params.name),
+    path.posix.join(REGISTRY_INSTALL_ROOT, params.owner, params.name),
   );
 }
 
@@ -122,17 +123,30 @@ export function materializeInstalledRegistryFilesFromResolvedGraph(
       registryDependencies?: string[] | null;
     };
   }>,
-): { files: Record<string, string>; sources: string[] } {
+): {
+  files: Record<string, string>;
+  sources: string[];
+  rootEntries: Record<string, string>;
+} {
   const out: Record<string, string> = {};
   const sources: string[] = [];
+  const rootEntries: Record<string, string> = {};
   const targetIndex = buildDependencyTargetIndex(ordered);
 
   for (const { ref, item } of ordered) {
     if (item.type === "registry:theme") continue;
     const directTargets = new Map<string, InstallDependencyTarget>();
     for (const raw of item.registryDependencies ?? []) {
-      const target = targetIndex.get(raw.trim());
-      if (target) directTargets.set(raw.trim(), target);
+      const trimmed = raw.trim();
+      const target = targetIndex.get(trimmed);
+      if (!target) continue;
+      directTargets.set(trimmed, target);
+      directTargets.set(`@${target.owner}/${target.name}`, target);
+      if (target.version) {
+        directTargets.set(`@${target.owner}/${target.name}@${target.version}`, target);
+      }
+      const byName = targetIndex.get(target.name);
+      if (byName) directTargets.set(target.name, byName);
     }
 
     const rewrittenFiles = rewriteInstalledRegistryImports({
@@ -155,10 +169,16 @@ export function materializeInstalledRegistryFilesFromResolvedGraph(
       out[projectRelative] = file.content;
     }
 
+    rootEntries[ref.ref] = normalizePosix(
+      path.posix.join(
+        getDefaultInstallDir({ owner: ref.owner, name: ref.name }),
+        pickInstallEntryPath(item.files ?? []).replace(/\.(tsx?|jsx?|css)$/i, ""),
+      ),
+    );
     sources.push(ref.ref);
   }
 
-  return { files: out, sources };
+  return { files: out, sources, rootEntries };
 }
 
 function rewriteSourceImports(

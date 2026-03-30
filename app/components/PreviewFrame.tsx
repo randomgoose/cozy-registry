@@ -8,7 +8,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { PREVIEW_MSG_SET_PROPS } from "@/lib/preview-messages";
+import {
+  PREVIEW_MSG_RUNTIME_ERROR,
+  PREVIEW_MSG_SET_PROPS,
+} from "@/lib/preview-messages";
 
 type Size = { width: number; height: number };
 const DEFAULT_STAGE_SIZE: Size = { width: 1200, height: 900 };
@@ -53,6 +56,14 @@ export type PreviewFrameProps = {
   interactive?: boolean;
 };
 
+type PreviewRuntimeErrorPayload = {
+  phase: "render" | "window-error" | "unhandledrejection";
+  message: string;
+  stack?: string | null;
+  componentStack?: string | null;
+  debugEnabled: boolean;
+};
+
 export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
   function PreviewFrame(props, ref) {
     const {
@@ -73,6 +84,7 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
     const [containerSize, setContainerSize] = useState<Size>({ width: 0, height: 0 });
     const [shouldLoad, setShouldLoad] = useState(false);
     const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+    const [runtimeError, setRuntimeError] = useState<PreviewRuntimeErrorPayload | null>(null);
     const loaded = loadedSrc === src;
 
     useImperativeHandle(
@@ -90,6 +102,24 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
       }),
       [],
     );
+
+    useEffect(() => {
+      function onPreviewMessage(ev: MessageEvent) {
+        const iframeWin = iframeRef.current?.contentWindow;
+        if (!iframeWin || ev.source !== iframeWin) return;
+        const originOk =
+          ev.origin === window.location.origin || ev.origin === "null";
+        if (!originOk) return;
+        const data = ev.data as
+          | { type?: string; payload?: PreviewRuntimeErrorPayload }
+          | null;
+        if (data?.type !== PREVIEW_MSG_RUNTIME_ERROR || !data.payload) return;
+        setRuntimeError(data.payload);
+      }
+
+      window.addEventListener("message", onPreviewMessage);
+      return () => window.removeEventListener("message", onPreviewMessage);
+    }, []);
 
     useEffect(() => {
       const el = containerRef.current;
@@ -183,6 +213,18 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
       stageSize.width,
     ]);
 
+    const debugSrc = useMemo(() => {
+      try {
+        const url = new URL(src, window.location.origin);
+        if (!url.searchParams.has("debug")) {
+          url.searchParams.set("debug", "1");
+        }
+        return `${url.pathname}${url.search}${url.hash}`;
+      } catch {
+        return src.includes("?") ? `${src}&debug=1` : `${src}?debug=1`;
+      }
+    }, [src]);
+
     return (
       <div
         ref={containerRef}
@@ -195,7 +237,10 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
           title={title}
           sandbox="allow-scripts allow-same-origin"
           loading="lazy"
-          onLoad={() => setLoadedSrc(src)}
+          onLoad={() => {
+            setLoadedSrc(src);
+            setRuntimeError(null);
+          }}
           style={{
             width: "100%",
             height: "100%",
@@ -204,6 +249,29 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
             pointerEvents: interactive ? "auto" : "none",
           }}
         />
+        {loaded && runtimeError ? (
+          <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 rounded-2xl border border-red-500/35 bg-red-950/88 p-3 text-left text-white shadow-[0_18px_40px_rgba(0,0,0,0.35)] backdrop-blur">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-red-200">
+              Preview Error
+            </p>
+            <p className="mt-1 line-clamp-2 text-sm font-medium text-white">
+              {runtimeError.message}
+            </p>
+            <p className="mt-1 text-xs text-red-100/80">
+              Phase: {runtimeError.phase}
+            </p>
+            {!runtimeError.debugEnabled ? (
+              <a
+                className="pointer-events-auto mt-2 inline-flex text-xs font-medium text-red-100 underline underline-offset-4"
+                href={debugSrc}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open debug preview
+              </a>
+            ) : null}
+          </div>
+        ) : null}
         {!loaded ? (
           <div
             className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[linear-gradient(180deg,rgba(250,250,249,0.96),rgba(244,244,245,0.98))] dark:bg-[linear-gradient(180deg,rgba(24,24,27,0.96),rgba(9,9,11,0.98))]"
