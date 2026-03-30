@@ -4,9 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 import * as parser from "@babel/parser";
-import * as React from "react";
-import { renderToString } from "react-dom/server";
-import * as JsxRuntime from "react/jsx-runtime";
 import {
   resolveRegistryDependencies,
 } from "@/lib/registry-resolver";
@@ -278,10 +275,11 @@ async function runNodeModule(
     const appRequire = Module.createRequire(
       path.join(process.cwd(), "package.json"),
     );
+    const runtime = loadHostReactRuntime(appRequire);
     const runtimeRequire = ((spec: string) => {
-      if (spec === "react") return React;
-      if (spec === "react/jsx-runtime") return JsxRuntime;
-      if (spec === "react/jsx-dev-runtime") return JsxRuntime;
+      if (spec === "react") return runtime.React;
+      if (spec === "react/jsx-runtime") return runtime.jsxRuntime;
+      if (spec === "react/jsx-dev-runtime") return runtime.jsxRuntime;
       return appRequire(spec);
     }) as NodeJS.Require;
     runtimeRequire.resolve = appRequire.resolve.bind(appRequire);
@@ -322,7 +320,12 @@ async function runNodeModule(
     if (!Component || typeof Component !== "function") {
       throw new Error("No suitable component export found from ./index for preview smoke test");
     }
-    renderToString(React.createElement(Component as React.ComponentType<unknown>, exported.__previewProps ?? {}));
+    runtime.renderToString(
+      runtime.React.createElement(
+        Component as (props: unknown) => unknown,
+        exported.__previewProps ?? {},
+      ),
+    );
     return { ok: true };
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
@@ -332,6 +335,17 @@ async function runNodeModule(
       stack: err.stack,
     };
   }
+}
+
+function loadHostReactRuntime(appRequire: NodeJS.Require) {
+  const React = appRequire("react") as {
+    createElement: (type: unknown, props: unknown) => unknown;
+  };
+  const jsxRuntime = appRequire("react/jsx-runtime") as Record<string, unknown>;
+  const { renderToString } = appRequire("react-dom/server") as {
+    renderToString: (node: unknown) => string;
+  };
+  return { React, jsxRuntime, renderToString };
 }
 
 function safeSerialize(value: unknown) {
