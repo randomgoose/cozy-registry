@@ -1,10 +1,12 @@
-import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import Module from "node:module";
 import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 import * as parser from "@babel/parser";
+import * as React from "react";
+import { renderToString } from "react-dom/server";
+import * as JsxRuntime from "react/jsx-runtime";
 import {
   resolveRegistryDependencies,
 } from "@/lib/registry-resolver";
@@ -151,9 +153,7 @@ export async function runRegistryPreviewSmokeTest(params: {
     });
     const importSpecifiers = collectBareImportSpecifiers(files);
     const entryPath = path.join(tmpDir, "smoke-entry.tsx");
-    const entryContent = `import React from "react";
-import { renderToString } from "react-dom/server";
-import * as Mod from "./index";
+    const entryContent = `import * as Mod from "./index";
 
 const PREVIEW_HINTS = ${previewHints};
 const PREVIEW_PROPS = ${previewPropsJson};
@@ -186,8 +186,8 @@ if (!cozyIsRenderableExport(Component)) {
   throw new Error("No suitable component export found from ./index for preview smoke test");
 }
 
-renderToString(React.createElement(Component, PREVIEW_PROPS));
-export const __smoke = true;
+export default Component;
+export const __previewProps = PREVIEW_PROPS;
 `;
     await fs.writeFile(entryPath, entryContent, "utf8");
 
@@ -214,7 +214,6 @@ export const __smoke = true;
         }));
       },
     };
-    const runtimeAliasPlugin = createRuntimeExternalAliasPlugin();
     const stubbedBareModulePlugin = createBareModuleStubPlugin(importSpecifiers);
 
     const result = await esbuild.build({
@@ -229,9 +228,9 @@ export const __smoke = true;
       plugins: [
         cssPlugin,
         figmaAssetPlugin,
-        runtimeAliasPlugin,
         stubbedBareModulePlugin,
       ],
+      external: ["react", "react/jsx-runtime", "react/jsx-dev-runtime"],
     });
 
     const output = result.outputFiles?.[0]?.text;
@@ -279,6 +278,16 @@ async function runNodeModule(
     const appRequire = Module.createRequire(
       path.join(process.cwd(), "package.json"),
     );
+    const runtimeRequire = ((spec: string) => {
+      if (spec === "react") return React;
+      if (spec === "react/jsx-runtime") return JsxRuntime;
+      if (spec === "react/jsx-dev-runtime") return JsxRuntime;
+      return appRequire(spec);
+    }) as NodeJS.Require;
+    runtimeRequire.resolve = appRequire.resolve.bind(appRequire);
+    runtimeRequire.cache = appRequire.cache;
+    runtimeRequire.extensions = appRequire.extensions;
+    runtimeRequire.main = appRequire.main;
     const exportsObject: Record<string, unknown> = {};
     const moduleObject = {
       exports: exportsObject,
@@ -300,11 +309,20 @@ async function runNodeModule(
     compiled.call(
       moduleObject.exports,
       moduleObject.exports,
-      appRequire,
+      runtimeRequire,
       moduleObject,
       modulePath,
       path.dirname(modulePath),
     );
+    const exported = moduleObject.exports as {
+      default?: unknown;
+      __previewProps?: unknown;
+    };
+    const Component = exported.default;
+    if (!Component || typeof Component !== "function") {
+      throw new Error("No suitable component export found from ./index for preview smoke test");
+    }
+    renderToString(React.createElement(Component as React.ComponentType<unknown>, exported.__previewProps ?? {}));
     return { ok: true };
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
@@ -422,123 +440,4 @@ export const __esModule = true;
       });
     },
   };
-}
-
-function createRuntimeExternalAliasPlugin(): import("esbuild").Plugin {
-  const runtimeModules = new Set([
-    "react",
-    "react-dom/server",
-    "react/jsx-runtime",
-  ]);
-
-  return {
-    name: "smoke-runtime-alias",
-    setup(build: import("esbuild").PluginBuild) {
-      build.onResolve({ filter: /^[^./].*/ }, (args) => {
-        if (!runtimeModules.has(args.path)) return null;
-        return {
-          path: resolveRuntimeModulePath(args.path),
-          external: true,
-        };
-      });
-    },
-  };
-}
-
-function resolveRuntimeModulePath(spec: string): string {
-  const appRequire = Module.createRequire(
-    path.join(process.cwd(), "package.json"),
-  );
-
-  const direct = tryResolveModule(appRequire, spec);
-  if (direct && fsSync.existsSync(direct)) {
-    return direct;
-  }
-
-  if (spec === "react") {
-    return path.join(resolvePackageRoot("react", appRequire), "index.js");
-  }
-
-  if (spec === "react/jsx-runtime") {
-    return resolveFromPackageRoot("react", appRequire, [
-      "jsx-runtime.js",
-      "jsx-runtime",
-    ]);
-  }
-
-  return resolveFromPackageRoot("react-dom", appRequire, [
-    "server.node.js",
-    "server.js",
-    "server.node",
-    "server",
-  ]);
-}
-
-function resolveFromPackageRoot(
-  packageName: string,
-  appRequire: NodeJS.Require,
-  candidates: string[],
-): string {
-  const root = resolvePackageRoot(packageName, appRequire);
-  for (const candidate of candidates) {
-    const resolved = path.join(root, candidate);
-    if (fsSync.existsSync(resolved)) {
-      return resolved;
-    }
-  }
-  throw new Error(
-    `Unable to resolve runtime module from package ${packageName} (tried: ${candidates.join(", ")})`,
-  );
-}
-
-function resolvePackageRoot(
-  packageName: string,
-  appRequire: NodeJS.Require,
-): string {
-  const directPackageJson = tryResolveModule(
-    appRequire,
-    `${packageName}/package.json`,
-  );
-  if (directPackageJson && fsSync.existsSync(directPackageJson)) {
-    return path.dirname(directPackageJson);
-  }
-
-  const rootPackageJson = path.join(
-    process.cwd(),
-    "node_modules",
-    packageName,
-    "package.json",
-  );
-  if (fsSync.existsSync(rootPackageJson)) {
-    return path.dirname(rootPackageJson);
-  }
-
-  const pnpmRoot = path.join(process.cwd(), "node_modules", ".pnpm");
-  if (fsSync.existsSync(pnpmRoot)) {
-    for (const entry of fsSync.readdirSync(pnpmRoot)) {
-      const candidate = path.join(
-        pnpmRoot,
-        entry,
-        "node_modules",
-        packageName,
-        "package.json",
-      );
-      if (fsSync.existsSync(candidate)) {
-        return path.dirname(candidate);
-      }
-    }
-  }
-
-  throw new Error(`Unable to locate package root for ${packageName}`);
-}
-
-function tryResolveModule(
-  appRequire: NodeJS.Require,
-  spec: string,
-): string | null {
-  try {
-    return appRequire.resolve(spec);
-  } catch {
-    return null;
-  }
 }
