@@ -191,7 +191,20 @@ function cozyResolvePreviewComponent(Mod, hints) {
 
 const Component = cozyResolvePreviewComponent(Mod, PREVIEW_HINTS);
 if (!cozyIsRenderableExport(Component)) {
-  throw new Error("No suitable component export found from ./index for preview smoke test");
+  var keys = Object.keys(Mod || {}).filter(function (k) {
+    return k !== "__esModule" && k !== "__previewProps";
+  });
+  var previewExportHint = PREVIEW_HINTS && PREVIEW_HINTS.previewExport ? PREVIEW_HINTS.previewExport : "";
+  var help =
+    "No suitable component export found from ./index for preview smoke test.\\n\\n" +
+    "Detected exports: " + (keys.length ? keys.join(", ") : "(none)") + "\\n\\n" +
+    "How to fix:\\n" +
+    "- Add a default export (export default Component), or\\n" +
+    "- Pass previewExport (e.g. previewExport: \\"MyComponent\\"), or\\n" +
+    "- Export a PreviewComponent for composite/multi-part APIs.\\n\\n" +
+    (previewExportHint ? ("Current previewExport hint: " + previewExportHint + "\\n") : "") +
+    ("Name-based hints tried: PreviewComponent, " + PREVIEW_HINTS.pascal + ", " + PREVIEW_HINTS.camel);
+  throw new Error(help);
 }
 
 export default Component;
