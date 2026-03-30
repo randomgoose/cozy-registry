@@ -346,10 +346,12 @@ async function runNodeModule(
     if (!isRenderablePreviewExport(Component)) {
       throw new Error("No suitable component export found from ./index for preview smoke test");
     }
-    runtime.renderToString(
-      runtime.React.createElement(
-        Component as unknown,
-        exported.__previewProps ?? {},
+    await Promise.resolve(
+      runtime.renderToString(
+        runtime.React.createElement(
+          Component as unknown,
+          exported.__previewProps ?? {},
+        ),
       ),
     );
     return { ok: true };
@@ -374,6 +376,8 @@ async function loadHostReactRuntime(appRequire: NodeJS.Require) {
   return { React, jsxRuntime, renderToString };
 }
 
+type SmokeRenderToString = (node: unknown) => string | Promise<string>;
+
 async function loadHostReactDomServer(appRequire: NodeJS.Require) {
   const importCandidates = [
     "react-dom/server.node",
@@ -388,10 +392,10 @@ async function loadHostReactDomServer(appRequire: NodeJS.Require) {
         renderToStaticMarkup?: (node: unknown) => string;
       };
       if (typeof mod.renderToString === "function") {
-        return { renderToString: mod.renderToString };
+        return { renderToString: mod.renderToString as SmokeRenderToString };
       }
       if (typeof mod.renderToStaticMarkup === "function") {
-        return { renderToString: mod.renderToStaticMarkup };
+        return { renderToString: mod.renderToStaticMarkup as SmokeRenderToString };
       }
     } catch {
       continue;
@@ -411,10 +415,10 @@ async function loadHostReactDomServer(appRequire: NodeJS.Require) {
         renderToStaticMarkup?: (node: unknown) => string;
       };
       if (typeof mod.renderToString === "function") {
-        return { renderToString: mod.renderToString };
+        return { renderToString: mod.renderToString as SmokeRenderToString };
       }
       if (typeof mod.renderToStaticMarkup === "function") {
-        return { renderToString: mod.renderToStaticMarkup };
+        return { renderToString: mod.renderToStaticMarkup as SmokeRenderToString };
       }
     } catch {
       continue;
@@ -441,10 +445,10 @@ async function loadHostReactDomServer(appRequire: NodeJS.Require) {
           renderToStaticMarkup?: (node: unknown) => string;
         };
         if (typeof mod.renderToString === "function") {
-          return { renderToString: mod.renderToString };
+          return { renderToString: mod.renderToString as SmokeRenderToString };
         }
         if (typeof mod.renderToStaticMarkup === "function") {
-          return { renderToString: mod.renderToStaticMarkup };
+          return { renderToString: mod.renderToStaticMarkup as SmokeRenderToString };
         }
       } catch {
         continue;
@@ -460,7 +464,7 @@ async function loadHostReactDomServer(appRequire: NodeJS.Require) {
     };
     if (typeof mod.renderToReadableStream === "function") {
       return {
-        async renderToString(node: unknown) {
+        async renderToString(node: unknown): Promise<string> {
           const stream = await mod.renderToReadableStream?.(node);
           if (!stream) return "";
           if ("allReady" in stream && stream.allReady instanceof Promise) {
