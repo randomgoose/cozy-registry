@@ -275,7 +275,7 @@ async function runNodeModule(
     const appRequire = Module.createRequire(
       path.join(process.cwd(), "package.json"),
     );
-    const runtime = loadHostReactRuntime(appRequire);
+    const runtime = await loadHostReactRuntime(appRequire);
     const runtimeRequire = ((spec: string) => {
       if (
         isRuntimeModuleRequest(spec, [
@@ -353,24 +353,30 @@ async function runNodeModule(
   }
 }
 
-function loadHostReactRuntime(appRequire: NodeJS.Require) {
-  const React = appRequire("react") as {
+async function loadHostReactRuntime(appRequire: NodeJS.Require) {
+  const ReactModule = await import("react");
+  const React = ReactModule as {
     createElement: (type: unknown, props: unknown) => unknown;
     Fragment?: unknown;
   };
-  const { renderToString } = loadHostReactDomServer(appRequire);
+  const { renderToString } = await loadHostReactDomServer(appRequire);
   const jsxRuntime = createJsxRuntimeShim(React);
   return { React, jsxRuntime, renderToString };
 }
 
-function loadHostReactDomServer(appRequire: NodeJS.Require) {
-  const candidates = [
-    "react-dom/server.node",
-    "react-dom/server",
-    "react-dom/server.browser",
-    "react-dom/server.edge",
-  ];
+async function loadHostReactDomServer(appRequire: NodeJS.Require) {
+  try {
+    const mod = (await import("react-dom/server.node")) as {
+      renderToString?: (node: unknown) => string;
+    };
+    if (typeof mod.renderToString === "function") {
+      return { renderToString: mod.renderToString };
+    }
+  } catch {
+    // Fall through to require-based fallbacks below.
+  }
 
+  const candidates = ["react-dom/server.node", "react-dom/server"];
   for (const spec of candidates) {
     try {
       const mod = appRequire(spec) as {
@@ -385,7 +391,7 @@ function loadHostReactDomServer(appRequire: NodeJS.Require) {
   }
 
   throw new Error(
-    `Unable to load a React DOM server renderer from: ${candidates.join(", ")}`,
+    `Unable to load a React DOM server renderer from: react-dom/server.node, react-dom/server`,
   );
 }
 
