@@ -213,6 +213,7 @@ export const __smoke = true;
         }));
       },
     };
+    const runtimeAliasPlugin = createRuntimeExternalAliasPlugin();
     const stubbedBareModulePlugin = createBareModuleStubPlugin(importSpecifiers);
 
     const result = await esbuild.build({
@@ -224,8 +225,12 @@ export const __smoke = true;
       jsx: "automatic",
       write: false,
       logLevel: "silent",
-      plugins: [cssPlugin, figmaAssetPlugin, stubbedBareModulePlugin],
-      external: ["react", "react-dom/server", "react/jsx-runtime"],
+      plugins: [
+        cssPlugin,
+        figmaAssetPlugin,
+        runtimeAliasPlugin,
+        stubbedBareModulePlugin,
+      ],
     });
 
     const output = result.outputFiles?.[0]?.text;
@@ -412,6 +417,30 @@ ${namedExports}
 export const __esModule = true;
 `,
           loader: "js",
+        };
+      });
+    },
+  };
+}
+
+function createRuntimeExternalAliasPlugin(): import("esbuild").Plugin {
+  const appRequire = Module.createRequire(
+    path.join(process.cwd(), "package.json"),
+  );
+  const runtimeModules = new Set([
+    "react",
+    "react-dom/server",
+    "react/jsx-runtime",
+  ]);
+
+  return {
+    name: "smoke-runtime-alias",
+    setup(build: import("esbuild").PluginBuild) {
+      build.onResolve({ filter: /^[^./].*/ }, (args) => {
+        if (!runtimeModules.has(args.path)) return null;
+        return {
+          path: appRequire.resolve(args.path),
+          external: true,
         };
       });
     },
