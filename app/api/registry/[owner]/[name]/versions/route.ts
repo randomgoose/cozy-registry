@@ -15,6 +15,7 @@ import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
 import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
 import { normalizePublishContract } from "@/lib/registry-publish-contract";
 import { getWritableOrganizationTargetForUser } from "@/lib/publish-target";
+import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -238,12 +239,37 @@ export async function POST(request: Request, { params }: Params) {
       files: finalFiles ?? undefined,
       content: finalFiles ? null : finalContent,
     });
+    const nextFiles = contract.value.filesToWrite ?? finalFiles;
+    const nextRegistryDependencies =
+      contract.value.registryDependenciesToWrite ??
+      ((item.registryDependencies ?? []) as string[]);
+    if (!isTheme) {
+      const smoke = await runRegistryPreviewSmokeTest({
+        name,
+        files: nextFiles,
+        content: nextFiles ? null : finalContent,
+        previewProps: contract.value.previewProps,
+        previewExport: contract.value.previewExport,
+        registryDependencies: nextRegistryDependencies,
+        requestUserId: userId,
+      });
+      if (!smoke.ok) {
+        return NextResponse.json(
+          {
+            error: smoke.message,
+            code: smoke.code,
+            stack: smoke.stack,
+          },
+          { status: 422 },
+        );
+      }
+    }
     const result = await createRegistryItemVersion({
       ownerId: item.userId ?? undefined,
       organizationId: item.organizationId ?? undefined,
       name,
       content: finalContent,
-      files: contract.value.filesToWrite ?? finalFiles,
+      files: nextFiles,
       bump: bumpType,
       userId,
       message: typeof message === "string" ? message : undefined,

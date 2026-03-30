@@ -73,6 +73,7 @@ import {
   computeRegistryDependencyHealth,
   formatDependencyHealthForMcp,
 } from "@/lib/registry-dependency-health";
+import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
 
 /** MCP Tool.annotations (hints for clients; not a security boundary). */
 const MCP_ANN = {
@@ -2556,12 +2557,40 @@ ${fileContent}
           };
         }
         const bumpType = bump ?? "patch";
+        const nextFiles = contract.value.filesToWrite ?? (normalizedTheme.files ?? files);
+        const nextRegistryDependencies =
+          contract.value.registryDependenciesToWrite ??
+          ((existing.registryDependencies ?? []) as string[]);
+        if (!isTheme) {
+          const smoke = await runRegistryPreviewSmokeTest({
+            name,
+            files: nextFiles,
+            content: nextFiles ? null : content ?? undefined,
+            previewProps: contract.value.previewProps,
+            previewExport: contract.value.previewExport,
+            registryDependencies: nextRegistryDependencies,
+            requestUserId: userId,
+          });
+          if (!smoke.ok) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text:
+                    `[${smoke.code}] ${smoke.message}` +
+                    (smoke.stack ? `\n\n${smoke.stack}` : ""),
+                },
+              ],
+              isError: true,
+            };
+          }
+        }
         const result = await createRegistryItemVersion({
           ownerId: orgTarget ? undefined : userId,
           organizationId: orgTarget?.id,
           name,
           content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
-          files: contract.value.filesToWrite ?? (normalizedTheme.files ?? files),
+          files: nextFiles,
           bump: bumpType,
           userId,
           message: description || undefined,
@@ -2665,18 +2694,45 @@ ${fileContent}
           isError: true,
         };
       }
+      const nextFiles = contract.value.filesToWrite ?? (normalizedTheme.files ?? files);
+      const nextRegistryDependencies =
+        contract.value.registryDependenciesToWrite ?? [];
+      if (!isTheme) {
+        const smoke = await runRegistryPreviewSmokeTest({
+          name,
+          files: nextFiles,
+          content: nextFiles ? null : normalizedTheme.content ?? content ?? undefined,
+          previewProps: contract.value.previewProps,
+          previewExport: contract.value.previewExport,
+          registryDependencies: nextRegistryDependencies,
+          requestUserId: userId,
+        });
+        if (!smoke.ok) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  `[${smoke.code}] ${smoke.message}` +
+                  (smoke.stack ? `\n\n${smoke.stack}` : ""),
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
       const item = await createRegistryItem({
         name,
         type,
         title,
         description: description || null,
         content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
-        files: contract.value.filesToWrite ?? (normalizedTheme.files ?? files),
+        files: nextFiles,
         userId: orgTarget ? null : userId,
         organizationId: orgTarget?.id ?? null,
         visibility: visibility === "public" ? "public" : "private",
         dependencies,
-        registryDependencies: contract.value.registryDependenciesToWrite ?? [],
+        registryDependencies: nextRegistryDependencies,
         previewProps: contract.value.previewProps,
         previewExport: contract.value.previewExport,
       });

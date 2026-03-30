@@ -20,6 +20,7 @@ import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
 import { normalizePublishContract } from "@/lib/registry-publish-contract";
 import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
 import { resolvePublishTargetForUser } from "@/lib/publish-target";
+import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
 
 export async function POST(request: Request) {
   try {
@@ -268,6 +269,28 @@ export async function POST(request: Request) {
 
     const filesToWrite = contract.value.filesToWrite ?? normalizedFiles;
     const depsToWrite = contract.value.registryDependenciesToWrite ?? [];
+
+    if (!isTheme) {
+      const smoke = await runRegistryPreviewSmokeTest({
+        name,
+        files: filesToWrite,
+        content: filesToWrite ? null : normalizedContent,
+        previewProps: contract.value.previewProps,
+        previewExport: contract.value.previewExport,
+        registryDependencies: depsToWrite,
+        requestUserId: userId,
+      });
+      if (!smoke.ok) {
+        return NextResponse.json(
+          {
+            error: smoke.message,
+            code: smoke.code,
+            stack: smoke.stack,
+          },
+          { status: 422 },
+        );
+      }
+    }
 
     const item = await createRegistryItem({
       name,
