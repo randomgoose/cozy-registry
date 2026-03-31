@@ -96,6 +96,29 @@ export default async function WorkspaceItemsPage({ params }: { params: Promise<{
             <span className="font-medium text-zinc-900 dark:text-zinc-100">{latestItem.title}</span>
           </div>
         ) : null}
+
+        <div className="mt-6 rounded-2xl border border-zinc-200/80 bg-zinc-50/50 px-4 py-4 dark:border-zinc-800 dark:bg-zinc-950/40">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+            Install & upgrades (engineers)
+          </p>
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            After installing a block from this registry into a repo, the project should contain{" "}
+            <code className="rounded bg-zinc-200/80 px-1 py-0.5 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+              cozy-registry.lock.json
+            </code>
+            . Use the Cozy registry MCP in your editor or agent:{" "}
+            <span className="text-zinc-800 dark:text-zinc-200">
+              get_project_registry_status
+            </span>
+            ,{" "}
+            <span className="text-zinc-800 dark:text-zinc-200">analyze_project_registry</span>,{" "}
+            <span className="text-zinc-800 dark:text-zinc-200">plan_component_upgrade</span>,{" "}
+            <span className="text-zinc-800 dark:text-zinc-200">upgrade_component_in_project</span>.
+            Before publishing from tools,{" "}
+            <span className="text-zinc-800 dark:text-zinc-200">diagnose_publish_readiness</span> returns
+            structured validation without writing to the registry.
+          </p>
+        </div>
       </section>
 
       {items.length === 0 ? (
