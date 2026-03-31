@@ -40,7 +40,14 @@ export async function getWorkspaceContextForSession(
 ): Promise<WorkspaceContext> {
   const userId = session?.user?.id ?? null;
   if (!userId) return emptyWorkspaceContext();
+  const activeOrganizationIdFromSession = session?.session?.activeOrganizationId ?? null;
+  return getWorkspaceContextForUser(userId, activeOrganizationIdFromSession);
+}
 
+export async function getWorkspaceContextForUser(
+  userId: string,
+  activeOrganizationId: string | null,
+): Promise<WorkspaceContext> {
   const organizationRows = await db
     .select({
       organizationId: organization.id,
@@ -55,18 +62,15 @@ export async function getWorkspaceContextForSession(
 
   if (organizationRows.length === 0) return emptyWorkspaceContext();
 
-  const activeOrganizationIdFromSession = session?.session?.activeOrganizationId ?? null;
-
   const organizations: WorkspaceOrganization[] = organizationRows.map((row) => ({
     id: row.organizationId,
     name: row.organizationName,
     slug: row.organizationSlug,
     role: row.role,
-    isActive: row.organizationId === activeOrganizationIdFromSession,
+    isActive: row.organizationId === activeOrganizationId,
   }));
 
-  const activeOrganization =
-    organizations.find((item) => item.id === activeOrganizationIdFromSession) ?? null;
+  const activeOrganization = organizations.find((item) => item.id === activeOrganizationId) ?? null;
 
   return {
     organizations,
