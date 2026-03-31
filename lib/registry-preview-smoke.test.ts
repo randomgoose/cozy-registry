@@ -41,7 +41,7 @@ describe("registry-preview-smoke", () => {
     expect(result.message).toContain("Element type is invalid");
   });
 
-  it("fails when importing unsupported bare modules", async () => {
+  it("allows third-party bare modules via smoke stubs", async () => {
     const result = await runRegistryPreviewSmokeTest({
       name: "unknown-dep-card",
       files: {
@@ -55,11 +55,7 @@ describe("registry-preview-smoke", () => {
       },
     });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.code).toBe("PREVIEW_BUILD_FAILED");
-    expect(result.message).toContain("Unsupported bare module imports");
-    expect(result.message).toContain("totally-unknown-package");
+    expect(result.ok).toBe(true);
   });
 
   it("fails when importing Node built-in modules", async () => {

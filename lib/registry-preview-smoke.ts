@@ -724,44 +724,36 @@ export const __esModule = true;
 }
 
 function findUnsupportedBareImports(specifiers: Map<string, BareImportSpecifiers>) {
-  const supportedRoots = getSupportedBareImportRoots();
+  const builtinModules = getBuiltinModuleNames();
   const unsupported: string[] = [];
   for (const spec of specifiers.keys()) {
     if (spec.startsWith("figma:asset/")) continue;
-    const root = getBareImportRoot(spec);
-    if (!root || supportedRoots.has(root)) continue;
-    unsupported.push(spec);
+    if (isNodeBuiltinImport(spec, builtinModules)) {
+      unsupported.push(spec);
+    }
   }
   return unsupported.sort();
 }
 
-function getSupportedBareImportRoots() {
+function getBuiltinModuleNames() {
   const out = new Set<string>();
-  try {
-    const appRequire = Module.createRequire(path.join(process.cwd(), "package.json"));
-    const pkg = appRequire("./package.json") as {
-      dependencies?: Record<string, string>;
-      devDependencies?: Record<string, string>;
-      peerDependencies?: Record<string, string>;
-    };
-    for (const name of Object.keys(pkg.dependencies ?? {})) out.add(name);
-    for (const name of Object.keys(pkg.devDependencies ?? {})) out.add(name);
-    for (const name of Object.keys(pkg.peerDependencies ?? {})) out.add(name);
-  } catch {
-    // Best effort only.
+  for (const mod of Module.builtinModules) {
+    out.add(mod);
+    if (!mod.startsWith("node:")) out.add(`node:${mod}`);
   }
-  out.add("react");
-  out.add("react-dom");
   return out;
 }
 
-function getBareImportRoot(spec: string): string {
-  if (!spec || spec.startsWith(".") || spec.startsWith("/")) return "";
+function isNodeBuiltinImport(spec: string, builtinModules: Set<string>) {
+  if (!spec || spec.startsWith(".") || spec.startsWith("/")) return false;
+  if (builtinModules.has(spec)) return true;
+  if (spec.startsWith("node:")) return true;
   if (spec.startsWith("@")) {
     const parts = spec.split("/");
-    if (parts.length < 2) return spec;
-    return `${parts[0]}/${parts[1]}`;
+    if (parts.length < 2) return false;
+    return builtinModules.has(`${parts[0]}/${parts[1]}`);
   }
   const idx = spec.indexOf("/");
-  return idx === -1 ? spec : spec.slice(0, idx);
+  const root = idx === -1 ? spec : spec.slice(0, idx);
+  return builtinModules.has(root);
 }
