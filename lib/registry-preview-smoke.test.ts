@@ -76,6 +76,23 @@ describe("registry-preview-smoke", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("supports namespace imports from third-party stubs", async () => {
+    const result = await runRegistryPreviewSmokeTest({
+      name: "namespace-dep-card",
+      files: {
+        "index.tsx": `
+          import React from "react";
+          import * as Fancy from "totally-unknown-package";
+          export default function NamespaceDepCard() {
+            return <Fancy.Root><Fancy.Item /></Fancy.Root>;
+          }
+        `,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("fails when importing Node built-in modules", async () => {
     const result = await runRegistryPreviewSmokeTest({
       name: "builtin-module-card",

@@ -687,6 +687,7 @@ function collectBareImportSpecifiers(
     if (!/\.(tsx?|jsx?)$/i.test(filePath)) continue;
     try {
       const ast = parser.parse(source, PARSE_OPTIONS);
+      const namespaceImportLocals = new Map<string, string>();
       for (const node of ast.program.body) {
         if (node.type !== "ImportDeclaration") continue;
         const spec = node.source.value;
@@ -702,9 +703,46 @@ function collectBareImportSpecifiers(
             if (imported.type === "Identifier") {
               entry.namedImports.add(imported.name);
             }
+          } else if (importer.type === "ImportNamespaceSpecifier") {
+            namespaceImportLocals.set(importer.local.name, spec);
           }
         }
         out.set(spec, entry);
+      }
+
+      // For namespace imports (import * as Foo from "pkg"), capture used members
+      // (e.g. Foo.Root) so stub modules can expose corresponding named exports.
+      if (namespaceImportLocals.size > 0) {
+        walkAst(ast.program, (node) => {
+          if (node.type === "MemberExpression") {
+            const object = node.object as { type?: string; name?: string };
+            const property = node.property as { type?: string; name?: string };
+            if (node.computed) return;
+            if (object.type !== "Identifier" || !object.name) return;
+            if (property.type !== "Identifier" || !property.name) return;
+            const spec = namespaceImportLocals.get(object.name);
+            if (!spec) return;
+            const entry =
+              out.get(spec) ??
+              { defaultImport: false, namedImports: new Set<string>() };
+            entry.namedImports.add(property.name);
+            out.set(spec, entry);
+            return;
+          }
+          if (node.type === "JSXMemberExpression") {
+            const object = node.object as { type?: string; name?: string };
+            const property = node.property as { type?: string; name?: string };
+            if (object.type !== "JSXIdentifier" || !object.name) return;
+            if (property.type !== "JSXIdentifier" || !property.name) return;
+            const spec = namespaceImportLocals.get(object.name);
+            if (!spec) return;
+            const entry =
+              out.get(spec) ??
+              { defaultImport: false, namedImports: new Set<string>() };
+            entry.namedImports.add(property.name);
+            out.set(spec, entry);
+          }
+        });
       }
     } catch {
       continue;
@@ -712,6 +750,26 @@ function collectBareImportSpecifiers(
   }
 
   return out;
+}
+
+function walkAst(
+  node: unknown,
+  visit: (node: { type?: string; [k: string]: unknown }) => void,
+) {
+  if (!node || typeof node !== "object") return;
+  const current = node as { type?: string; [k: string]: unknown };
+  if (typeof current.type === "string") {
+    visit(current);
+  }
+  for (const value of Object.values(current)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        walkAst(item, visit);
+      }
+    } else if (value && typeof value === "object") {
+      walkAst(value, visit);
+    }
+  }
 }
 
 function createBareModuleStubPlugin(
