@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getRegistryItems } from "@/lib/registry";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
 import { getThumbnailFromMeta } from "@/lib/thumbnail";
+import { getWorkspaceContextForSession } from "@/lib/workspace-context";
 import { ConnectToolsDialog } from "./components/ConnectToolsDialog";
 import { HomeUserMenu } from "./components/HomeUserMenu";
 import { RegistryBrowser } from "./components/RegistryBrowser";
@@ -17,13 +19,27 @@ function normalizeVisibility(value: string): "public" | "private" {
   return value === "private" ? "private" : "public";
 }
 
-export default async function Home() {
+type HomePageProps = {
+  searchParams?: Promise<{ home?: string }> | { home?: string };
+};
+
+export default async function Home({ searchParams }: HomePageProps) {
+  const resolvedSearchParams = await Promise.resolve(searchParams ?? {});
+  const forceHomepage = resolvedSearchParams.home === "1";
   let session: Awaited<ReturnType<typeof auth.api.getSession>> | null = null;
   let userHandle: string | null = null;
   try {
     session = await auth.api.getSession({ headers: await headers() });
   } catch (err) {
     console.error("Failed to get session:", err);
+  }
+  if (session?.user?.id && !forceHomepage) {
+    const workspace = await getWorkspaceContextForSession(session);
+    const activeWorkspaceSlug = workspace.activeOrganization?.slug ?? null;
+    if (activeWorkspaceSlug) {
+      redirect(`/workspace/${encodeURIComponent(activeWorkspaceSlug)}`);
+    }
+    redirect("/me");
   }
   if (session?.user?.id) {
     try {

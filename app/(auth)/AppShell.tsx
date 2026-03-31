@@ -84,7 +84,7 @@ export function AppShell(props: {
       <header>
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <Link
-            href="/"
+            href="/?home=1"
             className="inline-flex items-center text-zinc-950 transition-colors hover:text-zinc-700 dark:text-zinc-50 dark:hover:text-zinc-200"
             aria-label="Cozy Registry"
           >
