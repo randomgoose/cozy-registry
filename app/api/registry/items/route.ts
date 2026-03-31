@@ -21,6 +21,7 @@ import { normalizePublishContract } from "@/lib/registry-publish-contract";
 import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
 import { resolvePublishTargetForUser } from "@/lib/publish-target";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
+import { publishFailureCategoryForCode } from "@/lib/registry-publish-failure";
 
 export async function POST(request: Request) {
   try {
@@ -61,7 +62,11 @@ export async function POST(request: Request) {
       const nd = normalizeRegistryDependenciesInput(body.registryDependencies);
       if (nd.error) {
         return NextResponse.json(
-          { error: nd.error, code: "REGDEP_INVALID_FORMAT" },
+          {
+            error: nd.error,
+            code: "REGDEP_INVALID_FORMAT",
+            failureCategory: publishFailureCategoryForCode("REGDEP_INVALID_FORMAT"),
+          },
           { status: 400 },
         );
       }
@@ -99,6 +104,7 @@ export async function POST(request: Request) {
         {
           error: resolvedPublishTarget.message,
           code: resolvedPublishTarget.code,
+          failureCategory: publishFailureCategoryForCode(resolvedPublishTarget.code),
           candidates: resolvedPublishTarget.candidates?.map((candidate) => ({
             organizationId: candidate.id,
             organizationName: candidate.name,
@@ -121,14 +127,22 @@ export async function POST(request: Request) {
         const validation = validateTsx(content as string);
         if (!validation.valid) {
           return NextResponse.json(
-            { error: `Invalid TSX: ${validation.error}` },
-            { status: 400 }
+            {
+              error: `Invalid TSX: ${validation.error}`,
+              code: "TSX_INVALID",
+              failureCategory: publishFailureCategoryForCode("TSX_INVALID"),
+            },
+            { status: 400 },
           );
         }
       } else if (typeof content !== "string" || content.trim().length === 0) {
         return NextResponse.json(
-          { error: "Theme content is required (either CSS or tokens JSON)" },
-          { status: 400 }
+          {
+            error: "Theme content is required (either CSS or tokens JSON)",
+            code: "THEME_EMPTY",
+            failureCategory: publishFailureCategoryForCode("THEME_EMPTY"),
+          },
+          { status: 400 },
         );
       }
     }
@@ -136,8 +150,12 @@ export async function POST(request: Request) {
     const nameRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
     if (!nameRegex.test(name)) {
       return NextResponse.json(
-        { error: "Name must be kebab-case (e.g. my-component)" },
-        { status: 400 }
+        {
+          error: "Name must be kebab-case (e.g. my-component)",
+          code: "INVALID_NAME",
+          failureCategory: publishFailureCategoryForCode("INVALID_NAME"),
+        },
+        { status: 400 },
       );
     }
 
@@ -148,8 +166,10 @@ export async function POST(request: Request) {
           error:
             `Type must be ${REGISTRY_BLOCK_TYPE}, ${REGISTRY_UI_TYPE}, or ${REGISTRY_THEME_TYPE}. ` +
             `${LEGACY_REGISTRY_COMPONENT_TYPE} is accepted as a legacy alias.`,
+          code: "INVALID_TYPE",
+          failureCategory: publishFailureCategoryForCode("INVALID_TYPE"),
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -176,8 +196,12 @@ export async function POST(request: Request) {
         const css = tokensToRootCss(tokens);
         if (!css) {
           return NextResponse.json(
-            { error: "Failed to derive CSS from tokens.json (no tokens found)" },
-            { status: 400 }
+            {
+              error: "Failed to derive CSS from tokens.json (no tokens found)",
+              code: "THEME_TOKENS_INVALID",
+              failureCategory: publishFailureCategoryForCode("THEME_TOKENS_INVALID"),
+            },
+            { status: 400 },
           );
         }
         normalizedFiles = {
@@ -242,7 +266,11 @@ export async function POST(request: Request) {
     });
     if (!contract.ok) {
       return NextResponse.json(
-        { error: contract.error, code: contract.code },
+        {
+          error: contract.error,
+          code: contract.code,
+          failureCategory: publishFailureCategoryForCode(contract.code),
+        },
         { status: 400 },
       );
     }
@@ -261,6 +289,8 @@ export async function POST(request: Request) {
             error: details
               ? `${validation.error}:\n${details}`
               : validation.error ?? "Invalid component bundle",
+            code: "BUNDLE_INVALID",
+            failureCategory: publishFailureCategoryForCode("BUNDLE_INVALID"),
           },
           { status: 400 },
         );
@@ -285,6 +315,7 @@ export async function POST(request: Request) {
           {
             error: smoke.message,
             code: smoke.code,
+            failureCategory: publishFailureCategoryForCode(smoke.code),
             stack: smoke.stack,
           },
           { status: 422 },

@@ -16,6 +16,7 @@ import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
 import { normalizePublishContract } from "@/lib/registry-publish-contract";
 import { getWritableOrganizationTargetForUser } from "@/lib/publish-target";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
+import { publishFailureCategoryForCode } from "@/lib/registry-publish-failure";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -121,8 +122,12 @@ export async function POST(request: Request, { params }: Params) {
 
   if (!hasFiles && !normalizedContent) {
     return NextResponse.json(
-      { error: "content or files is required" },
-      { status: 400 }
+      {
+        error: "content or files is required",
+        code: "MISSING_SOURCE",
+        failureCategory: publishFailureCategoryForCode("MISSING_SOURCE"),
+      },
+      { status: 400 },
     );
   }
 
@@ -143,7 +148,11 @@ export async function POST(request: Request, { params }: Params) {
       const css = tokensToRootCss(tokens);
       if (!css) {
         return NextResponse.json(
-          { error: "Failed to derive CSS from tokens.json (no tokens found)" },
+          {
+            error: "Failed to derive CSS from tokens.json (no tokens found)",
+            code: "THEME_TOKENS_INVALID",
+            failureCategory: publishFailureCategoryForCode("THEME_TOKENS_INVALID"),
+          },
           { status: 400 },
         );
       }
@@ -170,7 +179,11 @@ export async function POST(request: Request, { params }: Params) {
   });
   if (!contract.ok) {
     return NextResponse.json(
-      { error: contract.error, code: contract.code },
+      {
+        error: contract.error,
+        code: contract.code,
+        failureCategory: publishFailureCategoryForCode(contract.code),
+      },
       { status: 400 },
     );
   }
@@ -184,7 +197,11 @@ export async function POST(request: Request, { params }: Params) {
         );
       if (!hasThemePayload) {
         return NextResponse.json(
-          { error: "Theme files must include CSS or tokens content" },
+          {
+            error: "Theme files must include CSS or tokens content",
+            code: "THEME_EMPTY",
+            failureCategory: publishFailureCategoryForCode("THEME_EMPTY"),
+          },
           { status: 400 },
         );
       }
@@ -202,8 +219,10 @@ export async function POST(request: Request, { params }: Params) {
           error: details
             ? `${validation.error}:\n${details}`
             : validation.error ?? "Invalid component bundle",
+          code: "BUNDLE_INVALID",
+          failureCategory: publishFailureCategoryForCode("BUNDLE_INVALID"),
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
     }
@@ -211,7 +230,11 @@ export async function POST(request: Request, { params }: Params) {
     if (isTheme) {
       if (finalContent.trim().length === 0) {
         return NextResponse.json(
-          { error: "Theme content is required" },
+          {
+            error: "Theme content is required",
+            code: "THEME_EMPTY",
+            failureCategory: publishFailureCategoryForCode("THEME_EMPTY"),
+          },
           { status: 400 },
         );
       }
@@ -219,8 +242,12 @@ export async function POST(request: Request, { params }: Params) {
       const validation = validateTsx(finalContent);
       if (!validation.valid) {
       return NextResponse.json(
-        { error: `Invalid TSX: ${validation.error}` },
-        { status: 400 }
+        {
+          error: `Invalid TSX: ${validation.error}`,
+          code: "TSX_INVALID",
+          failureCategory: publishFailureCategoryForCode("TSX_INVALID"),
+        },
+        { status: 400 },
       );
     }
     }
@@ -258,6 +285,7 @@ export async function POST(request: Request, { params }: Params) {
           {
             error: smoke.message,
             code: smoke.code,
+            failureCategory: publishFailureCategoryForCode(smoke.code),
             stack: smoke.stack,
           },
           { status: 422 },

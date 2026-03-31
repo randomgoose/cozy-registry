@@ -24,6 +24,9 @@ import {
   isRelativeImport,
   validateComponentBundle,
 } from "./validate-tsx";
+import { findAppSpecificUsage } from "@/lib/registry-app-usage-scan";
+import { normalizePublishThemeArgs } from "@/lib/theme-publish-args";
+import { diagnosePublishReadiness } from "@/lib/diagnose-publish-readiness";
 import { getAuthContextFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
 import {
@@ -39,7 +42,6 @@ import { createRegistryProject } from "@/lib/registry-project-create";
 import { linkRegistryItemToProject } from "@/lib/registry-project-link-item";
 import { db } from "@/lib/db";
 import { registryProjectMembers, registryProjects } from "@/lib/db/schema";
-import { parseTokensFromJson, tokensToRootCss } from "./theme-tokens";
 import {
   checkInstalledItemUpdate,
   checkRegistryStatusItemUpdate,
@@ -1924,53 +1926,6 @@ ${fileContent}
     },
   );
 
-  function normalizeThemeArgs(args: {
-    type: string;
-    files?: Record<string, string> | null;
-    content?: string;
-    code?: string;
-  }): { files?: Record<string, string>; content?: string | undefined } {
-    if (normalizeRegistryItemType(args.type) !== REGISTRY_THEME_TYPE) {
-      return { files: args.files as Record<string, string> | undefined, content: args.content ?? args.code };
-    }
-
-    const rawFiles = (args.files || {}) as Record<string, unknown>;
-    const hasFiles = rawFiles && Object.keys(rawFiles).length > 0;
-    let tokensJson = "";
-
-    if (hasFiles && typeof rawFiles["tokens.json"] === "string") {
-      tokensJson = rawFiles["tokens.json"] as string;
-    } else if (typeof args.content === "string" && args.content.trim().startsWith("{")) {
-      tokensJson = args.content;
-    } else if (typeof args.code === "string" && args.code.trim().startsWith("{")) {
-      tokensJson = args.code;
-    }
-
-    if (!tokensJson) {
-      // Fallback: treat content/code as CSS as before
-      return {
-        files: hasFiles
-          ? (Object.fromEntries(
-              Object.entries(rawFiles).filter(([, v]) => typeof v === "string"),
-            ) as Record<string, string>)
-          : undefined,
-        content: args.content ?? args.code,
-      };
-    }
-
-    const tokens = parseTokensFromJson(tokensJson);
-    const css = tokensToRootCss(tokens);
-    if (!css) {
-      throw new Error("Failed to derive CSS from tokens.json (no tokens found)");
-    }
-
-    const files: Record<string, string> = {
-      "theme.css": css,
-      "tokens.json": tokensJson,
-    };
-    return { files, content: undefined };
-  }
-
   server.registerTool("delete_component", {
     title: "Delete component",
     description: "Delete a component you own from the registry, including all its versions. Use this when the user explicitly asks to remove a component. Requires Bearer token.",
@@ -2103,10 +2058,88 @@ ${fileContent}
     }
   });
 
+  server.registerTool(
+    "diagnose_publish_readiness",
+    {
+      title: "Diagnose publish readiness",
+      description:
+        "Read-only: runs the same validation and optional preview smoke test as `publish_component` without writing to the registry. On failure returns structured JSON with `failureCategory` (VALIDATION_FAILED | PREVIEW_BUILD_FAILED | PREVIEW_RENDER_FAILED), `code`, `step`, and `message` so agents can fix issues without parsing long errors. Recommended flow: call this first with `runPreviewSmoke: true`, then call `publish_component` only when `ok: true`. Default `runPreviewSmoke` is false (fast); set true to match the full publish preview gate. Requires Bearer token.",
+      inputSchema: z.object({
+        name: z.string().describe("Kebab-case name (used for preview smoke paths)."),
+        type: z
+          .enum([
+            REGISTRY_BLOCK_TYPE,
+            REGISTRY_UI_TYPE,
+            REGISTRY_THEME_TYPE,
+            LEGACY_REGISTRY_COMPONENT_TYPE,
+          ])
+          .describe("Same as publish_component."),
+        content: z.string().optional().describe("Single-file TSX/CSS or theme source."),
+        code: z.string().optional().describe("Alias for content."),
+        files: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe("Multi-file bundle; same as publish_component."),
+        registryDependencies: z.unknown().optional(),
+        previewProps: z.unknown().optional(),
+        previewExport: z.string().optional(),
+        provenance: z.unknown().optional(),
+        provenancePolicy: z.enum(["strict", "split", "inlineVendor"]).optional(),
+        applyStubInference: z.boolean().optional(),
+        runPreviewSmoke: z
+          .boolean()
+          .optional()
+          .describe(
+            "When true, runs preview build/render smoke (slower; matches publish). Default false.",
+          ),
+      }),
+      annotations: MCP_ANN.readClosed,
+    },
+    async (args) => {
+      const ctx = request ? await getAuthContextFromToken(request) : null;
+      const userId = ctx?.userId ?? null;
+      if (!userId) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Authentication required. Add Authorization: Bearer <token>.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const type = normalizeRegistryItemType(args.type);
+      const result = await diagnosePublishReadiness({
+        name: args.name,
+        type,
+        content: args.content,
+        code: args.code,
+        files: args.files,
+        input: {
+          registryDependencies: args.registryDependencies,
+          previewProps: args.previewProps,
+          previewExport: args.previewExport,
+          provenance: args.provenance,
+          provenancePolicy: args.provenancePolicy,
+          applyStubInference: args.applyStubInference,
+        },
+        requestUserId: userId,
+        runPreviewSmoke: args.runPreviewSmoke,
+      });
+
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        isError: !result.ok,
+      };
+    },
+  );
+
   server.registerTool("publish_component", {
     title: "Publish or update component",
     description:
-      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token. New components default to private visibility unless `visibility` is explicitly set to public.\n\nRegistry project: Optional `project` (registry project slug from `list_projects` or `create_project`). When set, after a successful publish or version bump the component is linked to that project if you have edit access and the item owner matches the project scope (personal item → personal project; org item → org project in the same organization). Omit if you only need to publish without linking.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.\n\nRegistry dependencies (`registryDependencies`): Optional refs `@owner/name` or `@owner/name@version`. MUST be explicit—the system does not auto-link to other registry items (registry-dependency-management-spec §1.1). Use `list_components` and read-only `suggest_registry_dependencies` to discover candidates, then set refs in this payload. Successful responses may append informational dependency health (e.g. outdated vs latest); it does not block publish (§3.7).\n\nPreview props (`previewProps`): Optional. The registry preview still works without it (sensible defaults). Provide `previewProps` when you want designers and reviewers to see representative component states in the browser—variants, labels, disabled/open, sample content—without reading source. Stored in meta.previewProps for the /preview page.",
+      "Publish or update a design-layer UI component or theme in the registry. Components are distributed as shadcn-style source (not npm packages) and must not depend on app-specific logic (no '@/lib/*', '@/hooks/*', API calls, auth, wallets, etc.). Use type registry:theme to publish a CSS theme (design tokens); content must be CSS (e.g. :root { --color-primary: ... }). If the current user already owns an item with the same name, this creates a NEW VERSION. Requires: name (kebab-case), type (registry:block, registry:ui, or registry:theme), title, and content (TSX for block/UI, CSS for theme). registry:component is accepted as a legacy alias. Requires Bearer token. New components default to private visibility unless `visibility` is explicitly set to public.\n\nRecommended before publish: call `diagnose_publish_readiness` with `runPreviewSmoke: true` and only proceed when it returns `ok: true`. `publish_component` runs the same smoke gate for non-theme items and blocks on PREVIEW_BUILD_FAILED / PREVIEW_RENDER_FAILED.\n\nRegistry project: Optional `project` (registry project slug from `list_projects` or `create_project`). When set, after a successful publish or version bump the component is linked to that project if you have edit access and the item owner matches the project scope (personal item → personal project; org item → org project in the same organization). Omit if you only need to publish without linking.\n\nMulti-file bundles: If your entry file imports local files (e.g. import \"./button\" or \"../utils\"), you MUST submit a multi-file bundle via the `files` field. Provide `files` as a map of {\"index.tsx\": \"...\", \"button.tsx\": \"...\", ...}. All relative imports must be included in `files`, otherwise publish will fail.\n\nRegistry dependencies (`registryDependencies`): Optional refs `@owner/name` or `@owner/name@version`. MUST be explicit—the system does not auto-link to other registry items (registry-dependency-management-spec §1.1). Use `list_components` and read-only `suggest_registry_dependencies` to discover candidates, then set refs in this payload. Successful responses may append informational dependency health (e.g. outdated vs latest); it does not block publish (§3.7).\n\nPreview props (`previewProps`): Optional. The registry preview still works without it (sensible defaults). Provide `previewProps` when you want designers and reviewers to see representative component states in the browser—variants, labels, disabled/open, sample content—without reading source. Stored in meta.previewProps for the /preview page.",
     annotations: MCP_ANN.writeRegistry,
     inputSchema: z.object({
       name: z
@@ -2296,6 +2329,17 @@ ${fileContent}
               isError: true,
             };
           }
+        } else if (looksLikeComponentSource(content)) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  "Type/content mismatch: received component-like source while type is registry:theme. Use type registry:ui or registry:block for TSX/JSX components, or provide CSS / tokens JSON for registry:theme.",
+              },
+            ],
+            isError: true,
+          };
         } else if (content.trim().length === 0) {
           return {
             content: [
@@ -2434,6 +2478,29 @@ ${fileContent}
               isError: true,
             };
           }
+          const componentLikeThemeFiles = Object.entries(files)
+            .filter(([filePath, value]) => {
+              if (typeof value !== "string") return false;
+              if (/\.(tsx?|jsx?)$/i.test(filePath)) return true;
+              return looksLikeComponentSource(value);
+            })
+            .map(([filePath]) => filePath)
+            .slice(0, 10);
+          if (componentLikeThemeFiles.length > 0) {
+            const list = componentLikeThemeFiles.map((x) => `- ${x}`).join("\n");
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text:
+                    "Type/files mismatch: registry:theme payload contains component-like code files.\n\nDetected files:\n" +
+                    list +
+                    "\n\nUse type registry:ui or registry:block for component bundles, or submit only CSS/tokens JSON for registry:theme.",
+                },
+              ],
+              isError: true,
+            };
+          }
         }
 
         const appUsages = findAppSpecificUsage(
@@ -2517,7 +2584,7 @@ ${fileContent}
 
       // 归一化 theme：若 type === registry:theme，优先将 content / files 中的 JSON 视为 tokens.json，
       // 并从中派生 theme.css。
-      const normalizedTheme = normalizeThemeArgs(args);
+      const normalizedTheme = normalizePublishThemeArgs(args);
 
       // 如果当前用户已经有同名组件，则视为「发布新版本」，而不是创建新组件。
       const existing = orgTarget
@@ -2791,40 +2858,16 @@ ${fileContent}
   return server;
 }
 
-const APP_HOOK_PATTERNS = [
-  "useLanguage(",
-  "useI18n(",
-  "useTranslations(",
-  "useAuth(",
-  "useSession(",
-  "useWallet(",
-  "useRouter(",
-  "useSearchParams(",
-  "useQueryClient(",
-  "useQuery(",
-  "useMutation(",
-];
-
-const APP_PROVIDER_PATTERNS = [
-  "LanguageProvider",
-  "I18nProvider",
-  "AuthProvider",
-  "SessionProvider",
-  "WalletProvider",
-  "QueryClientProvider",
-  "RouterProvider",
-];
-
-function findAppSpecificUsage(sources: string[]): string[] {
-  const hits = new Set<string>();
-  for (const src of sources) {
-    if (typeof src !== "string") continue;
-    for (const p of APP_HOOK_PATTERNS) {
-      if (src.includes(p)) hits.add(p.replace("(", ""));
-    }
-    for (const p of APP_PROVIDER_PATTERNS) {
-      if (src.includes(`<${p}`) || src.includes(p + " ")) hits.add(p);
-    }
-  }
-  return Array.from(hits).sort();
+function looksLikeComponentSource(source: string): boolean {
+  const text = source.trim();
+  if (!text) return false;
+  if (text.startsWith("{")) return false; // Likely tokens JSON
+  const patterns = [
+    /\bimport\s+.+\s+from\s+["'][^"']+["']/,
+    /\bexport\s+default\s+function\b/,
+    /\bexport\s+function\b/,
+    /\bconst\s+[A-Z][A-Za-z0-9_]*\s*=\s*\(/,
+    /<[A-Za-z][\w:-]*(\s|>)/,
+  ];
+  return patterns.some((p) => p.test(text));
 }
