@@ -305,7 +305,7 @@ async function runNodeModule(
     const runtime = await loadHostReactRuntime(appRequire);
     const runtimeRequire = ((spec: string) => {
       if (isRuntimeReactRequest(spec)) {
-        return runtime.React;
+        return runtime.ReactRequire;
       }
       if (isRuntimeJsxRequest(spec)) {
         return runtime.jsxRuntime;
@@ -404,16 +404,48 @@ function createSmokeVmContext(modulePath: string) {
 
 async function loadHostReactRuntime(appRequire: NodeJS.Require) {
   const ReactModule = await import("react");
-  const React = ReactModule as {
+  const React = pickReactObject(ReactModule) as {
     createElement: (type: unknown, props: unknown) => unknown;
     Fragment?: unknown;
   };
+  const ReactRequire = toRequireCompatibleReact(ReactModule, React);
   const { renderToString } = await loadHostReactDomServer(appRequire);
   const jsxRuntime = createJsxRuntimeShim(React);
-  return { React, jsxRuntime, renderToString };
+  return { React, ReactRequire, jsxRuntime, renderToString };
 }
 
 type SmokeRenderToString = (node: unknown) => string | Promise<string>;
+
+function pickReactObject(mod: unknown) {
+  if (mod && typeof mod === "object" && "createElement" in (mod as Record<string, unknown>)) {
+    return mod;
+  }
+  const d = (mod as { default?: unknown } | null | undefined)?.default;
+  if (d && typeof d === "object" && "createElement" in (d as Record<string, unknown>)) {
+    return d;
+  }
+  throw new Error("Unable to load React runtime object for preview smoke test");
+}
+
+function toRequireCompatibleReact(mod: unknown, fallbackReact: unknown) {
+  const m = mod as { default?: unknown } | null | undefined;
+  const d = m?.default;
+  const candidate =
+    d && typeof d === "object" && "useState" in (d as Record<string, unknown>)
+      ? (d as Record<string, unknown>)
+      : mod && typeof mod === "object" && "useState" in (mod as Record<string, unknown>)
+        ? (mod as Record<string, unknown>)
+        : (fallbackReact as Record<string, unknown>);
+
+  if (!("default" in candidate)) {
+    Object.defineProperty(candidate, "default", {
+      value: candidate,
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  return candidate;
+}
 
 async function loadHostReactDomServer(appRequire: NodeJS.Require) {
   const importCandidates = [

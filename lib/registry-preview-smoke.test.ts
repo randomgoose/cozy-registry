@@ -21,6 +21,24 @@ describe("registry-preview-smoke", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("passes a client component using React.useState", async () => {
+    const result = await runRegistryPreviewSmokeTest({
+      name: "stateful-card",
+      files: {
+        "index.tsx": `
+          "use client";
+          import * as React from "react";
+          export default function StatefulCard() {
+            const [count] = React.useState(1);
+            return <div>{count}</div>;
+          }
+        `,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("fails when the component renders an undefined child", async () => {
     const result = await runRegistryPreviewSmokeTest({
       name: "kpi-card",
