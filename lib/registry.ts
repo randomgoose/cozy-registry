@@ -744,6 +744,10 @@ export async function createRegistryItemVersion(params: {
   previewProps?: unknown;
   /** 可选：强制预览使用的命名导出（将写回 meta.previewExport） */
   previewExport?: string | null;
+  /** 可选：storybook-like previews stored in meta.previewStories */
+  previewStories?: unknown;
+  /** 可选：default story id in meta.previewDefaultStoryId */
+  previewDefaultStoryId?: string | null;
 }) {
   const item = params.organizationId
     ? await getRegistryItemByOrganizationAndName(params.organizationId, params.name)
@@ -852,6 +856,12 @@ export async function createRegistryItemVersion(params: {
         if (params.previewExport !== undefined) {
           next.previewExport = params.previewExport;
         }
+        if (params.previewStories !== undefined) {
+          next.previewStories = params.previewStories;
+        }
+        if (params.previewDefaultStoryId !== undefined) {
+          next.previewDefaultStoryId = params.previewDefaultStoryId;
+        }
         if (thumbnail) {
           next.thumbnail = thumbnail;
         }
@@ -894,6 +904,8 @@ export async function createRegistryItemVersion(params: {
       updatedAt: new Date(),
       ...((params.previewProps !== undefined ||
         params.previewExport !== undefined ||
+        params.previewStories !== undefined ||
+        params.previewDefaultStoryId !== undefined ||
         thumbnail)
         ? {
             meta: {
@@ -903,6 +915,12 @@ export async function createRegistryItemVersion(params: {
                 : {}),
               ...(params.previewExport !== undefined
                 ? { previewExport: params.previewExport }
+                : {}),
+              ...(params.previewStories !== undefined
+                ? { previewStories: params.previewStories }
+                : {}),
+              ...(params.previewDefaultStoryId !== undefined
+                ? { previewDefaultStoryId: params.previewDefaultStoryId }
                 : {}),
               ...(thumbnail ? { thumbnail } : {}),
             } as Record<string, unknown>,
@@ -1140,6 +1158,10 @@ export async function createRegistryItem(data: {
   previewProps?: unknown;
   /** 可选：强制预览使用的命名导出（meta.previewExport） */
   previewExport?: string | null;
+  /** 可选：story list（meta.previewStories） */
+  previewStories?: unknown;
+  /** 可选：default story id（meta.previewDefaultStoryId） */
+  previewDefaultStoryId?: string | null;
 }) {
   if (!!data.userId === !!data.organizationId) {
     throw new Error("Registry items must belong to exactly one owner scope");
@@ -1183,6 +1205,12 @@ export async function createRegistryItem(data: {
         ...(data.previewProps !== undefined ? { previewProps: data.previewProps } : {}),
         ...(data.previewExport !== undefined
           ? { previewExport: data.previewExport }
+          : {}),
+        ...(data.previewStories !== undefined
+          ? { previewStories: data.previewStories }
+          : {}),
+        ...(data.previewDefaultStoryId !== undefined
+          ? { previewDefaultStoryId: data.previewDefaultStoryId }
           : {}),
         ...(thumbnail ? { thumbnail } : {}),
       },
@@ -1236,6 +1264,16 @@ export async function createRegistryItem(data: {
       registryDependencies: data.registryDependencies ?? [],
       meta: {
         source: "initial",
+        ...(data.previewProps !== undefined ? { previewProps: data.previewProps } : {}),
+        ...(data.previewExport !== undefined
+          ? { previewExport: data.previewExport }
+          : {}),
+        ...(data.previewStories !== undefined
+          ? { previewStories: data.previewStories }
+          : {}),
+        ...(data.previewDefaultStoryId !== undefined
+          ? { previewDefaultStoryId: data.previewDefaultStoryId }
+          : {}),
         ...(thumbnail ? { thumbnail } : {}),
       },
       createdBy: data.userId ?? null,

@@ -39,6 +39,7 @@ import {
 import { db } from "@/lib/db";
 import { registryItemVersions, registryPreviewArtifacts } from "@/lib/db/schema";
 import { enqueuePreviewArtifactJob } from "@/lib/preview-artifact-jobs";
+import { pickPreviewStory } from "@/lib/preview-stories";
 
 function escapeHtml(s: string): string {
   return s
@@ -242,6 +243,11 @@ export async function GET(
   const { owner, name } = await params;
   const url = new URL(request.url);
   const version = url.searchParams.get("v") ?? null;
+  const storyParam = url.searchParams.get("story");
+  const requestedStoryId =
+    typeof storyParam === "string" && storyParam.trim().length > 0
+      ? storyParam.trim()
+      : null;
   const debug = url.searchParams.get("debug") === "1";
   const debugTheme = debug || url.searchParams.get("debugTheme") === "1";
   const debugDeps = debug || url.searchParams.get("debugDeps") === "1";
@@ -293,6 +299,13 @@ export async function GET(
   );
   const toolbarBodyPadding =
     versionToolbarHtml.length > 0 ? "padding-top:48px;" : "";
+  const itemMetaForStory =
+    item.meta && typeof item.meta === "object"
+      ? (item.meta as Record<string, unknown>)
+      : undefined;
+  const { selectedStory } = pickPreviewStory(itemMetaForStory, requestedStoryId);
+  const resolvedStoryId = selectedStory?.id ?? null;
+  const normalizedStoryId = resolvedStoryId ?? "";
 
   let artifactHit = false;
   let artifactJsUrl: string | null = null;
@@ -321,6 +334,7 @@ export async function GET(
           and(
             eq(registryPreviewArtifacts.itemVersionId, itemVersion.id),
             eq(registryPreviewArtifacts.mode, previewMode),
+            eq(registryPreviewArtifacts.storyId, normalizedStoryId),
           ),
         )
         .limit(1);
@@ -337,6 +351,7 @@ export async function GET(
             name,
             version: effectiveVersion,
             mode: previewMode,
+            storyId: normalizedStoryId,
             requestUserId: userId ?? null,
           },
         });
@@ -456,10 +471,7 @@ ${versionToolbarHtml}
     files[f.path] = f.content;
   }
 
-  const itemMeta =
-    item.meta && typeof item.meta === "object"
-      ? (item.meta as Record<string, unknown>)
-      : undefined;
+  const itemMeta = itemMetaForStory;
   const rawPreviewProps = itemMeta?.previewProps;
   const rawPreviewExport = itemMeta?.previewExport;
   let previewProps: unknown;
@@ -479,8 +491,10 @@ ${versionToolbarHtml}
     typeof rawPreviewExport === "string" && rawPreviewExport.trim()
       ? rawPreviewExport.trim()
       : undefined;
+  const previewPropsEffective = selectedStory?.props ?? previewProps;
+  const previewExportEffective = selectedStory?.export ?? previewExport;
 
-  const previewPropsHash = sha256(stableStringify(previewProps ?? {}));
+  const previewPropsHash = sha256(stableStringify(previewPropsEffective ?? {}));
 
   let componentDepSources: string[] = [];
   let themeSources: string[] = [];
@@ -620,9 +634,10 @@ ${versionToolbarHtml}
     name,
     version: effectiveVersion,
     mode: previewMode,
+    storyId: resolvedStoryId,
     debug,
     rootFilesHash,
-    previewExport: previewExport ?? null,
+    previewExport: previewExportEffective ?? null,
     previewPropsHash,
     runtimeDepsHash,
     registryGraphHash,
@@ -633,9 +648,10 @@ ${versionToolbarHtml}
     name,
     version: effectiveVersion,
     mode: previewMode,
+    storyId: resolvedStoryId,
     debug,
     rootFilesHash,
-    previewExport: previewExport ?? null,
+    previewExport: previewExportEffective ?? null,
     runtimeDepsHash,
     registryGraphHash,
   });
@@ -667,9 +683,9 @@ ${versionToolbarHtml}
         files,
         // 传给 esbuild，用于 external 出所有运行时依赖
         dependencies: runtimeDependencies,
-        previewExport,
+        previewExport: previewExportEffective,
       },
-      previewProps,
+      previewPropsEffective,
       { mode: previewMode, workspaceKey: previewWorkspaceKey, debug },
     );
     timings.mark("previewBuildExecution", stepStartedAt);

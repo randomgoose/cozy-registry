@@ -17,6 +17,9 @@ export async function GET(request: Request) {
   const owner = url.searchParams.get("owner");
   const name = url.searchParams.get("name");
   const version = url.searchParams.get("v");
+  const storyIdRaw = url.searchParams.get("story");
+  const storyId = storyIdRaw && storyIdRaw.trim().length > 0 ? storyIdRaw.trim() : null;
+  const normalizedStoryId = storyId ?? "";
   const mode = url.searchParams.get("mode") === "thumbnail" ? "thumbnail" : "default";
 
   if (!owner || !name) {
@@ -71,6 +74,7 @@ export async function GET(request: Request) {
       and(
         eq(registryPreviewArtifacts.itemVersionId, itemVersion.id),
         eq(registryPreviewArtifacts.mode, mode),
+        eq(registryPreviewArtifacts.storyId, normalizedStoryId),
       ),
     )
     .limit(1);
@@ -83,6 +87,7 @@ export async function GET(request: Request) {
         name,
         version: effectiveVersion,
         mode,
+        storyId,
       },
       { status: 200 },
     );
@@ -94,6 +99,7 @@ export async function GET(request: Request) {
     name,
     version: effectiveVersion,
     mode,
+    storyId,
     artifactKey: artifact.artifactKey,
     artifactUrl: artifact.jsUrl,
     cssUrl: artifact.cssUrl,

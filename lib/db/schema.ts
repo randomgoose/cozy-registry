@@ -442,6 +442,7 @@ export const registryPreviewArtifacts = pgTable(
       .notNull()
       .references(() => registryItemVersions.id, { onDelete: "cascade" }),
     mode: text("mode").default("default").notNull(), // default | thumbnail
+    storyId: text("story_id").default("").notNull(), // empty means component-level preview
     status: text("status").default("queued").notNull(), // queued | running | ready | failed
     artifactKey: text("artifact_key").notNull(),
     jsUrl: text("js_url"),
@@ -464,6 +465,7 @@ export const registryPreviewArtifacts = pgTable(
     unique("registry_preview_artifacts_item_version_mode_key").on(
       table.itemVersionId,
       table.mode,
+      table.storyId,
     ),
     unique("registry_preview_artifacts_artifact_key_key").on(table.artifactKey),
   ],

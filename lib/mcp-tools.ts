@@ -77,6 +77,7 @@ import {
 } from "@/lib/registry-dependency-health";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
 import { enqueuePreviewArtifactJob } from "@/lib/preview-artifact-jobs";
+import { getPreviewDefaultStoryIdFromMeta } from "@/lib/preview-stories";
 
 /** MCP Tool.annotations (hints for clients; not a security boundary). */
 const MCP_ANN = {
@@ -2325,6 +2326,18 @@ ${fileContent}
         .describe(
           "Optional named export to render in preview (meta.previewExport), e.g. GateButton when there is no default export. Overrides default export when set.",
         ),
+      previewStories: z
+        .any()
+        .optional()
+        .describe(
+          "Optional preview stories stored in meta.previewStories. Usually an array of { id, title, export?, props? }.",
+        ),
+      previewDefaultStoryId: z
+        .string()
+        .optional()
+        .describe(
+          "Optional default story id stored in meta.previewDefaultStoryId.",
+        ),
       /**
        * 单文件模式：入口 TSX/CSS 源码（向后兼容）。
        * 当 files 存在时会被忽略。
@@ -2831,8 +2844,15 @@ ${fileContent}
           message: description || undefined,
           previewProps: contract.value.previewProps,
           previewExport: contract.value.previewExport,
+          previewStories: args.previewStories,
+          previewDefaultStoryId: args.previewDefaultStoryId,
           registryDependencies: contract.value.registryDependenciesToWrite,
         });
+        const defaultStoryIdForVersion =
+          (typeof args.previewDefaultStoryId === "string" &&
+          args.previewDefaultStoryId.trim().length > 0
+            ? args.previewDefaultStoryId.trim()
+            : null) ?? getPreviewDefaultStoryIdFromMeta(existing.meta);
 
         const effectiveRegistryDeps =
           contract.value.registryDependenciesToWrite ??
@@ -2863,13 +2883,18 @@ ${fileContent}
             name: existing.name,
             version: result.version,
             mode: "default",
+            storyId: defaultStoryIdForVersion,
             requestUserId: userId,
           },
         });
 
         const previewStatusNote = `\n\nPreview artifact status: queued\nCheck: /api/registry/preview-artifacts/status?owner=${encodeURIComponent(
           orgRef ?? ((await resolveOwner(existing.userId ?? userId))?.handle ?? "legacy"),
-        )}&name=${encodeURIComponent(existing.name)}&v=${encodeURIComponent(result.version)}`;
+        )}&name=${encodeURIComponent(existing.name)}&v=${encodeURIComponent(result.version)}${
+          defaultStoryIdForVersion
+            ? `&story=${encodeURIComponent(defaultStoryIdForVersion)}`
+            : ""
+        }`;
 
         if (projectLinkSlug) {
           const attach = await attachPublishedItemToProjectBySlug(
@@ -2986,6 +3011,8 @@ ${fileContent}
         registryDependencies: nextRegistryDependencies,
         previewProps: contract.value.previewProps,
         previewExport: contract.value.previewExport,
+        previewStories: args.previewStories,
+        previewDefaultStoryId: args.previewDefaultStoryId,
       });
 
       const effectiveRegistryDepsCreate =
@@ -3018,6 +3045,11 @@ ${fileContent}
           ? item.initialVersionId
           : null;
       if (initialVersionId) {
+        const defaultStoryIdForCreate =
+          typeof args.previewDefaultStoryId === "string" &&
+          args.previewDefaultStoryId.trim().length > 0
+            ? args.previewDefaultStoryId.trim()
+            : null;
         await enqueuePreviewArtifactJob({
           itemId: item.id,
           itemVersionId: initialVersionId,
@@ -3026,13 +3058,19 @@ ${fileContent}
             name: item.name,
             version: item.currentVersion ?? "0.1.0",
             mode: "default",
+            storyId: defaultStoryIdForCreate,
             requestUserId: userId,
           },
         });
       }
       const previewStatusNoteCreate = `\n\nPreview artifact status: queued\nCheck: /api/registry/preview-artifacts/status?owner=${encodeURIComponent(
         createOwner,
-      )}&name=${encodeURIComponent(item.name)}&v=${encodeURIComponent(item.currentVersion ?? "0.1.0")}`;
+      )}&name=${encodeURIComponent(item.name)}&v=${encodeURIComponent(item.currentVersion ?? "0.1.0")}${
+        typeof args.previewDefaultStoryId === "string" &&
+        args.previewDefaultStoryId.trim().length > 0
+          ? `&story=${encodeURIComponent(args.previewDefaultStoryId.trim())}`
+          : ""
+      }`;
 
       if (projectLinkSlug) {
         const attach = await attachPublishedItemToProjectBySlug(

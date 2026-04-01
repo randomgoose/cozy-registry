@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   registryAssetJobs,
@@ -15,6 +15,7 @@ import {
   buildRegistryPreviewArtifactPath,
   uploadPublicAsset,
 } from "@/lib/storage";
+import { pickPreviewStory } from "@/lib/preview-stories";
 
 export const BUILD_PREVIEW_ARTIFACT_JOB = "build_preview_artifact" as const;
 
@@ -23,6 +24,7 @@ type PreviewArtifactJobPayload = {
   name: string;
   version: string;
   mode: "default" | "thumbnail";
+  storyId?: string | null;
   requestUserId: string | null;
   artifactKey?: string;
 };
@@ -34,6 +36,7 @@ export function buildPreviewArtifactKey(input: {
   name: string;
   version: string;
   mode: "default" | "thumbnail";
+  storyId?: string | null;
 }) {
   return sha256(stableStringify(input));
 }
@@ -43,6 +46,7 @@ export async function enqueuePreviewArtifactJob(params: {
   itemVersionId: string;
   payload: PreviewArtifactJobPayload;
 }) {
+  const normalizedStoryId = params.payload.storyId?.trim() || "";
   const artifactKey = buildPreviewArtifactKey({
     itemId: params.itemId,
     itemVersionId: params.itemVersionId,
@@ -50,6 +54,7 @@ export async function enqueuePreviewArtifactJob(params: {
     name: params.payload.name,
     version: params.payload.version,
     mode: params.payload.mode,
+    storyId: normalizedStoryId,
   });
 
   const [artifact] = await db
@@ -58,6 +63,7 @@ export async function enqueuePreviewArtifactJob(params: {
       itemId: params.itemId,
       itemVersionId: params.itemVersionId,
       mode: params.payload.mode,
+      storyId: normalizedStoryId,
       status: "queued",
       artifactKey,
       lastErrorCode: null,
@@ -69,6 +75,7 @@ export async function enqueuePreviewArtifactJob(params: {
       target: [
         registryPreviewArtifacts.itemVersionId,
         registryPreviewArtifacts.mode,
+        registryPreviewArtifacts.storyId,
       ],
       set: {
         status: "queued",
@@ -88,7 +95,7 @@ export async function enqueuePreviewArtifactJob(params: {
     .where(
       and(
         eq(registryAssetJobs.jobType, BUILD_PREVIEW_ARTIFACT_JOB),
-        eq(registryAssetJobs.itemVersionId, params.itemVersionId),
+        sql`${registryAssetJobs.payload} ->> 'artifactKey' = ${artifactKey}`,
         eq(registryAssetJobs.status, "pending"),
       ),
     )
@@ -103,7 +110,7 @@ export async function enqueuePreviewArtifactJob(params: {
     .where(
       and(
         eq(registryAssetJobs.jobType, BUILD_PREVIEW_ARTIFACT_JOB),
-        eq(registryAssetJobs.itemVersionId, params.itemVersionId),
+        sql`${registryAssetJobs.payload} ->> 'artifactKey' = ${artifactKey}`,
         eq(registryAssetJobs.status, "processing"),
       ),
     )
@@ -132,8 +139,10 @@ export async function enqueuePreviewArtifactJob(params: {
 export async function getPreviewArtifactStatus(params: {
   itemVersionId: string;
   mode?: "default" | "thumbnail";
+  storyId?: string | null;
 }) {
   const mode = params.mode ?? "default";
+  const normalizedStoryId = params.storyId?.trim() || "";
   const [row] = await db
     .select()
     .from(registryPreviewArtifacts)
@@ -141,6 +150,7 @@ export async function getPreviewArtifactStatus(params: {
       and(
         eq(registryPreviewArtifacts.itemVersionId, params.itemVersionId),
         eq(registryPreviewArtifacts.mode, mode),
+        eq(registryPreviewArtifacts.storyId, normalizedStoryId),
       ),
     )
     .limit(1);
@@ -213,6 +223,7 @@ export async function processPreviewArtifactJob(jobId: string) {
   }
 
   const payload = (job.payload ?? {}) as PreviewArtifactJobPayload;
+  const normalizedStoryId = payload.storyId?.trim() || "";
   const mode = payload.mode === "thumbnail" ? "thumbnail" : "default";
   const artifactKey =
     typeof payload.artifactKey === "string" && payload.artifactKey.trim().length > 0
@@ -224,6 +235,7 @@ export async function processPreviewArtifactJob(jobId: string) {
           name: payload.name,
           version: payload.version,
           mode,
+          storyId: normalizedStoryId,
         });
 
   await db
@@ -265,13 +277,16 @@ export async function processPreviewArtifactJob(jobId: string) {
         ? (item.meta as Record<string, unknown>)
         : undefined;
     const rawPreviewProps = itemMeta?.previewProps;
-    const previewProps =
+    const fallbackPreviewProps =
       rawPreviewProps === undefined || rawPreviewProps === null ? {} : rawPreviewProps;
     const rawPreviewExport = itemMeta?.previewExport;
-    const previewExport =
+    const fallbackPreviewExport =
       typeof rawPreviewExport === "string" && rawPreviewExport.trim().length > 0
         ? rawPreviewExport.trim()
         : undefined;
+    const { selectedStory } = pickPreviewStory(itemMeta, normalizedStoryId || null);
+    const previewProps = selectedStory?.props ?? fallbackPreviewProps;
+    const previewExport = selectedStory?.export ?? fallbackPreviewExport;
 
     const runtimeDeps = Array.from(
       new Set([
@@ -350,6 +365,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       name: payload.name,
       version: payload.version,
       mode,
+      storyId: normalizedStoryId,
       artifactKey,
       generatedAt: new Date().toISOString(),
       jsUrl: uploadedJs.url,

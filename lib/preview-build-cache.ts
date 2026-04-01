@@ -5,6 +5,7 @@ type PreviewCacheKeyInput = {
   name: string;
   version: string;
   mode: "default" | "thumbnail";
+  storyId: string | null;
   debug: boolean;
   rootFilesHash: string;
   previewExport: string | null;
