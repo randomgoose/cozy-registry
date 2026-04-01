@@ -366,6 +366,22 @@ export async function GET(
     const isDev =
       previewMode === "default" || process.env.NODE_ENV !== "production" || debug;
     const devSuffix = isDev ? "?dev" : "";
+    const depsFromDb = (item.dependencies ?? []) as string[];
+    const depsFromFiles = new Set<string>();
+    for (const file of item.files ?? []) {
+      const source = file.content;
+      for (const dep of extractDependencies(source)) {
+        if (isBareModuleSpecifier(dep)) depsFromFiles.add(dep);
+      }
+    }
+    const runtimeDependencies = Array.from(
+      new Set<string>([...depsFromDb, ...depsFromFiles]),
+    )
+      .filter((dep) => !dep.startsWith("react"))
+      .sort();
+    const runtimeImportMap = Object.fromEntries(
+      runtimeDependencies.map((dep) => [dep, `https://esm.sh/${dep}${devSuffix}`]),
+    );
     const importMapJson = JSON.stringify(
       {
         imports: {
@@ -373,6 +389,7 @@ export async function GET(
           "react-dom": `https://esm.sh/react-dom@19${devSuffix}`,
           "react-dom/client": `https://esm.sh/react-dom@19/client${devSuffix}`,
           "react/jsx-runtime": `https://esm.sh/react@19/jsx-runtime${devSuffix}`,
+          ...runtimeImportMap,
         },
       },
       null,
