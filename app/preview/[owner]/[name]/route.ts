@@ -381,7 +381,11 @@ export async function GET(
       .filter((dep) => !dep.startsWith("react"))
       .sort();
     const runtimeImportMap = Object.fromEntries(
-      runtimeDependencies.map((dep) => [dep, `https://esm.sh/${dep}${devSuffix}`]),
+      runtimeDependencies.map((dep) => {
+        const base = `https://esm.sh/${dep}${devSuffix}`;
+        const joiner = base.includes("?") ? "&" : "?";
+        return [dep, `${base}${joiner}external=react,react-dom,react/jsx-runtime`];
+      }),
     );
     const importMapJson = JSON.stringify(
       {
@@ -766,7 +770,7 @@ ${versionToolbarHtml}
   };
 
   // 告诉 CDN 依赖不要内联自己的 React，而是从 import map 取
-  const reactExternalQuery = "?external=react,react-dom,react-dom/client";
+  const reactExternalQuery = "?external=react,react-dom,react-dom/client,react/jsx-runtime";
 
   // 根据组件声明的 dependencies 动态扩展 import map。
   // 策略：所有 bare import <pkg> → https://esm.sh/<pkg>?external=react,react-dom,react-dom/client
