@@ -187,6 +187,7 @@ function isBareModuleSpecifier(spec: string): boolean {
 }
 
 type PreviewMode = "default" | "thumbnail";
+const PREVIEW_REACT_VERSION = "19.2.3";
 
 function createTimingTracker() {
   const startedAt = performance.now();
@@ -385,10 +386,10 @@ export async function GET(
     const importMapJson = JSON.stringify(
       {
         imports: {
-          react: `https://esm.sh/react@19${devSuffix}`,
-          "react-dom": `https://esm.sh/react-dom@19${devSuffix}`,
-          "react-dom/client": `https://esm.sh/react-dom@19/client${devSuffix}`,
-          "react/jsx-runtime": `https://esm.sh/react@19/jsx-runtime${devSuffix}`,
+          react: `https://esm.sh/react@${PREVIEW_REACT_VERSION}${devSuffix}`,
+          "react-dom": `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}${devSuffix}`,
+          "react-dom/client": `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}/client${devSuffix}`,
+          "react/jsx-runtime": `https://esm.sh/react@${PREVIEW_REACT_VERSION}/jsx-runtime${devSuffix}`,
           ...runtimeImportMap,
         },
       },
@@ -750,10 +751,10 @@ ${versionToolbarHtml}
   const isDev =
     previewMode === "default" || process.env.NODE_ENV !== "production" || debug;
 
-  const reactBase = "https://esm.sh/react@19";
-  const reactDomBase = "https://esm.sh/react-dom@19";
-  const reactDomClientBase = "https://esm.sh/react-dom@19/client";
-  const reactJsxRuntimeBase = "https://esm.sh/react@19/jsx-runtime";
+  const reactBase = `https://esm.sh/react@${PREVIEW_REACT_VERSION}`;
+  const reactDomBase = `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}`;
+  const reactDomClientBase = `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}/client`;
+  const reactJsxRuntimeBase = `https://esm.sh/react@${PREVIEW_REACT_VERSION}/jsx-runtime`;
   const devSuffix = isDev ? "?dev" : "";
 
   // 基本 import map：始终提供 React 运行时（与项目 React 版本保持一致）
