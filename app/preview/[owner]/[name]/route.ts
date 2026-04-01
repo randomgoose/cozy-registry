@@ -347,6 +347,52 @@ export async function GET(
   }
   timings.mark("previewArtifactLookup", stepStartedAt);
 
+  if (artifactHit && artifactJsUrl && item.type !== "registry:theme") {
+    const isDev =
+      previewMode === "default" || process.env.NODE_ENV !== "production" || debug;
+    const devSuffix = isDev ? "?dev" : "";
+    const importMapJson = JSON.stringify(
+      {
+        imports: {
+          react: `https://esm.sh/react@19${devSuffix}`,
+          "react-dom": `https://esm.sh/react-dom@19${devSuffix}`,
+          "react-dom/client": `https://esm.sh/react-dom@19/client${devSuffix}`,
+          "react/jsx-runtime": `https://esm.sh/react@19/jsx-runtime${devSuffix}`,
+        },
+      },
+      null,
+      2,
+    );
+    const bundleStyles =
+      artifactCssUrl != null && artifactCssUrl !== ""
+        ? `\n    <link rel="stylesheet" href="${escapeHtml(artifactCssUrl)}" />`
+        : "";
+    const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Component Preview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>${bundleStyles}
+    <script type="importmap">
+${importMapJson}
+    </script>
+  </head>
+  <body class="${previewMode === "thumbnail" ? "min-h-screen overflow-hidden bg-transparent" : "min-h-screen bg-white"}" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}${toolbarBodyPadding}">
+${versionToolbarHtml}
+    <div id="root"></div>
+    <script type="module">
+import ${JSON.stringify(artifactJsUrl)};
+    </script>
+  </body>
+</html>`;
+    return new NextResponse(html, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+      },
+    });
+  }
+
   // Theme 条目：仅注入主题 CSS，展示简易预览页（STYLE_AND_THEME_SPEC §5.1 可选）
   if (item.type === "registry:theme") {
     const themeCss = getThemeEntryCss(item);
