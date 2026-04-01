@@ -322,6 +322,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       body: buildResult.code,
       contentType: "application/javascript; charset=utf-8",
       cacheControl: "31536000",
+      assetType: "preview-artifact",
     });
 
     let uploadedCssUrl: string | null = null;
@@ -339,6 +340,7 @@ export async function processPreviewArtifactJob(jobId: string) {
         body: buildResult.css,
         contentType: "text/css; charset=utf-8",
         cacheControl: "31536000",
+        assetType: "preview-artifact",
       });
       uploadedCssUrl = uploadedCss.url;
     }
@@ -366,6 +368,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       body: JSON.stringify(manifest, null, 2),
       contentType: "application/json; charset=utf-8",
       cacheControl: "31536000",
+      assetType: "preview-artifact",
     });
 
     await db

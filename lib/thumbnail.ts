@@ -166,6 +166,7 @@ export async function maybeBuildRegistryThumbnail(params: {
         body: svg,
         contentType: "image/svg+xml; charset=utf-8",
         cacheControl: "31536000",
+        assetType: "thumbnail",
       });
       return {
         url: uploaded.url,

@@ -655,6 +655,7 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
       body: new Uint8Array(buffer),
       contentType: "image/png",
       cacheControl: "31536000",
+      assetType: "thumbnail",
     });
 
     const thumbnail = {

@@ -10,12 +10,31 @@ type UploadAssetParams = {
   body: string | Uint8Array;
   contentType: string;
   cacheControl?: string;
+  assetType?: "thumbnail" | "preview-artifact";
 };
 
 const DEFAULT_BUCKET = "registry-thumbnails";
 const DEFAULT_STORAGE_PROVIDER = "supabase";
 
-function getSupabaseStorageConfig() {
+function resolveBucketByAssetType(
+  assetType: UploadAssetParams["assetType"],
+  input: {
+    defaultBucket: string;
+    thumbnailBucket?: string | undefined;
+    previewArtifactBucket?: string | undefined;
+  },
+) {
+  if (assetType === "preview-artifact") {
+    return (
+      input.previewArtifactBucket ??
+      input.thumbnailBucket ??
+      input.defaultBucket
+    );
+  }
+  return input.thumbnailBucket ?? input.defaultBucket;
+}
+
+function getSupabaseStorageConfig(assetType: UploadAssetParams["assetType"]) {
   const baseUrl =
     process.env.SUPABASE_URL ??
     process.env.NEXT_PUBLIC_SUPABASE_URL ??
@@ -24,10 +43,18 @@ function getSupabaseStorageConfig() {
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
     process.env.SUPABASE_SERVICE_KEY ??
     "";
-  const bucket =
-    process.env.SUPABASE_STORAGE_BUCKET ??
-    process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET ??
-    DEFAULT_BUCKET;
+  const bucket = resolveBucketByAssetType(assetType, {
+    defaultBucket:
+      process.env.SUPABASE_STORAGE_BUCKET ??
+      process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET ??
+      DEFAULT_BUCKET,
+    thumbnailBucket:
+      process.env.SUPABASE_THUMBNAIL_BUCKET ??
+      process.env.NEXT_PUBLIC_SUPABASE_THUMBNAIL_BUCKET,
+    previewArtifactBucket:
+      process.env.SUPABASE_PREVIEW_ARTIFACT_BUCKET ??
+      process.env.NEXT_PUBLIC_SUPABASE_PREVIEW_ARTIFACT_BUCKET,
+  });
 
   if (!baseUrl || !serviceRoleKey || !bucket) return null;
   return {
@@ -37,8 +64,15 @@ function getSupabaseStorageConfig() {
   };
 }
 
-function getS3StorageConfig() {
-  const bucket = process.env.S3_BUCKET ?? process.env.R2_BUCKET ?? "";
+function getS3StorageConfig(assetType: UploadAssetParams["assetType"]) {
+  const bucket = resolveBucketByAssetType(assetType, {
+    defaultBucket: process.env.S3_BUCKET ?? process.env.R2_BUCKET ?? "",
+    thumbnailBucket:
+      process.env.S3_THUMBNAIL_BUCKET ?? process.env.R2_THUMBNAIL_BUCKET,
+    previewArtifactBucket:
+      process.env.S3_PREVIEW_ARTIFACT_BUCKET ??
+      process.env.R2_PREVIEW_ARTIFACT_BUCKET,
+  });
   const region = process.env.S3_REGION ?? "auto";
   const endpoint = process.env.S3_ENDPOINT ?? process.env.R2_ENDPOINT ?? "";
   const accessKeyId =
@@ -62,7 +96,7 @@ function getS3StorageConfig() {
 }
 
 export function isSupabaseStorageConfigured() {
-  return !!getSupabaseStorageConfig();
+  return !!getSupabaseStorageConfig("thumbnail");
 }
 
 type PublicStorageProvider = {
@@ -154,7 +188,7 @@ export async function uploadPublicAsset(params: UploadAssetParams) {
 }
 
 async function uploadPublicAssetViaSupabase(params: UploadAssetParams) {
-  const config = getSupabaseStorageConfig();
+  const config = getSupabaseStorageConfig(params.assetType);
   if (!config) {
     throw new Error(
       "Supabase Storage is not configured. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and SUPABASE_STORAGE_BUCKET.",
@@ -189,7 +223,7 @@ async function uploadPublicAssetViaSupabase(params: UploadAssetParams) {
 }
 
 async function uploadPublicAssetViaS3Compatible(params: UploadAssetParams) {
-  const config = getS3StorageConfig();
+  const config = getS3StorageConfig(params.assetType);
   if (!config) {
     throw new Error(
       "S3/R2 storage is not configured. Set S3_BUCKET (or R2_BUCKET), S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (or R2_*), and optionally S3_ENDPOINT/S3_PUBLIC_BASE_URL.",
