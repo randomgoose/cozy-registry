@@ -11,20 +11,32 @@ export const REGISTRY_INSTALL_ROOT = "src/components/registry";
 export type InstallDependencyTarget = {
   owner: string;
   name: string;
+  projectSlug?: string | null;
   version: string;
   entryPath: string;
 };
 
-export function getDefaultInstallDir(params: { owner: string; name: string }): string {
+export function getDefaultInstallDir(params: {
+  owner: string;
+  name: string;
+  projectSlug?: string | null;
+}): string {
   return normalizePosix(
-    path.posix.join(REGISTRY_INSTALL_ROOT, params.owner, params.name),
+    path.posix.join(
+      REGISTRY_INSTALL_ROOT,
+      params.owner,
+      params.projectSlug ? params.projectSlug : "",
+      params.name,
+    ),
   );
 }
 
 export function pickInstallEntryPath(
   files: Array<{ path: string }>,
 ): string {
-  const paths = files.map((file) => normalizePosix(file.path));
+  const paths = files.map((file) =>
+    normalizeInstallFilePath(file.path),
+  );
   if (paths.includes("index.tsx")) return "index.tsx";
   if (paths.includes("index.ts")) return "index.ts";
   if (paths.includes("index.jsx")) return "index.jsx";
@@ -42,15 +54,16 @@ export function rewriteInstalledRegistryImports<T extends { path: string; conten
   },
 ): T[] {
   const localFilePaths = new Set(
-    params.files.map((file) => normalizePosix(file.path)),
+    params.files.map((file) => normalizeInstallFilePath(file.path)),
   );
   const installBaseDir = getDefaultInstallDir({
     owner: params.rootOwner,
     name: params.rootName,
+    projectSlug: null,
   });
 
   return params.files.map((file) => {
-    const normalizedPath = normalizePosix(file.path);
+    const normalizedPath = normalizeInstallFilePath(file.path);
     if (!isCodeFile(normalizedPath)) return file;
 
     const rewritten = rewriteSourceImports(file.content, (specifier) => {
@@ -163,7 +176,7 @@ export function materializeInstalledRegistryFilesFromResolvedGraph(
       const projectRelative = normalizePosix(
         path.posix.join(
           getDefaultInstallDir({ owner: ref.owner, name: ref.name }),
-          normalizePosix(file.path),
+          normalizeInstallFilePath(file.path),
         ),
       );
       out[projectRelative] = file.content;
@@ -208,6 +221,7 @@ function buildRelativeImportToDependency(params: {
   const targetBase = getDefaultInstallDir({
     owner: params.target.owner,
     name: params.target.name,
+    projectSlug: params.target.projectSlug ?? null,
   });
   const entryWithoutExt = params.target.entryPath.replace(/\.(tsx?|jsx?|css)$/i, "");
   const targetModulePath = path.posix.join(targetBase, entryWithoutExt);
@@ -235,4 +249,20 @@ function fileStemToRegistryName(specifier: string): string {
 
 function normalizePosix(p: string): string {
   return p.replaceAll("\\", "/");
+}
+
+export function normalizeInstallFilePath(filePath: string): string {
+  let normalized = normalizePosix(filePath).replace(/^\.?\//, "").replace(/^\/+/, "");
+  const knownPrefixes = [
+    "src/components/registry/modules/",
+    "src/registry/modules/",
+    "registry/modules/",
+  ];
+  for (const prefix of knownPrefixes) {
+    if (normalized.startsWith(prefix)) {
+      normalized = normalized.slice(prefix.length);
+      break;
+    }
+  }
+  return normalized || "index.tsx";
 }

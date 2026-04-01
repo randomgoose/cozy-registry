@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import {
   createRegistryItem,
   createRegistryItemVersion,
@@ -41,7 +41,7 @@ import { findAccessibleRegistryProjectBySlug } from "@/lib/registry-project-acce
 import { createRegistryProject } from "@/lib/registry-project-create";
 import { linkRegistryItemToProject } from "@/lib/registry-project-link-item";
 import { db } from "@/lib/db";
-import { registryProjectMembers, registryProjects } from "@/lib/db/schema";
+import { registryItems, registryProjectItems, registryProjectMembers, registryProjects } from "@/lib/db/schema";
 import {
   checkInstalledItemUpdate,
   checkRegistryStatusItemUpdate,
@@ -149,15 +149,21 @@ export function createRegistryMcpServer(request?: Request) {
   function buildLockfileEntry(params: {
     owner: string;
     name: string;
+    projectSlug?: string | null;
     type: string;
     version: string;
     baseUrl?: string | null;
     files?: { path: string }[];
   }) {
     const sourceBase = params.baseUrl ?? "";
-    const sourcePath = `/api/r/${encodeURIComponent(params.owner)}/${params.name}?v=${params.version}`;
+    const sourcePath =
+      `/api/r/${encodeURIComponent(params.owner)}/${params.name}?v=${params.version}` +
+      (params.projectSlug ? `&project=${encodeURIComponent(params.projectSlug)}` : "");
     const source = sourceBase ? `${sourceBase}${sourcePath}` : sourcePath;
-    const coordinate = `@${params.owner}/${params.name}`;
+    const withProject = params.projectSlug && params.projectSlug.trim().length > 0;
+    const coordinate = withProject
+      ? `@${params.owner}/${params.projectSlug}/${params.name}`
+      : `@${params.owner}/${params.name}`;
     return {
       version: 1,
       items: {
@@ -167,7 +173,7 @@ export function createRegistryMcpServer(request?: Request) {
           source,
           installedFiles: (params.files ?? []).map(
             (f) =>
-              `${getDefaultInstallDir({ owner: params.owner, name: params.name })}/${f.path}`,
+              `${getDefaultInstallDir({ owner: params.owner, projectSlug: params.projectSlug, name: params.name })}/${f.path}`,
           ),
         },
       },
@@ -219,6 +225,57 @@ export function createRegistryMcpServer(request?: Request) {
       return { ok: false, error: linked.error };
     }
     return { ok: true, note: `Linked to registry project "${slug}".` };
+  }
+
+  async function findProjectScopedRegistryItemByName(params: {
+    userId: string;
+    projectSlug: string;
+    name: string;
+  }) {
+    const project = await findAccessibleRegistryProjectBySlug(params.userId, params.projectSlug);
+    if (!project) {
+      return { ok: false as const, error: `Project "${params.projectSlug}" not found or you have no access.` };
+    }
+
+    const ownershipClause =
+      project.organizationId != null
+        ? eq(registryItems.organizationId, project.organizationId)
+        : project.ownerUserId != null
+          ? eq(registryItems.userId, project.ownerUserId)
+          : null;
+    if (!ownershipClause) {
+      return {
+        ok: false as const,
+        error: `Project "${params.projectSlug}" has no resolvable owner scope.`,
+      };
+    }
+
+    const [row] = await db
+      .select({
+        id: registryItems.id,
+      })
+      .from(registryProjectItems)
+      .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
+      .where(
+        and(
+          eq(registryProjectItems.projectId, project.id),
+          eq(registryItems.name, params.name),
+          ownershipClause,
+        ),
+      )
+      .orderBy(desc(registryItems.updatedAt))
+      .limit(1);
+
+    if (!row) {
+      return { ok: true as const, item: null };
+    }
+
+    const item = await db.query.registryItems.findFirst({
+      where: eq(registryItems.id, row.id),
+      with: { files: true },
+    });
+
+    return { ok: true as const, item: item ?? null };
   }
 
   async function listRegistryProjectsForMcp() {
@@ -1130,6 +1187,10 @@ ${fileContent}
         owner: z
           .string()
           .describe("Owner handle (preferred) or legacy userId."),
+        project: z
+          .string()
+          .optional()
+          .describe("Optional registry project slug. When set, resolves this component within that project."),
         version: z
           .string()
           .optional()
@@ -1156,23 +1217,37 @@ ${fileContent}
       }),
       annotations: MCP_ANN.readOpen,
     },
-    async ({ name, owner, version, projectStatus }) => {
+    async ({ name, owner, project, version, projectStatus }) => {
       try {
         const { userId, policy } = await getScopedToolContext();
-        const item = await getRegistryItemByOwnerNameAndVersionScoped({
-          ownerId: owner,
-          name,
-          version: version ?? null,
-          requestUserId: userId,
-          policy,
-        });
+        const projectSlug = project?.trim() || null;
+        let item;
+        if (!projectSlug || !userId) {
+          item = await getRegistryItemByOwnerNameAndVersionScoped({
+            ownerId: owner,
+            name,
+            version: version ?? null,
+            requestUserId: userId,
+            policy,
+          });
+        } else {
+          const scoped = await findProjectScopedRegistryItemByName({
+            userId,
+            projectSlug,
+            name,
+          });
+          if (!scoped.ok) throw new Error(scoped.error);
+          item = scoped.item;
+        }
 
         if (!item) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: `Component @${owner}/${name}${version ? `@${version}` : ""} not found (or not allowed by your token scope).`,
+                text: projectSlug
+                  ? `Component @${owner}/${name}${version ? `@${version}` : ""} not found in project "${projectSlug}" (or not allowed by your token scope).`
+                  : `Component @${owner}/${name}${version ? `@${version}` : ""} not found (or not allowed by your token scope).`,
               },
             ],
             isError: true,
@@ -1185,9 +1260,14 @@ ${fileContent}
         const baseUrl =
           process.env.NEXT_PUBLIC_APP_URL ??
           (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
-        const coordinate = `@${canonicalOwner}/${item.name}` as RegistryCoordinate;
+        const coordinate = (
+          projectSlug
+            ? `@${canonicalOwner}/${projectSlug}/${item.name}`
+            : `@${canonicalOwner}/${item.name}`
+        ) as RegistryCoordinate;
         const targetDir = getDefaultInstallDir({
           owner: canonicalOwner,
+          projectSlug,
           name: item.name,
         });
         const installedFiles = (shadcnItem?.files ?? []).map(
@@ -1208,19 +1288,21 @@ ${fileContent}
         const payload = {
           ok: true,
           action: "plan_install",
+          scopeType: projectSlug ? "project" : "global",
           coordinate,
           type: item.type,
           version: selectedVersion,
           installMode,
           source: baseUrl
-            ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`
-            : `/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`,
+            ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}${projectSlug ? `&project=${encodeURIComponent(projectSlug)}` : ""}`
+            : `/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}${projectSlug ? `&project=${encodeURIComponent(projectSlug)}` : ""}`,
           targetDir,
           installedFiles,
           files: shadcnItem?.files ?? [],
           lockfileEntry: buildLockfileEntry({
             owner: canonicalOwner,
             name: item.name,
+            projectSlug,
             type: item.type,
             version: selectedVersion,
             baseUrl,
@@ -1268,7 +1350,7 @@ ${fileContent}
       inputSchema: z.object({
         coordinate: z
           .string()
-          .describe("Installed coordinate to upgrade, e.g. @acme/hero-section."),
+          .describe("Installed coordinate to upgrade, e.g. @acme/hero-section or @acme/dashboard/hero-section."),
         toVersion: z
           .string()
           .optional()
@@ -1296,13 +1378,16 @@ ${fileContent}
     },
     async ({ coordinate, toVersion, projectStatus }) => {
       try {
-        const slash = coordinate.indexOf("/");
-        if (!coordinate.startsWith("@") || slash <= 1 || slash === coordinate.length - 1) {
+        if (!coordinate.startsWith("@")) {
           throw new Error(`Invalid coordinate: ${coordinate}`);
         }
-
-        const owner = coordinate.slice(1, slash);
-        const name = coordinate.slice(slash + 1);
+        const parts = coordinate.slice(1).split("/");
+        if (parts.length < 2 || parts.length > 3) {
+          throw new Error(`Invalid coordinate: ${coordinate}`);
+        }
+        const owner = parts[0]!;
+        const projectSlug = parts.length === 3 ? parts[1]! : null;
+        const name = parts.length === 3 ? parts[2]! : parts[1]!;
         const existingItem =
           projectStatus.items?.find((entry) => entry.coordinate === coordinate) ?? null;
 
@@ -1313,13 +1398,24 @@ ${fileContent}
         }
 
         const { userId, policy } = await getScopedToolContext();
-        const item = await getRegistryItemByOwnerNameAndVersionScoped({
-          ownerId: owner,
-          name,
-          version: toVersion ?? null,
-          requestUserId: userId,
-          policy,
-        });
+        let item;
+        if (!projectSlug || !userId) {
+          item = await getRegistryItemByOwnerNameAndVersionScoped({
+            ownerId: owner,
+            name,
+            version: toVersion ?? null,
+            requestUserId: userId,
+            policy,
+          });
+        } else {
+          const scoped = await findProjectScopedRegistryItemByName({
+            userId,
+            projectSlug,
+            name,
+          });
+          if (!scoped.ok) throw new Error(scoped.error);
+          item = scoped.item;
+        }
 
         if (!item) {
           return {
@@ -1340,10 +1436,14 @@ ${fileContent}
         const baseUrl =
           process.env.NEXT_PUBLIC_APP_URL ??
           (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
-        const canonicalCoordinate =
-          `@${canonicalOwner}/${item.name}` as RegistryCoordinate;
+        const canonicalCoordinate = (
+          projectSlug
+            ? `@${canonicalOwner}/${projectSlug}/${item.name}`
+            : `@${canonicalOwner}/${item.name}`
+        ) as RegistryCoordinate;
         const targetDir = getDefaultInstallDir({
           owner: canonicalOwner,
+          projectSlug,
           name: item.name,
         });
         const installedFiles =
@@ -1357,6 +1457,7 @@ ${fileContent}
         const payload = {
           ok: true,
           action: "plan_upgrade",
+          scopeType: projectSlug ? "project" : "global",
           coordinate: canonicalCoordinate,
           type: item.type,
           installedVersion: existingItem.version,
@@ -1364,14 +1465,15 @@ ${fileContent}
           targetVersion,
           upgradeMode: alreadyUpToDate ? "already_up_to_date" : "upgrade_available",
           source: baseUrl
-            ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}?v=${targetVersion}`
-            : `/api/r/${canonicalOwner}/${item.name}?v=${targetVersion}`,
+            ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}?v=${targetVersion}${projectSlug ? `&project=${encodeURIComponent(projectSlug)}` : ""}`
+            : `/api/r/${canonicalOwner}/${item.name}?v=${targetVersion}${projectSlug ? `&project=${encodeURIComponent(projectSlug)}` : ""}`,
           targetDir,
           installedFiles,
           files: shadcnItem?.files ?? [],
           nextLockfileEntry: buildLockfileEntry({
             owner: canonicalOwner,
             name: item.name,
+            projectSlug,
             type: item.type,
             version: targetVersion,
             baseUrl,
@@ -1417,6 +1519,10 @@ ${fileContent}
         projectRoot: z
           .string()
           .describe("Absolute path to the target project root where files should be installed."),
+        project: z
+          .string()
+          .optional()
+          .describe("Optional registry project slug. When set, resolves the component within that project only."),
         name: z.string().describe("Component name in kebab-case, e.g. hero-section"),
         owner: z
           .string()
@@ -1428,23 +1534,37 @@ ${fileContent}
       }),
       annotations: MCP_ANN.writeProject,
     },
-    async ({ projectRoot, name, owner, version }) => {
+    async ({ projectRoot, project, name, owner, version }) => {
       try {
         const { userId, policy } = await getScopedToolContext();
-        const item = await getRegistryItemByOwnerNameAndVersionScoped({
-          ownerId: owner,
-          name,
-          version: version ?? null,
-          requestUserId: userId,
-          policy,
-        });
+        const projectSlug = project?.trim() || null;
+        let item;
+        if (!projectSlug || !userId) {
+          item = await getRegistryItemByOwnerNameAndVersionScoped({
+            ownerId: owner,
+            name,
+            version: version ?? null,
+            requestUserId: userId,
+            policy,
+          });
+        } else {
+          const scoped = await findProjectScopedRegistryItemByName({
+            userId,
+            projectSlug,
+            name,
+          });
+          if (!scoped.ok) throw new Error(scoped.error);
+          item = scoped.item;
+        }
 
         if (!item) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: `Component @${owner}/${name}${version ? `@${version}` : ""} not found (or not allowed by your token scope).`,
+                text: project?.trim()
+                  ? `Component @${owner}/${name}${version ? `@${version}` : ""} not found in project "${project.trim()}" (or not allowed by your token scope).`
+                  : `Component @${owner}/${name}${version ? `@${version}` : ""} not found (or not allowed by your token scope).`,
               },
             ],
             isError: true,
@@ -1454,8 +1574,18 @@ ${fileContent}
         const canonicalOwner = await getCanonicalRefOwnerForItem(item, owner);
         const selectedVersion = version?.trim() || getCurrentVersion(item);
         const shadcnItem = toShadcnRegistryItem(item);
-        const coordinate = `@${canonicalOwner}/${item.name}` as RegistryCoordinate;
-        const source = `${getBaseUrl()}/api/r/${canonicalOwner}/${item.name}?v=${selectedVersion}`;
+        const coordinate = projectSlug
+          ? (`@${canonicalOwner}/${projectSlug}/${item.name}` as RegistryCoordinate)
+          : (`@${canonicalOwner}/${item.name}` as RegistryCoordinate);
+        const sourceUrl = new URL(
+          `/api/r/${encodeURIComponent(canonicalOwner)}/${item.name}`,
+          getBaseUrl(),
+        );
+        sourceUrl.searchParams.set("v", selectedVersion);
+        if (projectSlug) {
+          sourceUrl.searchParams.set("project", projectSlug);
+        }
+        const source = sourceUrl.toString();
         const result = await installRegistryBundle({
           projectRoot,
           coordinate,
@@ -1797,7 +1927,7 @@ ${fileContent}
           .describe("Absolute path to the target project root containing cozy-registry.lock.json."),
         coordinate: z
           .string()
-          .describe("Installed coordinate to upgrade, e.g. @acme/hero-section."),
+          .describe("Installed coordinate to upgrade, e.g. @acme/hero-section or @acme/dashboard/hero-section."),
         toVersion: z
           .string()
           .optional()
@@ -1852,6 +1982,10 @@ ${fileContent}
           .describe(
             "Personal: user handle or id. Organization: org slug or legacy `orgSlug/teamSegment`.",
           ),
+        project: z
+          .string()
+          .optional()
+          .describe("Optional registry project slug. When set, resolves bundle inside that project."),
         version: z
           .string()
           .optional()
@@ -1859,23 +1993,37 @@ ${fileContent}
       }),
       annotations: MCP_ANN.readOpen,
     },
-    async ({ name, owner, version }) => {
+    async ({ name, owner, project, version }) => {
       try {
         const { userId, policy } = await getScopedToolContext();
-        const item = await getRegistryItemByOwnerNameAndVersionScoped({
-          ownerId: owner,
-          name,
-          version: version ?? null,
-          requestUserId: userId,
-          policy,
-        });
+        const projectSlug = project?.trim() || null;
+        let item;
+        if (!projectSlug || !userId) {
+          item = await getRegistryItemByOwnerNameAndVersionScoped({
+            ownerId: owner,
+            name,
+            version: version ?? null,
+            requestUserId: userId,
+            policy,
+          });
+        } else {
+          const scoped = await findProjectScopedRegistryItemByName({
+            userId,
+            projectSlug,
+            name,
+          });
+          if (!scoped.ok) throw new Error(scoped.error);
+          item = scoped.item;
+        }
 
         if (!item) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: `Component @${owner}/${name}${version ? `@${version}` : ""} not found (or not allowed by your token scope).`,
+                text: projectSlug
+                  ? `Component @${owner}/${name}${version ? `@${version}` : ""} not found in project "${projectSlug}" (or not allowed by your token scope).`
+                  : `Component @${owner}/${name}${version ? `@${version}` : ""} not found (or not allowed by your token scope).`,
               },
             ],
             isError: true,
@@ -1888,11 +2036,14 @@ ${fileContent}
         const baseUrl =
           process.env.NEXT_PUBLIC_APP_URL ??
           (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
-        const rPath = `/api/r/${encodeURIComponent(canonicalOwner)}/${item.name}?v=${selectedVersion}`;
+        const rPath = `/api/r/${encodeURIComponent(canonicalOwner)}/${item.name}?v=${selectedVersion}${projectSlug ? `&project=${encodeURIComponent(projectSlug)}` : ""}`;
         const payload = {
           ok: true,
           item: {
-            coordinate: `@${canonicalOwner}/${item.name}`,
+            scopeType: projectSlug ? "project" : "global",
+            coordinate: projectSlug
+              ? `@${canonicalOwner}/${projectSlug}/${item.name}`
+              : `@${canonicalOwner}/${item.name}`,
             type: item.type,
             version: selectedVersion,
             source: baseUrl ? `${baseUrl}${rPath}` : rPath,
@@ -1901,6 +2052,7 @@ ${fileContent}
           lockfileEntry: buildLockfileEntry({
             owner: canonicalOwner,
             name: item.name,
+            projectSlug,
             type: item.type,
             version: selectedVersion,
             baseUrl,
@@ -2586,15 +2738,30 @@ ${fileContent}
       // 并从中派生 theme.css。
       const normalizedTheme = normalizePublishThemeArgs(args);
 
-      // 如果当前用户已经有同名组件，则视为「发布新版本」，而不是创建新组件。
-      const existing = orgTarget
-        ? await getRegistryItemByOrganizationAndName(orgTarget.id, name).catch(() => null)
-        : await getRegistryItemByOwnerNameAndVersion(
-            userId,
-            name,
-            null,
-            userId,
-          ).catch(() => null);
+      // Project-first uniqueness:
+      // - When project slug is provided, only update an item already linked to that project.
+      // - Otherwise keep legacy owner/name behavior.
+      const existing = await (async () => {
+        if (!projectLinkSlug) {
+          return orgTarget
+            ? getRegistryItemByOrganizationAndName(orgTarget.id, name).catch(() => null)
+            : getRegistryItemByOwnerNameAndVersion(
+                userId,
+                name,
+                null,
+                userId,
+              ).catch(() => null);
+        }
+        const scoped = await findProjectScopedRegistryItemByName({
+          userId,
+          projectSlug: projectLinkSlug,
+          name,
+        });
+        if (!scoped.ok) {
+          throw new Error(scoped.error);
+        }
+        return scoped.item;
+      })();
 
       if (existing) {
         const contract = normalizePublishContract({

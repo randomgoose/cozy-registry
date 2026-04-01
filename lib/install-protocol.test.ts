@@ -25,6 +25,49 @@ afterEach(async () => {
 });
 
 describe("install protocol v1 layout", () => {
+  it("strips legacy registry/modules prefixes from installed file paths", async () => {
+    const projectRoot = await makeProjectRoot();
+
+    await installRegistryBundle({
+      projectRoot,
+      coordinate: "@alice/kpi-card",
+      type: "registry:block",
+      version: "1.0.0",
+      source: "https://registry.example.com/api/r/alice/kpi-card?v=1.0.0",
+      files: [
+        {
+          path: "registry/modules/index.tsx",
+          content: "export default function KpiCard() { return <section />; }",
+          type: "registry:block",
+        },
+      ],
+      registryDependencies: [],
+      registryBaseUrl: "https://registry.example.com",
+      fetchImpl: async () => {
+        throw new Error("Unexpected fetch");
+      },
+    });
+
+    const expectedPath = path.join(
+      projectRoot,
+      getDefaultInstallDir({ owner: "alice", name: "kpi-card" }),
+      "index.tsx",
+    );
+    const legacyPath = path.join(
+      projectRoot,
+      getDefaultInstallDir({ owner: "alice", name: "kpi-card" }),
+      "registry/modules/index.tsx",
+    );
+
+    await expect(fs.readFile(expectedPath, "utf8")).resolves.toContain("KpiCard");
+    await expect(fs.readFile(legacyPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+
+    const lockfile = await readLockfile(projectRoot);
+    expect(lockfile.items["@alice/kpi-card"]?.installedFiles).toEqual([
+      "src/components/registry/alice/kpi-card/index.tsx",
+    ]);
+  });
+
   it("installs registry dependencies as flat sibling items and rewrites explicit registry refs", async () => {
     const projectRoot = await makeProjectRoot();
     const fetchImpl: typeof fetch = async (input) => {
@@ -143,5 +186,41 @@ describe("install protocol v1 layout", () => {
     const dialogSource = await fs.readFile(dialogPath, "utf8");
     expect(dialogSource).toContain('from "../button/index"');
     expect(dialogSource).not.toContain('from "./Button"');
+  });
+
+  it("installs project-scoped coordinates under owner/project/name", async () => {
+    const projectRoot = await makeProjectRoot();
+
+    await installRegistryBundle({
+      projectRoot,
+      coordinate: "@alice/dashboard-neo/kpi-card",
+      type: "registry:block",
+      version: "1.0.0",
+      source: "https://registry.example.com/api/r/alice/kpi-card?v=1.0.0&project=dashboard-neo",
+      files: [
+        {
+          path: "index.tsx",
+          content: "export default function KpiCard() { return <div />; }",
+          type: "registry:block",
+        },
+      ],
+      registryDependencies: [],
+      registryBaseUrl: "https://registry.example.com",
+      fetchImpl: async () => {
+        throw new Error("Unexpected fetch");
+      },
+    });
+
+    const scopedPath = path.join(
+      projectRoot,
+      getDefaultInstallDir({ owner: "alice", projectSlug: "dashboard-neo", name: "kpi-card" }),
+      "index.tsx",
+    );
+    await expect(fs.readFile(scopedPath, "utf8")).resolves.toContain("KpiCard");
+
+    const lockfile = await readLockfile(projectRoot);
+    expect(lockfile.items["@alice/dashboard-neo/kpi-card"]?.installedFiles).toEqual([
+      "src/components/registry/alice/dashboard-neo/kpi-card/index.tsx",
+    ]);
   });
 });

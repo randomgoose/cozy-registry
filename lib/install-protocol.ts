@@ -4,13 +4,16 @@ import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 import { sha256Utf8, type CozyProvenanceManifestV1 } from "@/lib/cozy-provenance";
 import {
   getDefaultInstallDir,
+  normalizeInstallFilePath,
   pickInstallEntryPath,
   rewriteInstalledRegistryImports,
   type InstallDependencyTarget,
 } from "@/lib/registry-install-layout";
 
 export type RegistryCoordinate =
+  // Owner-scoped coordinate (legacy / global): @owner/name
   | `@${string}/${string}`
+  // Project-scoped coordinate (project-first): @owner/project/name
   | `@${string}/${string}/${string}`;
 
 export type CozyLockfile = {
@@ -523,11 +526,11 @@ async function installRegistryBundleNode(
 ): Promise<{ installedFiles: string[] }> {
   const visitKey = `${params.coordinate}@${params.version}`;
   if (state.visited.has(visitKey)) {
-    const { owner, name } = parseCoordinate(params.coordinate);
-    const installBaseDir = getDefaultInstallDir({ owner, name });
+    const { owner, name, projectSlug } = parseCoordinate(params.coordinate);
+    const installBaseDir = getDefaultInstallDir({ owner, name, projectSlug });
     return {
       installedFiles: params.files.map((file) =>
-        normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path))),
+        normalizePosix(path.posix.join(installBaseDir, normalizeInstallFilePath(file.path))),
       ),
     };
   }
@@ -539,10 +542,13 @@ async function installRegistryBundleNode(
     state,
   });
 
-  const { owner, name } = parseCoordinate(params.coordinate);
-  const installBaseDir = getDefaultInstallDir({ owner, name });
+  const { owner, name, projectSlug } = parseCoordinate(params.coordinate);
+  const installBaseDir = getDefaultInstallDir({ owner, name, projectSlug });
   const rewrittenFiles = rewriteInstalledRegistryImports({
-    files: params.files,
+    files: params.files.map((file) => ({
+      ...file,
+      path: normalizeInstallFilePath(file.path),
+    })),
     rootOwner: owner,
     rootName: name,
     dependencyTargets,
@@ -556,7 +562,7 @@ async function installRegistryBundleNode(
 
   for (const file of rewrittenFiles) {
     const projectRelative = normalizePosix(
-      path.posix.join(installBaseDir, normalizePosix(file.path)),
+      path.posix.join(installBaseDir, normalizeInstallFilePath(file.path)),
     );
     const absolutePath = path.join(state.projectRoot, projectRelative);
     await fs.mkdir(path.dirname(absolutePath), { recursive: true });
@@ -593,7 +599,7 @@ async function installRegistryBundleNode(
   else state.unchangedFiles.push(provenanceWrite.projectRelativePath);
 
   const installedFiles = rewrittenFiles.map((file) =>
-    normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path))),
+    normalizePosix(path.posix.join(installBaseDir, normalizeInstallFilePath(file.path))),
   );
 
   await upsertLockfileItem({
@@ -698,11 +704,11 @@ export async function detectUpgradeConflicts(params: {
   safeToReplaceFiles: string[];
 }> {
   const validatedProjectRoot = validateProjectRoot(params.projectRoot);
-  const { owner, name } = parseCoordinate(params.coordinate);
-  const installBaseDir = getDefaultInstallDir({ owner, name });
+  const { owner, name, projectSlug } = parseCoordinate(params.coordinate);
+  const installBaseDir = getDefaultInstallDir({ owner, name, projectSlug });
   const baselineMap = new Map(
     params.baselineBundle.files.map((file) => [
-      normalizePosix(path.posix.join(installBaseDir, normalizePosix(file.path))),
+      normalizePosix(path.posix.join(installBaseDir, normalizeInstallFilePath(file.path))),
       file.content,
     ]),
   );
@@ -809,7 +815,11 @@ function normalizeLockfile(input: Partial<CozyLockfile>): CozyLockfile {
   };
 }
 
-function parseCoordinate(coordinate: RegistryCoordinate): { owner: string; name: string } {
+function parseCoordinate(coordinate: RegistryCoordinate): {
+  owner: string;
+  name: string;
+  projectSlug: string | null;
+} {
   const trimmed = coordinate.trim();
   if (!trimmed.startsWith("@")) {
     throw new Error(`Invalid registry coordinate: ${coordinate}`);
@@ -817,10 +827,10 @@ function parseCoordinate(coordinate: RegistryCoordinate): { owner: string; name:
   const rest = trimmed.slice(1);
   const parts = rest.split("/");
   if (parts.length === 3) {
-    return { owner: `${parts[0]}/${parts[1]}`, name: parts[2] };
+    return { owner: parts[0], projectSlug: parts[1], name: parts[2] };
   }
   if (parts.length === 2) {
-    return { owner: parts[0], name: parts[1] };
+    return { owner: parts[0], projectSlug: null, name: parts[1] };
   }
   throw new Error(`Invalid registry coordinate: ${coordinate}`);
 }
@@ -831,11 +841,13 @@ async function fetchLatestVersion(params: {
   registryBaseUrl?: string;
   fetchImpl: FetchLike;
 }): Promise<string> {
-  const { owner, name } = parseCoordinate(params.coordinate);
+  const parsed = parseCoordinate(params.coordinate);
+  const { owner, name } = parsed;
   const versionsUrl = buildVersionsUrl({
     source: params.source,
     owner,
     name,
+    projectSlug: parsed.projectSlug,
     registryBaseUrl: params.registryBaseUrl,
   });
   const response = await params.fetchImpl(versionsUrl);
@@ -901,13 +913,18 @@ function buildVersionsUrl(params: {
   source: string;
   owner: string;
   name: string;
+  projectSlug?: string | null;
   registryBaseUrl?: string;
 }): string {
   const base = resolveBaseUrl(params.source, params.registryBaseUrl);
-  return new URL(
+  const url = new URL(
     `/api/registry/${encodeURIComponent(params.owner)}/${params.name}/versions`,
     base,
-  ).toString();
+  );
+  if (params.projectSlug) {
+    url.searchParams.set("project", params.projectSlug);
+  }
+  return url.toString();
 }
 
 function buildVersionedSourceUrl(params: {
@@ -916,9 +933,13 @@ function buildVersionedSourceUrl(params: {
   version: string;
   registryBaseUrl?: string;
 }): string {
+  const parsed = parseCoordinate(params.coordinate);
   const base = resolveBaseUrl(params.source, params.registryBaseUrl);
   const sourceUrl = new URL(resolveSourceUrl(params.source, params.registryBaseUrl), base);
   sourceUrl.searchParams.set("v", params.version);
+  if (parsed.projectSlug) {
+    sourceUrl.searchParams.set("project", parsed.projectSlug);
+  }
   return sourceUrl.toString();
 }
 
