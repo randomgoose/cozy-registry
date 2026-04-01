@@ -1,3 +1,5 @@
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+
 type AssetScope =
   | { kind: "user"; id: string }
   | { kind: "project"; id: string }
@@ -5,12 +7,13 @@ type AssetScope =
 
 type UploadAssetParams = {
   path: string;
-  body: BodyInit;
+  body: string | Uint8Array;
   contentType: string;
   cacheControl?: string;
 };
 
 const DEFAULT_BUCKET = "registry-thumbnails";
+const DEFAULT_STORAGE_PROVIDER = "supabase";
 
 function getSupabaseStorageConfig() {
   const baseUrl =
@@ -34,8 +37,63 @@ function getSupabaseStorageConfig() {
   };
 }
 
+function getS3StorageConfig() {
+  const bucket = process.env.S3_BUCKET ?? process.env.R2_BUCKET ?? "";
+  const region = process.env.S3_REGION ?? "auto";
+  const endpoint = process.env.S3_ENDPOINT ?? process.env.R2_ENDPOINT ?? "";
+  const accessKeyId =
+    process.env.S3_ACCESS_KEY_ID ?? process.env.R2_ACCESS_KEY_ID ?? "";
+  const secretAccessKey =
+    process.env.S3_SECRET_ACCESS_KEY ?? process.env.R2_SECRET_ACCESS_KEY ?? "";
+  const forcePathStyle =
+    (process.env.S3_FORCE_PATH_STYLE ?? "false").toLowerCase() === "true";
+  const publicBaseUrl = (process.env.S3_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
+
+  if (!bucket || !accessKeyId || !secretAccessKey) return null;
+  return {
+    bucket,
+    region,
+    endpoint: endpoint || undefined,
+    accessKeyId,
+    secretAccessKey,
+    forcePathStyle,
+    publicBaseUrl: publicBaseUrl || undefined,
+  };
+}
+
 export function isSupabaseStorageConfigured() {
   return !!getSupabaseStorageConfig();
+}
+
+type PublicStorageProvider = {
+  uploadPublicAsset: (params: UploadAssetParams) => Promise<{
+    path: string;
+    url: string;
+    bucket: string;
+  }>;
+};
+
+function getObjectStorageProvider() {
+  return (process.env.OBJECT_STORAGE_PROVIDER ?? DEFAULT_STORAGE_PROVIDER)
+    .trim()
+    .toLowerCase();
+}
+
+function getPublicStorageProvider(): PublicStorageProvider {
+  const provider = getObjectStorageProvider();
+  if (provider === "supabase") {
+    return {
+      uploadPublicAsset: uploadPublicAssetViaSupabase,
+    };
+  }
+  if (provider === "s3" || provider === "r2") {
+    return {
+      uploadPublicAsset: uploadPublicAssetViaS3Compatible,
+    };
+  }
+  throw new Error(
+    `Unsupported OBJECT_STORAGE_PROVIDER=${provider}. Supported: supabase (implemented), s3/r2 (reserved).`,
+  );
 }
 
 export function buildRegistryAssetPath(params: {
@@ -68,7 +126,34 @@ export function buildRegistryAssetPath(params: {
     .join("/");
 }
 
+export function buildRegistryPreviewArtifactPath(params: {
+  owner: string;
+  itemName: string;
+  version: string;
+  mode: "default" | "thumbnail";
+  artifactKey: string;
+  filename: "preview.js" | "preview.css" | "manifest.json";
+}) {
+  return [
+    "registry-preview-artifacts",
+    params.owner,
+    params.itemName,
+    "versions",
+    params.version,
+    params.mode,
+    params.artifactKey,
+    params.filename,
+  ]
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
+
 export async function uploadPublicAsset(params: UploadAssetParams) {
+  const provider = getPublicStorageProvider();
+  return provider.uploadPublicAsset(params);
+}
+
+async function uploadPublicAssetViaSupabase(params: UploadAssetParams) {
   const config = getSupabaseStorageConfig();
   if (!config) {
     throw new Error(
@@ -86,7 +171,7 @@ export async function uploadPublicAsset(params: UploadAssetParams) {
       "x-upsert": "true",
       "cache-control": params.cacheControl ?? "3600",
     },
-    body: params.body,
+    body: params.body as unknown as BodyInit,
   });
 
   if (!res.ok) {
@@ -99,6 +184,48 @@ export async function uploadPublicAsset(params: UploadAssetParams) {
   return {
     path: params.path,
     url: `${config.baseUrl}/storage/v1/object/public/${config.bucket}/${params.path}`,
+    bucket: config.bucket,
+  };
+}
+
+async function uploadPublicAssetViaS3Compatible(params: UploadAssetParams) {
+  const config = getS3StorageConfig();
+  if (!config) {
+    throw new Error(
+      "S3/R2 storage is not configured. Set S3_BUCKET (or R2_BUCKET), S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (or R2_*), and optionally S3_ENDPOINT/S3_PUBLIC_BASE_URL.",
+    );
+  }
+
+  const client = new S3Client({
+    region: config.region,
+    endpoint: config.endpoint,
+    forcePathStyle: config.forcePathStyle,
+    credentials: {
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey,
+    },
+  });
+
+  await client.send(
+    new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: params.path,
+      Body: params.body,
+      ContentType: params.contentType,
+      CacheControl: `public, max-age=${params.cacheControl ?? "3600"}`,
+    }),
+  );
+
+  const fallbackPublicUrl = config.endpoint
+    ? `${config.endpoint.replace(/\/+$/, "")}/${config.bucket}/${params.path}`
+    : `https://${config.bucket}.s3.${config.region}.amazonaws.com/${params.path}`;
+  const url = config.publicBaseUrl
+    ? `${config.publicBaseUrl}/${params.path}`
+    : fallbackPublicUrl;
+
+  return {
+    path: params.path,
+    url,
     bucket: config.bucket,
   };
 }

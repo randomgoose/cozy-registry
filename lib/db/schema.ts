@@ -431,6 +431,44 @@ export const registryAssetJobs = pgTable(
   ],
 );
 
+export const registryPreviewArtifacts = pgTable(
+  "registry_preview_artifacts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => registryItems.id, { onDelete: "cascade" }),
+    itemVersionId: uuid("item_version_id")
+      .notNull()
+      .references(() => registryItemVersions.id, { onDelete: "cascade" }),
+    mode: text("mode").default("default").notNull(), // default | thumbnail
+    status: text("status").default("queued").notNull(), // queued | running | ready | failed
+    artifactKey: text("artifact_key").notNull(),
+    jsUrl: text("js_url"),
+    cssUrl: text("css_url"),
+    manifestUrl: text("manifest_url"),
+    lastErrorCode: text("last_error_code"),
+    lastErrorMessage: text("last_error_message"),
+    startedAt: timestamp("started_at"),
+    finishedAt: timestamp("finished_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("registry_preview_artifacts_item_id_idx").on(table.itemId),
+    index("registry_preview_artifacts_item_version_id_idx").on(table.itemVersionId),
+    index("registry_preview_artifacts_status_idx").on(table.status),
+    unique("registry_preview_artifacts_item_version_mode_key").on(
+      table.itemVersionId,
+      table.mode,
+    ),
+    unique("registry_preview_artifacts_artifact_key_key").on(table.artifactKey),
+  ],
+);
+
 export type RegistryApiKeyPolicy = {
   allowedProjectIds: string[];
   allowedTypes: string[];

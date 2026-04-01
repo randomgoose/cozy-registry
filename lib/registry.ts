@@ -1265,7 +1265,10 @@ export async function createRegistryItem(data: {
     });
   }
 
-  return item;
+  return {
+    ...item,
+    initialVersionId: itemVersion?.id ?? null,
+  };
 }
 
 /**

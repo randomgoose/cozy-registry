@@ -76,6 +76,7 @@ import {
   formatDependencyHealthForMcp,
 } from "@/lib/registry-dependency-health";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
+import { enqueuePreviewArtifactJob } from "@/lib/preview-artifact-jobs";
 
 /** MCP Tool.annotations (hints for clients; not a security boundary). */
 const MCP_ANN = {
@@ -2854,6 +2855,22 @@ ${fileContent}
           ? `Updated organization component "${existing.title}" (@${orgRef}/${existing.name}) to v${result.version}.${healthSuffix}`
           : `Updated "${existing.title}" (@${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}) to version v${result.version}. View at /registry/${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}${healthSuffix}`;
 
+        await enqueuePreviewArtifactJob({
+          itemId: existing.id,
+          itemVersionId: result.id,
+          payload: {
+            owner: orgRef ?? ((await resolveOwner(existing.userId ?? userId))?.handle ?? "legacy"),
+            name: existing.name,
+            version: result.version,
+            mode: "default",
+            requestUserId: userId,
+          },
+        });
+
+        const previewStatusNote = `\n\nPreview artifact status: queued\nCheck: /api/registry/preview-artifacts/status?owner=${encodeURIComponent(
+          orgRef ?? ((await resolveOwner(existing.userId ?? userId))?.handle ?? "legacy"),
+        )}&name=${encodeURIComponent(existing.name)}&v=${encodeURIComponent(result.version)}`;
+
         if (projectLinkSlug) {
           const attach = await attachPublishedItemToProjectBySlug(
             userId,
@@ -2862,17 +2879,17 @@ ${fileContent}
           );
           if (!attach.ok) {
             return {
-              content: [{ type: "text" as const, text: `${baseText}\n\n${attach.error}` }],
+              content: [{ type: "text" as const, text: `${baseText}${previewStatusNote}\n\n${attach.error}` }],
               isError: true,
             };
           }
           const note = attach.note ? `\n\n${attach.note}` : "";
           return {
-            content: [{ type: "text" as const, text: `${baseText}${note}` }],
+            content: [{ type: "text" as const, text: `${baseText}${previewStatusNote}${note}` }],
           };
         }
         return {
-          content: [{ type: "text" as const, text: baseText }],
+          content: [{ type: "text" as const, text: `${baseText}${previewStatusNote}` }],
         };
       }
 
@@ -2991,6 +3008,32 @@ ${fileContent}
         ? `Published new organization component "${item.title}" (@${orgRefCreate}/${item.name}).${healthSuffixCreate}`
         : `Published new component "${item.title}" (@${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}). View at /registry/${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}${healthSuffixCreate}`;
 
+      const createOwner =
+        orgRefCreate ??
+        ((await resolveOwner(item.userId ?? "legacy"))?.handle ??
+          item.userId ??
+          "legacy");
+      const initialVersionId =
+        "initialVersionId" in item && typeof item.initialVersionId === "string"
+          ? item.initialVersionId
+          : null;
+      if (initialVersionId) {
+        await enqueuePreviewArtifactJob({
+          itemId: item.id,
+          itemVersionId: initialVersionId,
+          payload: {
+            owner: createOwner,
+            name: item.name,
+            version: item.currentVersion ?? "0.1.0",
+            mode: "default",
+            requestUserId: userId,
+          },
+        });
+      }
+      const previewStatusNoteCreate = `\n\nPreview artifact status: queued\nCheck: /api/registry/preview-artifacts/status?owner=${encodeURIComponent(
+        createOwner,
+      )}&name=${encodeURIComponent(item.name)}&v=${encodeURIComponent(item.currentVersion ?? "0.1.0")}`;
+
       if (projectLinkSlug) {
         const attach = await attachPublishedItemToProjectBySlug(
           userId,
@@ -2999,17 +3042,17 @@ ${fileContent}
         );
         if (!attach.ok) {
           return {
-            content: [{ type: "text" as const, text: `${baseTextCreate}\n\n${attach.error}` }],
+            content: [{ type: "text" as const, text: `${baseTextCreate}${previewStatusNoteCreate}\n\n${attach.error}` }],
             isError: true,
           };
         }
         const note = attach.note ? `\n\n${attach.note}` : "";
         return {
-          content: [{ type: "text" as const, text: `${baseTextCreate}${note}` }],
+          content: [{ type: "text" as const, text: `${baseTextCreate}${previewStatusNoteCreate}${note}` }],
         };
       }
       return {
-        content: [{ type: "text" as const, text: baseTextCreate }],
+        content: [{ type: "text" as const, text: `${baseTextCreate}${previewStatusNoteCreate}` }],
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

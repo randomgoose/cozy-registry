@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import {
   getRegistryItemByOwnerNameAndVersion,
@@ -35,6 +36,9 @@ import {
   RegistryDependencyNotFoundError,
   RegistryDependencyPermissionDeniedError,
 } from "@/lib/registry-dependency-errors";
+import { db } from "@/lib/db";
+import { registryItemVersions, registryPreviewArtifacts } from "@/lib/db/schema";
+import { enqueuePreviewArtifactJob } from "@/lib/preview-artifact-jobs";
 
 function escapeHtml(s: string): string {
   return s
@@ -290,6 +294,59 @@ export async function GET(
   const toolbarBodyPadding =
     versionToolbarHtml.length > 0 ? "padding-top:48px;" : "";
 
+  let artifactHit = false;
+  let artifactJsUrl: string | null = null;
+  let artifactCssUrl: string | null = null;
+  stepStartedAt = performance.now();
+  try {
+    const [itemVersion] = await db
+      .select({ id: registryItemVersions.id })
+      .from(registryItemVersions)
+      .where(
+        and(
+          eq(registryItemVersions.itemId, item.id),
+          eq(registryItemVersions.version, effectiveVersion),
+        ),
+      )
+      .limit(1);
+    if (itemVersion) {
+      const [artifact] = await db
+        .select({
+          status: registryPreviewArtifacts.status,
+          jsUrl: registryPreviewArtifacts.jsUrl,
+          cssUrl: registryPreviewArtifacts.cssUrl,
+        })
+        .from(registryPreviewArtifacts)
+        .where(
+          and(
+            eq(registryPreviewArtifacts.itemVersionId, itemVersion.id),
+            eq(registryPreviewArtifacts.mode, previewMode),
+          ),
+        )
+        .limit(1);
+      if (artifact?.status === "ready" && artifact.jsUrl) {
+        artifactHit = true;
+        artifactJsUrl = artifact.jsUrl;
+        artifactCssUrl = artifact.cssUrl ?? null;
+      } else if (item.type !== "registry:theme") {
+        await enqueuePreviewArtifactJob({
+          itemId: item.id,
+          itemVersionId: itemVersion.id,
+          payload: {
+            owner,
+            name,
+            version: effectiveVersion,
+            mode: previewMode,
+            requestUserId: userId ?? null,
+          },
+        });
+      }
+    }
+  } catch {
+    // non-blocking; fallback to inline build path
+  }
+  timings.mark("previewArtifactLookup", stepStartedAt);
+
   // Theme 条目：仅注入主题 CSS，展示简易预览页（STYLE_AND_THEME_SPEC §5.1 可选）
   if (item.type === "registry:theme") {
     const themeCss = getThemeEntryCss(item);
@@ -541,11 +598,15 @@ ${versionToolbarHtml}
   const cachedPreview = getPreviewBuildCache(previewCacheKey);
   timings.mark("previewCacheLookup", stepStartedAt);
 
-  const cacheHit = cachedPreview != null;
+  let cacheHit = false;
   let buildCode: string;
   let buildCss: string | undefined;
 
-  if (cachedPreview) {
+  if (artifactHit && artifactJsUrl) {
+    buildCode = `import ${JSON.stringify(artifactJsUrl)};`;
+    buildCss = undefined;
+  } else if (cachedPreview) {
+    cacheHit = true;
     buildCode = cachedPreview.build.code;
     buildCss = cachedPreview.build.css;
     themeCss = cachedPreview.themeCss;
@@ -727,9 +788,11 @@ ${versionToolbarHtml}
     </details>`
     : "";
   const bundleStyles =
-    buildCss != null && buildCss !== ""
-      ? `\n    <style>${escapeHtmlCss(buildCss)}</style>`
-      : "";
+    artifactCssUrl != null && artifactCssUrl !== ""
+      ? `\n    <link rel="stylesheet" href="${escapeHtml(artifactCssUrl)}" />`
+      : buildCss != null && buildCss !== ""
+        ? `\n    <style>${escapeHtmlCss(buildCss)}</style>`
+        : "";
 
   console.info(
     "[preview] request",
@@ -738,6 +801,7 @@ ${versionToolbarHtml}
       name,
       version: effectiveVersion,
       mode: previewMode,
+      artifactHit,
       cacheHit,
       resolveCacheHit,
       cacheKey: previewCacheKey,
