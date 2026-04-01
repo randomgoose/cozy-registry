@@ -312,7 +312,7 @@ export async function processPreviewArtifactJob(jobId: string) {
         previewExport,
       },
       previewProps,
-      { mode, debug: false },
+      { mode, debug: false, externalizeDependencies: false },
     );
 
     if (!buildResult.ok) {

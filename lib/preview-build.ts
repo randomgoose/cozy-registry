@@ -159,6 +159,7 @@ export async function buildPreviewBundle(
     mode?: "default" | "thumbnail";
     workspaceKey?: string;
     debug?: boolean;
+    externalizeDependencies?: boolean;
   },
 ): Promise<PreviewBuildResult> {
   // 注意：为了避免 Next.js 在服务器 bundle 时把 esbuild 的可执行文件等一起打包，
@@ -229,6 +230,7 @@ export async function buildPreviewBundle(
 
     const mode = options?.mode === "thumbnail" ? "thumbnail" : "default";
     const debugEnabled = options?.debug === true;
+    const externalizeDependencies = options?.externalizeDependencies !== false;
     const previewHints = JSON.stringify({
       previewExport:
         typeof bundle.previewExport === "string" && bundle.previewExport.trim()
@@ -618,8 +620,8 @@ root.render(
         "react-dom",
         "react-dom/client",
         "react/jsx-runtime",
-        // 其余依赖全部 external，交给浏览器 import map + CDN 解决
-        ...(bundle.dependencies ?? []),
+        // 默认将依赖 external 给 import map；artifact 预构建可关闭以固化依赖
+        ...(externalizeDependencies ? (bundle.dependencies ?? []) : []),
       ],
       logLevel: "silent",
       write: false,
