@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { registryItems, registryProjectItems } from "@/lib/db/schema";
@@ -52,7 +52,11 @@ export async function linkRegistryItemToProject(params: {
   }
 
   try {
-    await db.insert(registryProjectItems).values({ projectId, itemId });
+    await db.execute(sql`
+      insert into registry_project_items (project_id, item_id)
+      values (${projectId}, ${itemId})
+      on conflict (project_id, item_id) do nothing
+    `);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const isUnique = /\bduplicate key\b|\bunique constraint\b|23505/.test(msg);
