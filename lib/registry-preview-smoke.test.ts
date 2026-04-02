@@ -126,6 +126,73 @@ describe("registry-preview-smoke", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("supports shadcn-style button components that mix radix slot and cva", async () => {
+    const dependencyDecisions = evaluateThirdPartyDependencies({
+      discovered: ["@radix-ui/react-slot", "class-variance-authority"],
+      declared: [{ name: "class-variance-authority", version: "0.7.1" }],
+    });
+    const result = await runRegistryPreviewSmokeTest({
+      name: "button",
+      dependencyDecisions,
+      files: {
+        "utils.ts": `
+          export function cn(...parts: Array<string | null | undefined | false>) {
+            return parts.filter(Boolean).join(" ");
+          }
+        `,
+        "index.tsx": `
+          import * as React from "react";
+          import { Slot } from "@radix-ui/react-slot";
+          import { cva, type VariantProps } from "class-variance-authority";
+          import { cn } from "./utils";
+
+          const buttonVariants = cva("base", {
+            variants: {
+              variant: {
+                default: "primary",
+              },
+              size: {
+                default: "md",
+              },
+            },
+            defaultVariants: {
+              variant: "default",
+              size: "default",
+            },
+          });
+
+          function Button({
+            className,
+            variant,
+            size,
+            asChild = false,
+            ...props
+          }: React.ComponentProps<"button"> &
+            VariantProps<typeof buttonVariants> & {
+              asChild?: boolean;
+            }) {
+            const Comp = asChild ? Slot : "button";
+
+            return (
+              <Comp
+                data-slot="button"
+                className={cn(buttonVariants({ variant, size, className }))}
+                {...props}
+              />
+            );
+          }
+
+          export default Button;
+        `,
+      },
+    });
+
+    if (!result.ok) {
+      throw new Error(`${result.code}: ${result.message}`);
+    }
+    expect(result.ok).toBe(true);
+  });
+
   it("fails when importing Node built-in modules", async () => {
     const result = await runRegistryPreviewSmokeTest({
       name: "builtin-module-card",

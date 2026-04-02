@@ -911,17 +911,19 @@ async function collectPassThroughBareImports(
     path.join(process.cwd(), "package.json"),
   );
   const out = new Set<string>();
+  const seen = new Set<string>();
   const queue = [...roots];
 
   while (queue.length > 0) {
     const spec = queue.shift();
-    if (!spec || out.has(spec)) continue;
-    out.add(spec);
+    if (!spec || seen.has(spec)) continue;
+    seen.add(spec);
 
     try {
       const packageEntryPath = appRequire.resolve(spec, { paths: nodePaths });
       const packageJsonPath = await findNearestPackageJson(packageEntryPath);
       if (!packageJsonPath) continue;
+      out.add(spec);
       const raw = await fs.readFile(packageJsonPath, "utf8");
       const parsed = JSON.parse(raw) as {
         dependencies?: Record<string, string>;
