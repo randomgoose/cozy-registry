@@ -48,7 +48,13 @@ import { findAccessibleRegistryProjectBySlug } from "@/lib/registry-project-acce
 import { createRegistryProject } from "@/lib/registry-project-create";
 import { linkRegistryItemToProject } from "@/lib/registry-project-link-item";
 import { db } from "@/lib/db";
-import { registryItems, registryProjectItems, registryProjectMembers, registryProjects } from "@/lib/db/schema";
+import {
+  registryFiles,
+  registryItems,
+  registryProjectItems,
+  registryProjectMembers,
+  registryProjects,
+} from "@/lib/db/schema";
 import {
   checkInstalledItemUpdate,
   checkRegistryStatusItemUpdate,
@@ -279,10 +285,22 @@ export function createRegistryMcpServer(request?: Request) {
       return { ok: true as const, item: null };
     }
 
-    const item = await db.query.registryItems.findFirst({
-      where: eq(registryItems.id, row.id),
-      with: { files: true },
-    });
+    const [itemBase] = await db
+      .select()
+      .from(registryItems)
+      .where(eq(registryItems.id, row.id))
+      .limit(1);
+    if (!itemBase) {
+      return { ok: true as const, item: null };
+    }
+    const itemFiles = await db
+      .select()
+      .from(registryFiles)
+      .where(eq(registryFiles.itemId, itemBase.id));
+    const item = {
+      ...itemBase,
+      files: itemFiles,
+    };
 
     return { ok: true as const, item: item ?? null };
   }

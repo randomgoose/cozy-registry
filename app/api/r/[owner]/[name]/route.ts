@@ -15,6 +15,7 @@ import { getRegistryPolicyForApiKey } from "@/lib/registry-policy";
 import { findAccessibleRegistryProjectBySlug } from "@/lib/registry-project-access";
 import { db } from "@/lib/db";
 import {
+  registryFiles,
   registryFileVersions,
   registryItems,
   registryItemVersions,
@@ -68,10 +69,20 @@ export async function GET(
       .limit(1);
     if (!linked) return null;
 
-    const base = await db.query.registryItems.findFirst({
-      where: eq(registryItems.id, linked.itemId),
-      with: { files: true },
-    });
+    const [baseItem] = await db
+      .select()
+      .from(registryItems)
+      .where(eq(registryItems.id, linked.itemId))
+      .limit(1);
+    if (!baseItem) return null;
+    const baseFiles = await db
+      .select()
+      .from(registryFiles)
+      .where(eq(registryFiles.itemId, linked.itemId));
+    const base = {
+      ...baseItem,
+      files: baseFiles,
+    };
     if (!base || (base.status !== "active" && base.status !== "archived")) return null;
 
     const currentVer = getCurrentVersion(base);
