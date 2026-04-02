@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import {
-  deleteOrganizationRegistryItem,
-  deleteRegistryItem,
+  archiveOrganizationRegistryItem,
+  archiveRegistryItem,
   getRegistryItemByOwnerNameAndVersion,
+  permanentlyDeleteOrganizationRegistryItem,
+  permanentlyDeleteRegistryItem,
   updateOrganizationRegistryItemVisibility,
   updateRegistryItemVisibility,
 } from "@/lib/registry";
@@ -23,6 +25,10 @@ type Params = { params: Promise<{ owner: string; name: string }> };
  */
 export async function DELETE(request: Request, { params }: Params) {
   const { owner, name } = await params;
+  const { searchParams } = new URL(request.url);
+  const permanentDelete =
+    searchParams.get("mode") === "permanent" || searchParams.get("permanent") === "true";
+  const lifecycleReason = searchParams.get("reason");
 
   let userId: string | null = null;
   const session = await auth.api.getSession({ headers: await headers() });
@@ -46,35 +52,65 @@ export async function DELETE(request: Request, { params }: Params) {
       if (!organizationId) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      await deleteOrganizationRegistryItem({
-        organizationId,
-        name,
-        requestUserId: userId,
-        ownerRef: owner,
-      });
-      return NextResponse.json({ success: true });
+      if (permanentDelete) {
+        await permanentlyDeleteOrganizationRegistryItem({
+          organizationId,
+          name,
+          requestUserId: userId,
+          ownerRef: owner,
+          lifecycleReason,
+        });
+      } else {
+        await archiveOrganizationRegistryItem({
+          organizationId,
+          name,
+          requestUserId: userId,
+          lifecycleReason,
+        });
+      }
+      return NextResponse.json({ success: true, action: permanentDelete ? "deleted" : "archived" });
     }
 
     const resolvedUser = await resolveOwner(owner);
     if (resolvedUser) {
-      await deleteRegistryItem({
-        ownerId: resolvedUser.userId,
-        name,
-        requestUserId: userId,
-        ownerRef: owner,
-      });
-      return NextResponse.json({ success: true });
+      if (permanentDelete) {
+        await permanentlyDeleteRegistryItem({
+          ownerId: resolvedUser.userId,
+          name,
+          requestUserId: userId,
+          ownerRef: owner,
+          lifecycleReason,
+        });
+      } else {
+        await archiveRegistryItem({
+          ownerId: resolvedUser.userId,
+          name,
+          requestUserId: userId,
+          lifecycleReason,
+        });
+      }
+      return NextResponse.json({ success: true, action: permanentDelete ? "deleted" : "archived" });
     }
 
     const org = await resolveOrganizationBySlug(owner);
     if (org) {
-      await deleteOrganizationRegistryItem({
-        organizationId: org.id,
-        name,
-        requestUserId: userId,
-        ownerRef: owner,
-      });
-      return NextResponse.json({ success: true });
+      if (permanentDelete) {
+        await permanentlyDeleteOrganizationRegistryItem({
+          organizationId: org.id,
+          name,
+          requestUserId: userId,
+          ownerRef: owner,
+          lifecycleReason,
+        });
+      } else {
+        await archiveOrganizationRegistryItem({
+          organizationId: org.id,
+          name,
+          requestUserId: userId,
+          lifecycleReason,
+        });
+      }
+      return NextResponse.json({ success: true, action: permanentDelete ? "deleted" : "archived" });
     }
 
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -83,8 +119,11 @@ export async function DELETE(request: Request, { params }: Params) {
     if (msg.includes("not found") || msg.includes("no access")) {
       return NextResponse.json({ error: msg }, { status: 404 });
     }
-    if (msg.includes("Only owner")) {
+    if (msg.includes("Only owner") || msg.includes("Only organization editors")) {
       return NextResponse.json({ error: msg }, { status: 403 });
+    }
+    if (msg.includes("archived first")) {
+      return NextResponse.json({ error: msg, code: "ARCHIVE_REQUIRED" }, { status: 409 });
     }
     if (msg.includes("Cannot delete: still referenced")) {
       return NextResponse.json(
@@ -119,6 +158,8 @@ export async function GET(_request: Request, { params }: Params) {
     description: item.description,
     type: item.type,
     visibility: item.visibility,
+    status: item.status,
+    archivedAt: item.archivedAt,
   });
 }
 
@@ -211,6 +252,9 @@ export async function PATCH(request: Request, { params }: Params) {
     }
     if (msg.includes("Only owner")) {
       return NextResponse.json({ error: msg }, { status: 403 });
+    }
+    if (msg.includes("cannot be modified")) {
+      return NextResponse.json({ error: msg, code: "ITEM_ARCHIVED" }, { status: 409 });
     }
     return NextResponse.json({ error: msg }, { status: 500 });
   }

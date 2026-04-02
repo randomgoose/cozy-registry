@@ -7,6 +7,7 @@ import {
   getRegistryItemByOwnerNameAndVersionScoped,
   toShadcnRegistryItem,
 } from "@/lib/registry";
+import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-governance";
 import { getAuthContextFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
 import { getOrganizationCanonicalOwnerRef } from "@/lib/registry-organization";
@@ -71,7 +72,7 @@ export async function GET(
       where: eq(registryItems.id, linked.itemId),
       with: { files: true },
     });
-    if (!base) return null;
+    if (!base || (base.status !== "active" && base.status !== "archived")) return null;
 
     const currentVer = getCurrentVersion(base);
     if (!version || version === currentVer) return base;
@@ -92,6 +93,7 @@ export async function GET(
       description: itemVersion.description,
       dependencies: itemVersion.dependencies,
       registryDependencies: itemVersion.registryDependencies,
+      meta: itemVersion.meta ?? base.meta,
       files: versionFiles.map((f) => ({
         path: f.path,
         content: f.content,
@@ -150,6 +152,7 @@ export async function GET(
   return NextResponse.json({
     ...shadcnItem,
     dependencies: cleanDependencies,
+    dependencyDiagnostics: readDependencyDecisionsFromMeta(item.meta),
     files: filesWithHeader,
   });
 }

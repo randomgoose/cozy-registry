@@ -279,6 +279,12 @@ export const registryItems = pgTable(
     dependencies: jsonb("dependencies").$type<string[]>().default([]),
     registryDependencies: jsonb("registry_dependencies").$type<string[]>().default([]),
     meta: jsonb("meta").$type<Record<string, unknown>>().default({}),
+    status: text("status").default("active").notNull(), // active | archived | deleted
+    archivedAt: timestamp("archived_at"),
+    archivedBy: text("archived_by").references(() => user.id, { onDelete: "set null" }),
+    deletedAt: timestamp("deleted_at"),
+    deletedBy: text("deleted_by").references(() => user.id, { onDelete: "set null" }),
+    lifecycleReason: text("lifecycle_reason"),
     /** 当前发布版本号，如 "0.1.0"；null 表示旧数据，按 "0.1.0" 处理 */
     currentVersion: text("current_version"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -287,6 +293,7 @@ export const registryItems = pgTable(
   (table) => [
     index("registry_items_userId_idx").on(table.userId),
     index("registry_items_organization_id_idx").on(table.organizationId),
+    index("registry_items_status_idx").on(table.status),
     // Per-user unique: each user can have one component per name
     unique("registry_items_user_name_key").on(table.userId, table.name),
   ]
@@ -443,7 +450,7 @@ export const registryPreviewArtifacts = pgTable(
       .references(() => registryItemVersions.id, { onDelete: "cascade" }),
     mode: text("mode").default("default").notNull(), // default | thumbnail
     storyId: text("story_id").default("").notNull(), // empty means component-level preview
-    status: text("status").default("queued").notNull(), // queued | running | ready | failed
+    status: text("status").default("queued").notNull(), // queued | running | ready | failed | skipped
     artifactKey: text("artifact_key").notNull(),
     jsUrl: text("js_url"),
     cssUrl: text("css_url"),
@@ -468,6 +475,29 @@ export const registryPreviewArtifacts = pgTable(
       table.storyId,
     ),
     unique("registry_preview_artifacts_artifact_key_key").on(table.artifactKey),
+  ],
+);
+
+export const registryItemMoves = pgTable(
+  "registry_item_moves",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sourceItemId: uuid("source_item_id")
+      .notNull()
+      .references(() => registryItems.id, { onDelete: "cascade" }),
+    targetItemId: uuid("target_item_id")
+      .notNull()
+      .references(() => registryItems.id, { onDelete: "cascade" }),
+    sourceOwnerRef: text("source_owner_ref").notNull(),
+    targetOwnerRef: text("target_owner_ref").notNull(),
+    mode: text("mode").notNull(), // copy | move
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    notes: text("notes"),
+  },
+  (table) => [
+    index("registry_item_moves_source_item_id_idx").on(table.sourceItemId),
+    index("registry_item_moves_target_item_id_idx").on(table.targetItemId),
   ],
 );
 

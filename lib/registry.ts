@@ -5,6 +5,7 @@ import {
   registryFiles,
   registryItemVersions,
   registryFileVersions,
+  registryItemMoves,
   registryProjectItems,
   organization,
   user,
@@ -27,9 +28,19 @@ import {
 } from "@/lib/registry-types";
 import { maybeBuildRegistryThumbnail } from "@/lib/thumbnail";
 import { enqueueThumbnailJob } from "@/lib/thumbnail-jobs";
+import { enqueuePreviewArtifactJob } from "@/lib/preview-artifact-jobs";
+import { buildDependencySnapshot } from "@/lib/third-party-dependency-governance";
 
 const INITIAL_VERSION = "0.1.0";
 const DEFAULT_COMPONENT_ENTRY_PATH = "index.tsx";
+const ACTIVE_REGISTRY_ITEM_STATUS = "active";
+const ARCHIVED_REGISTRY_ITEM_STATUS = "archived";
+const DELETED_REGISTRY_ITEM_STATUS = "deleted";
+
+export type RegistryItemLifecycleStatus =
+  | typeof ACTIVE_REGISTRY_ITEM_STATUS
+  | typeof ARCHIVED_REGISTRY_ITEM_STATUS
+  | typeof DELETED_REGISTRY_ITEM_STATUS;
 
 // owner resolution is centralized in lib/owner.ts
 
@@ -56,6 +67,19 @@ function getDefaultRegistryEntryPath(type: string): string {
   return normalizeRegistryItemType(type) === REGISTRY_THEME_TYPE
     ? "theme.css"
     : DEFAULT_COMPONENT_ENTRY_PATH;
+}
+
+function isRegistryItemDirectlyResolvableStatus(status: string | null | undefined) {
+  return status === ACTIVE_REGISTRY_ITEM_STATUS || status === ARCHIVED_REGISTRY_ITEM_STATUS;
+}
+
+function ensureRegistryItemMutable(status: string | null | undefined) {
+  if (status === ARCHIVED_REGISTRY_ITEM_STATUS) {
+    throw new Error("Archived items cannot be modified");
+  }
+  if (status === DELETED_REGISTRY_ITEM_STATUS) {
+    throw new Error("Deleted items cannot be modified");
+  }
 }
 
 /** 根据 bump 类型计算下一版本号（简单 semver） */
@@ -89,6 +113,9 @@ export async function getRegistryItems(
       title: registryItems.title,
       description: registryItems.description,
       visibility: registryItems.visibility,
+      status: registryItems.status,
+      archivedAt: registryItems.archivedAt,
+      deletedAt: registryItems.deletedAt,
       createdAt: registryItems.createdAt,
       updatedAt: registryItems.updatedAt,
       currentVersion: registryItems.currentVersion,
@@ -97,15 +124,18 @@ export async function getRegistryItems(
     .from(registryItems)
     .leftJoin(user, eq(registryItems.userId, user.id))
     .where(
-      userId
-        ? or(
-            eq(registryItems.visibility, "public"),
-            and(
-              eq(registryItems.visibility, "private"),
-              eq(registryItems.userId, userId),
-            ),
-          )
-        : eq(registryItems.visibility, "public"),
+      and(
+        userId
+          ? or(
+              eq(registryItems.visibility, "public"),
+              and(
+                eq(registryItems.visibility, "private"),
+                eq(registryItems.userId, userId),
+              ),
+            )
+          : eq(registryItems.visibility, "public"),
+        eq(registryItems.status, ACTIVE_REGISTRY_ITEM_STATUS),
+      ),
     )
     .orderBy(registryItems.name);
 
@@ -190,6 +220,9 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
       title: registryItems.title,
       description: registryItems.description,
       visibility: registryItems.visibility,
+      status: registryItems.status,
+      archivedAt: registryItems.archivedAt,
+      deletedAt: registryItems.deletedAt,
       createdAt: registryItems.createdAt,
       updatedAt: registryItems.updatedAt,
       currentVersion: registryItems.currentVersion,
@@ -199,7 +232,10 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
     .leftJoin(user, eq(registryItems.userId, user.id))
     .leftJoin(organization, eq(registryItems.organizationId, organization.id));
 
-  const clauses = [visibleClause] as ReturnType<typeof and>[];
+  const clauses = [
+    visibleClause,
+    eq(registryItems.status, ACTIVE_REGISTRY_ITEM_STATUS),
+  ] as ReturnType<typeof and>[];
 
   if (allowedTypes.length > 0) {
     clauses.push(inArray(registryItems.type, allowedTypes));
@@ -263,7 +299,7 @@ export async function getRegistryItemByOwnerAndName(
       )
     );
 
-  if (!item) return null;
+  if (!item || !isRegistryItemDirectlyResolvableStatus(item.status)) return null;
 
   // Private item: only owner can access
   if (item.visibility === "private") {
@@ -292,7 +328,7 @@ export async function getRegistryItemByOrganizationAndName(
       ),
     );
 
-  if (!item) return null;
+  if (!item || !isRegistryItemDirectlyResolvableStatus(item.status)) return null;
 
   const files = await db
     .select()
@@ -333,6 +369,7 @@ export async function getRegistryDependencyAccessForRef(
     if (!organizationId) return "not_found";
     const item = await getRegistryItemByOrganizationAndName(organizationId, itemName);
     if (!item) return "not_found";
+    if (!isRegistryItemDirectlyResolvableStatus(item.status)) return "not_found";
     if (item.visibility === "private") {
       if (!requestUserId) return "denied";
       if (!(await isUserOrganizationMember(requestUserId, organizationId))) return "denied";
@@ -346,6 +383,7 @@ export async function getRegistryDependencyAccessForRef(
       .select({
         userId: registryItems.userId,
         visibility: registryItems.visibility,
+        status: registryItems.status,
       })
       .from(registryItems)
       .where(
@@ -355,7 +393,9 @@ export async function getRegistryDependencyAccessForRef(
         ),
       )
       .limit(1);
-    if (!row || !row.userId) return "not_found";
+    if (!row || !row.userId || !isRegistryItemDirectlyResolvableStatus(row.status)) {
+      return "not_found";
+    }
     if (row.visibility === "private" && row.userId !== requestUserId) return "denied";
     return "ok";
   }
@@ -365,6 +405,7 @@ export async function getRegistryDependencyAccessForRef(
   if (orgOnly) {
     const item = await getRegistryItemByOrganizationAndName(orgOnly.id, itemName);
     if (!item) return "not_found";
+    if (!isRegistryItemDirectlyResolvableStatus(item.status)) return "not_found";
     if (item.visibility === "private") {
       if (!requestUserId) return "denied";
       if (!(await isUserOrganizationMember(requestUserId, orgOnly.id))) return "denied";
@@ -485,6 +526,26 @@ function stripCozyHeader(content: string): string {
     return end >= 0 ? content.slice(end + 2).trimStart() : content;
   }
   return content;
+}
+
+function rewriteRegistryFileForOwner(params: {
+  ownerId: string;
+  itemName: string;
+  version: string;
+  path: string;
+  content: string;
+  type: string;
+}) {
+  const normalizedType = normalizeRegistryItemType(params.type);
+  const isCss =
+    normalizedType === REGISTRY_THEME_TYPE || params.path.toLowerCase().endsWith(".css");
+  return withCozyHeader({
+    ownerId: params.ownerId,
+    name: params.itemName,
+    version: params.version,
+    content: stripCozyHeader(params.content),
+    format: isCss ? "css" : "js",
+  });
 }
 
 async function loadRegistryItemVersionSnapshot<
@@ -739,6 +800,9 @@ export async function createRegistryItemVersion(params: {
   bump: "patch" | "minor" | "major";
   userId: string;
   message?: string;
+  dependencies?: string[];
+  declaredDependencies?: Array<{ name: string; version: string | null }>;
+  dependencyDecisions?: unknown;
   registryDependencies?: string[];
   /** 可选：更新用于预览的 props（将写回 registry_items.meta.previewProps） */
   previewProps?: unknown;
@@ -759,6 +823,7 @@ export async function createRegistryItemVersion(params: {
         )
       : null;
   if (!item) throw new Error("Item not found or no access");
+  ensureRegistryItemMutable(item.status);
   if (params.organizationId) {
     if (item.organizationId !== params.organizationId) {
       throw new Error("Only the owning organization can publish a new version");
@@ -777,6 +842,8 @@ export async function createRegistryItemVersion(params: {
   const currentVer = getCurrentVersion(item);
   const nextVersion = bumpVersion(currentVer, params.bump);
   const normalizedType = normalizeRegistryItemType(item.type);
+  const nextDependencies =
+    params.dependencies ?? ((item.dependencies ?? []) as string[]);
   const nextRegistryDependencies =
     params.registryDependencies ?? ((item.registryDependencies ?? []) as string[]);
 
@@ -834,6 +901,15 @@ export async function createRegistryItemVersion(params: {
       type: item.type,
     });
   }
+  const dependencySnapshot =
+    params.declaredDependencies !== undefined || params.dependencyDecisions !== undefined
+      ? buildDependencySnapshot({
+          declared: params.declaredDependencies,
+          decisions: Array.isArray(params.dependencyDecisions)
+            ? params.dependencyDecisions
+            : undefined,
+        })
+      : null;
 
   const [itemVersion] = await db
     .insert(registryItemVersions)
@@ -842,7 +918,7 @@ export async function createRegistryItemVersion(params: {
       version: nextVersion,
       title: item.title,
       description: item.description,
-      dependencies: item.dependencies ?? [],
+      dependencies: nextDependencies,
       registryDependencies: nextRegistryDependencies,
       meta: ((): Record<string, unknown> => {
         const next: Record<string, unknown> = {
@@ -850,6 +926,15 @@ export async function createRegistryItemVersion(params: {
           message: params.message,
           source: "vibe",
         };
+        if (params.declaredDependencies !== undefined) {
+          next.declaredDependencies = params.declaredDependencies;
+        }
+        if (params.dependencyDecisions !== undefined) {
+          next.dependencyDecisions = params.dependencyDecisions;
+        }
+        if (dependencySnapshot) {
+          next.dependencySnapshot = dependencySnapshot;
+        }
         if (params.previewProps !== undefined) {
           next.previewProps = params.previewProps;
         }
@@ -899,10 +984,13 @@ export async function createRegistryItemVersion(params: {
   await db
     .update(registryItems)
     .set({
+      dependencies: nextDependencies,
       currentVersion: nextVersion,
       registryDependencies: nextRegistryDependencies,
       updatedAt: new Date(),
       ...((params.previewProps !== undefined ||
+        params.declaredDependencies !== undefined ||
+        params.dependencyDecisions !== undefined ||
         params.previewExport !== undefined ||
         params.previewStories !== undefined ||
         params.previewDefaultStoryId !== undefined ||
@@ -910,6 +998,13 @@ export async function createRegistryItemVersion(params: {
         ? {
             meta: {
               ...baseMeta,
+              ...(params.declaredDependencies !== undefined
+                ? { declaredDependencies: params.declaredDependencies }
+                : {}),
+              ...(params.dependencyDecisions !== undefined
+                ? { dependencyDecisions: params.dependencyDecisions }
+                : {}),
+              ...(dependencySnapshot ? { dependencySnapshot } : {}),
               ...(params.previewProps !== undefined
                 ? { previewProps: params.previewProps }
                 : {}),
@@ -960,6 +1055,7 @@ export async function getRegistryItemByName(
   if (items.length === 0) return null;
   if (items.length === 1) {
     const item = items[0];
+    if (!isRegistryItemDirectlyResolvableStatus(item.status)) return null;
     if (item.visibility === "private" && (!requestUserId || item.userId !== requestUserId))
       return null;
     const files = await db
@@ -971,8 +1067,13 @@ export async function getRegistryItemByName(
 
   // Multiple: prefer owner's, then first public
   const ownerMatch = requestUserId ? items.find((i) => i.userId === requestUserId) : undefined;
-  const publicMatch = items.find((i) => i.visibility === "public");
-  const pick = ownerMatch ?? publicMatch ?? items[0];
+  const publicMatch = items.find(
+    (i) => i.visibility === "public" && isRegistryItemDirectlyResolvableStatus(i.status),
+  );
+  const pick =
+    [ownerMatch, publicMatch, ...items].find(
+      (item) => item && isRegistryItemDirectlyResolvableStatus(item.status),
+    ) ?? null;
   if (!pick) return null;
   if (pick.visibility === "private" && (!requestUserId || pick.userId !== requestUserId))
     return null;
@@ -1034,6 +1135,9 @@ export async function getRegistryItemsByUserId(userId: string) {
       title: registryItems.title,
       description: registryItems.description,
       visibility: registryItems.visibility,
+      status: registryItems.status,
+      archivedAt: registryItems.archivedAt,
+      deletedAt: registryItems.deletedAt,
       createdAt: registryItems.createdAt,
       updatedAt: registryItems.updatedAt,
       currentVersion: registryItems.currentVersion,
@@ -1064,6 +1168,9 @@ export async function getRegistryItemsByOrganizationId(organizationId: string) {
       title: registryItems.title,
       description: registryItems.description,
       visibility: registryItems.visibility,
+      status: registryItems.status,
+      archivedAt: registryItems.archivedAt,
+      deletedAt: registryItems.deletedAt,
       createdAt: registryItems.createdAt,
       updatedAt: registryItems.updatedAt,
       currentVersion: registryItems.currentVersion,
@@ -1108,6 +1215,9 @@ export async function getRegistryItemsForOrganization(
       title: registryItems.title,
       description: registryItems.description,
       visibility: registryItems.visibility,
+      status: registryItems.status,
+      archivedAt: registryItems.archivedAt,
+      deletedAt: registryItems.deletedAt,
       createdAt: registryItems.createdAt,
       updatedAt: registryItems.updatedAt,
       currentVersion: registryItems.currentVersion,
@@ -1116,7 +1226,7 @@ export async function getRegistryItemsForOrganization(
     .from(registryItems)
     .leftJoin(user, eq(registryItems.userId, user.id))
     .innerJoin(organization, eq(registryItems.organizationId, organization.id))
-    .where(visibilityClause)
+    .where(and(visibilityClause, eq(registryItems.status, ACTIVE_REGISTRY_ITEM_STATUS)))
     .orderBy(registryItems.name);
 
   if (pagination?.limit != null) {
@@ -1153,6 +1263,8 @@ export async function createRegistryItem(data: {
   organizationId?: string | null;
   visibility?: "public" | "private";
   dependencies?: string[];
+  declaredDependencies?: Array<{ name: string; version: string | null }>;
+  dependencyDecisions?: unknown;
   registryDependencies?: string[];
   /** 用于预览的 props 对象（会存入 registry_items.meta.previewProps） */
   previewProps?: unknown;
@@ -1189,6 +1301,15 @@ export async function createRegistryItem(data: {
     itemName: data.name,
     version: INITIAL_VERSION,
   });
+  const dependencySnapshot =
+    data.declaredDependencies !== undefined || data.dependencyDecisions !== undefined
+      ? buildDependencySnapshot({
+          declared: data.declaredDependencies,
+          decisions: Array.isArray(data.dependencyDecisions)
+            ? data.dependencyDecisions
+            : undefined,
+        })
+      : null;
   const [item] = await db
     .insert(registryItems)
     .values({
@@ -1199,9 +1320,17 @@ export async function createRegistryItem(data: {
       userId: data.userId ?? null,
       organizationId: data.organizationId ?? null,
       visibility: data.visibility ?? "public",
+      status: ACTIVE_REGISTRY_ITEM_STATUS,
       dependencies: data.dependencies ?? [],
       registryDependencies: data.registryDependencies ?? [],
       meta: {
+        ...(data.declaredDependencies !== undefined
+          ? { declaredDependencies: data.declaredDependencies }
+          : {}),
+        ...(data.dependencyDecisions !== undefined
+          ? { dependencyDecisions: data.dependencyDecisions }
+          : {}),
+        ...(dependencySnapshot ? { dependencySnapshot } : {}),
         ...(data.previewProps !== undefined ? { previewProps: data.previewProps } : {}),
         ...(data.previewExport !== undefined
           ? { previewExport: data.previewExport }
@@ -1264,6 +1393,13 @@ export async function createRegistryItem(data: {
       registryDependencies: data.registryDependencies ?? [],
       meta: {
         source: "initial",
+        ...(data.declaredDependencies !== undefined
+          ? { declaredDependencies: data.declaredDependencies }
+          : {}),
+        ...(data.dependencyDecisions !== undefined
+          ? { dependencyDecisions: data.dependencyDecisions }
+          : {}),
+        ...(dependencySnapshot ? { dependencySnapshot } : {}),
         ...(data.previewProps !== undefined ? { previewProps: data.previewProps } : {}),
         ...(data.previewExport !== undefined
           ? { previewExport: data.previewExport }
@@ -1310,15 +1446,14 @@ export async function createRegistryItem(data: {
 }
 
 /**
- * 删除组件（包括所有文件与版本）。仅 owner 可删除。
- * 若 `ownerRef` 与 `name` 给出，则阻止删除仍被其它条目的 `registryDependencies` 引用的组件。
+ * 默认删除语义是 archive-first：从 browse/search 隐藏，但保留 direct resolution、
+ * 历史版本与 preview 所需的数据面。
  */
-export async function deleteRegistryItem(params: {
+export async function archiveRegistryItem(params: {
   ownerId: string;
   name: string;
   requestUserId: string;
-  /** Public owner handle from URL (`@handle/name` 中的 handle) */
-  ownerRef?: string;
+  lifecycleReason?: string | null;
 }) {
   const item = await getRegistryItemByOwnerAndName(
     params.ownerId,
@@ -1329,7 +1464,97 @@ export async function deleteRegistryItem(params: {
     throw new Error("Item not found or no access");
   }
   if (item.userId !== params.requestUserId) {
-    throw new Error("Only owner can delete the component");
+    throw new Error("Only owner can archive the component");
+  }
+  if (item.status === ARCHIVED_REGISTRY_ITEM_STATUS) return item;
+  if (item.status === DELETED_REGISTRY_ITEM_STATUS) {
+    throw new Error("Deleted items cannot be archived");
+  }
+
+  const [updated] = await db
+    .update(registryItems)
+    .set({
+      status: ARCHIVED_REGISTRY_ITEM_STATUS,
+      archivedAt: new Date(),
+      archivedBy: params.requestUserId,
+      lifecycleReason: params.lifecycleReason ?? null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(registryItems.userId, params.ownerId),
+        eq(registryItems.name, params.name),
+      ),
+    )
+    .returning();
+
+  if (!updated) throw new Error("Failed to archive registry item");
+  return updated;
+}
+
+export async function archiveOrganizationRegistryItem(params: {
+  organizationId: string;
+  name: string;
+  requestUserId: string;
+  lifecycleReason?: string | null;
+}) {
+  const item = await getRegistryItemByOrganizationAndName(params.organizationId, params.name);
+  if (!item) {
+    throw new Error("Item not found or no access");
+  }
+  const writable = await getWritableOrganizationTargetForUser(
+    params.requestUserId,
+    params.organizationId,
+  );
+  if (!writable) {
+    throw new Error("Only owner or editor can archive the component");
+  }
+  if (item.status === ARCHIVED_REGISTRY_ITEM_STATUS) return item;
+  if (item.status === DELETED_REGISTRY_ITEM_STATUS) {
+    throw new Error("Deleted items cannot be archived");
+  }
+
+  const [updated] = await db
+    .update(registryItems)
+    .set({
+      status: ARCHIVED_REGISTRY_ITEM_STATUS,
+      archivedAt: new Date(),
+      archivedBy: params.requestUserId,
+      lifecycleReason: params.lifecycleReason ?? null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(registryItems.organizationId, params.organizationId),
+        eq(registryItems.name, params.name),
+      ),
+    )
+    .returning();
+
+  if (!updated) throw new Error("Failed to archive registry item");
+  return updated;
+}
+
+export async function permanentlyDeleteRegistryItem(params: {
+  ownerId: string;
+  name: string;
+  requestUserId: string;
+  ownerRef?: string;
+  lifecycleReason?: string | null;
+}) {
+  const item = await getRegistryItemByOwnerAndName(
+    params.ownerId,
+    params.name,
+    params.requestUserId,
+  );
+  if (!item) {
+    throw new Error("Item not found or no access");
+  }
+  if (item.userId !== params.requestUserId) {
+    throw new Error("Only owner can permanently delete the component");
+  }
+  if (item.status !== ARCHIVED_REGISTRY_ITEM_STATUS) {
+    throw new Error("Permanent delete requires the item to be archived first");
   }
 
   if (params.ownerRef) {
@@ -1349,21 +1574,28 @@ export async function deleteRegistryItem(params: {
     }
   }
 
-  await db
-    .delete(registryItems)
-    .where(
-      and(
-        eq(registryItems.userId, params.ownerId),
-        eq(registryItems.name, params.name),
-      ),
-    );
+  const [marked] = await db
+    .update(registryItems)
+    .set({
+      status: DELETED_REGISTRY_ITEM_STATUS,
+      deletedAt: new Date(),
+      deletedBy: params.requestUserId,
+      lifecycleReason: params.lifecycleReason ?? item.lifecycleReason ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(registryItems.id, item.id))
+    .returning({ id: registryItems.id });
+  if (!marked) throw new Error("Failed to mark registry item deleted");
+
+  await db.delete(registryItems).where(eq(registryItems.id, item.id));
 }
 
-export async function deleteOrganizationRegistryItem(params: {
+export async function permanentlyDeleteOrganizationRegistryItem(params: {
   organizationId: string;
   name: string;
   requestUserId: string;
   ownerRef?: string;
+  lifecycleReason?: string | null;
 }) {
   const item = await getRegistryItemByOrganizationAndName(params.organizationId, params.name);
   if (!item) {
@@ -1374,14 +1606,14 @@ export async function deleteOrganizationRegistryItem(params: {
     params.organizationId,
   );
   if (!writable) {
-    throw new Error("Only owner or editor can delete the component");
+    throw new Error("Only owner or editor can permanently delete the component");
+  }
+  if (item.status !== ARCHIVED_REGISTRY_ITEM_STATUS) {
+    throw new Error("Permanent delete requires the item to be archived first");
   }
 
   if (params.ownerRef) {
-    const referrers = await findRegistryItemsReferencing(
-      params.ownerRef,
-      params.name,
-    );
+    const referrers = await findRegistryItemsReferencing(params.ownerRef, params.name);
     const externalReferrers = referrers.filter(
       (r) => !(r.ownerHandle === params.ownerRef && r.itemName === params.name),
     );
@@ -1396,14 +1628,216 @@ export async function deleteOrganizationRegistryItem(params: {
     }
   }
 
-  await db
-    .delete(registryItems)
+  const [marked] = await db
+    .update(registryItems)
+    .set({
+      status: DELETED_REGISTRY_ITEM_STATUS,
+      deletedAt: new Date(),
+      deletedBy: params.requestUserId,
+      lifecycleReason: params.lifecycleReason ?? item.lifecycleReason ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(registryItems.id, item.id))
+    .returning({ id: registryItems.id });
+  if (!marked) throw new Error("Failed to mark registry item deleted");
+
+  await db.delete(registryItems).where(eq(registryItems.id, item.id));
+}
+
+export async function copyOrMoveRegistryItemToOrganization(params: {
+  sourceOwnerRef: string;
+  name: string;
+  requestUserId: string;
+  targetOrganizationId: string;
+  mode: "copy" | "move";
+  notes?: string | null;
+}) {
+  const sourceItem = await getRegistryItemByOwnerNameAndVersion(
+    params.sourceOwnerRef,
+    params.name,
+    null,
+    params.requestUserId,
+  );
+  if (!sourceItem) {
+    throw new Error("Source item not found or no access");
+  }
+  if (!isRegistryItemDirectlyResolvableStatus(sourceItem.status)) {
+    throw new Error("Source item is not movable");
+  }
+
+  if (sourceItem.organizationId) {
+    const sourceWritable = await getWritableOrganizationTargetForUser(
+      params.requestUserId,
+      sourceItem.organizationId,
+    );
+    if (!sourceWritable) {
+      throw new Error("Only organization editors can move this component");
+    }
+  } else if (sourceItem.userId !== params.requestUserId) {
+    throw new Error("Only owner can move the component");
+  }
+
+  const targetWritable = await getWritableOrganizationTargetForUser(
+    params.requestUserId,
+    params.targetOrganizationId,
+  );
+  if (!targetWritable) {
+    throw new Error("You do not have write access to the target organization");
+  }
+
+  const [conflict] = await db
+    .select({ id: registryItems.id })
+    .from(registryItems)
     .where(
       and(
-        eq(registryItems.organizationId, params.organizationId),
+        eq(registryItems.organizationId, params.targetOrganizationId),
         eq(registryItems.name, params.name),
       ),
+    )
+    .limit(1);
+  if (conflict) {
+    throw new Error("Target organization already has an item with this name");
+  }
+
+  const currentVersion = getCurrentVersion(sourceItem);
+  const targetOwnerRef =
+    (await getOrganizationCanonicalOwnerRef(params.targetOrganizationId)) ??
+    targetWritable.slug;
+  const sourceMeta =
+    sourceItem.meta && typeof sourceItem.meta === "object" ? sourceItem.meta : {};
+  const targetMeta: Record<string, unknown> = {
+    ...sourceMeta,
+    movedFrom: `@${params.sourceOwnerRef}/${params.name}`,
+    movedFromVersion: currentVersion,
+  };
+
+  const rewrittenFiles = (sourceItem.files ?? []).map((file) => ({
+    path: file.path,
+    type: file.type,
+    content: rewriteRegistryFileForOwner({
+      ownerId: targetOwnerRef,
+      itemName: params.name,
+      version: currentVersion,
+      path: file.path,
+      content: file.content,
+      type: file.type,
+    }),
+  }));
+
+  const [targetItem] = await db
+    .insert(registryItems)
+    .values({
+      userId: null,
+      organizationId: params.targetOrganizationId,
+      name: sourceItem.name,
+      type: sourceItem.type,
+      title: sourceItem.title,
+      description: sourceItem.description,
+      visibility: sourceItem.visibility,
+      status: ACTIVE_REGISTRY_ITEM_STATUS,
+      dependencies: sourceItem.dependencies ?? [],
+      registryDependencies: sourceItem.registryDependencies ?? [],
+      meta: targetMeta,
+      currentVersion,
+    })
+    .returning();
+  if (!targetItem) {
+    throw new Error("Failed to create target registry item");
+  }
+
+  if (rewrittenFiles.length > 0) {
+    await db.insert(registryFiles).values(
+      rewrittenFiles.map((file) => ({
+        itemId: targetItem.id,
+        path: file.path,
+        content: file.content,
+        type: file.type,
+      })),
     );
+  }
+
+  const [targetVersion] = await db
+    .insert(registryItemVersions)
+    .values({
+      itemId: targetItem.id,
+      version: currentVersion,
+      title: sourceItem.title,
+      description: sourceItem.description,
+      dependencies: sourceItem.dependencies ?? [],
+      registryDependencies: sourceItem.registryDependencies ?? [],
+      meta: targetMeta,
+      createdBy: params.requestUserId,
+    })
+    .returning();
+  if (!targetVersion) {
+    throw new Error("Failed to create target registry version");
+  }
+
+  if (rewrittenFiles.length > 0) {
+    await db.insert(registryFileVersions).values(
+      rewrittenFiles.map((file) => ({
+        itemVersionId: targetVersion.id,
+        path: file.path,
+        content: file.content,
+        type: file.type,
+      })),
+    );
+  }
+
+  await db.insert(registryItemMoves).values({
+    sourceItemId: sourceItem.id,
+    targetItemId: targetItem.id,
+    sourceOwnerRef: params.sourceOwnerRef,
+    targetOwnerRef,
+    mode: params.mode,
+    createdBy: params.requestUserId,
+    notes: params.notes ?? null,
+  });
+
+  await enqueueThumbnailJob({
+    itemId: targetItem.id,
+    itemVersionId: targetVersion.id,
+    payload: {
+      ownerId: targetOwnerRef,
+      ownerHandle: null,
+      name: targetItem.name,
+      version: currentVersion,
+      type: normalizeRegistryItemType(targetItem.type),
+    },
+  });
+
+  await enqueuePreviewArtifactJob({
+    itemId: targetItem.id,
+    itemVersionId: targetVersion.id,
+    payload: {
+      owner: targetOwnerRef,
+      name: targetItem.name,
+      version: currentVersion,
+      mode: "default",
+      requestUserId: params.requestUserId,
+    },
+  });
+
+  if (params.mode === "move") {
+    await db
+      .update(registryItems)
+      .set({
+        status: ARCHIVED_REGISTRY_ITEM_STATUS,
+        archivedAt: new Date(),
+        archivedBy: params.requestUserId,
+        lifecycleReason: `Moved to @${targetOwnerRef}/${params.name}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(registryItems.id, sourceItem.id));
+  }
+
+  return {
+    sourceItemId: sourceItem.id,
+    targetItemId: targetItem.id,
+    targetOwnerRef,
+    version: currentVersion,
+    sourceArchived: params.mode === "move",
+  };
 }
 
 /**
@@ -1426,6 +1860,7 @@ export async function updateRegistryItemVisibility(params: {
   if (item.userId !== params.requestUserId) {
     throw new Error("Only owner can update visibility");
   }
+  ensureRegistryItemMutable(item.status);
 
   const [updated] = await db
     .update(registryItems)
@@ -1462,6 +1897,7 @@ export async function updateOrganizationRegistryItemVisibility(params: {
   if (!writable) {
     throw new Error("Only owner or editor can update visibility");
   }
+  ensureRegistryItemMutable(item.status);
 
   const [updated] = await db
     .update(registryItems)

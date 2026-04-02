@@ -10,10 +10,21 @@ import {
   REGISTRY_THEME_TYPE,
   normalizeRegistryItemType,
 } from "@/lib/registry-types";
-import { validateComponentBundle, validateTsx } from "@/lib/validate-tsx";
+import {
+  extractDependencies,
+  validateComponentBundle,
+  validateTsx,
+} from "@/lib/validate-tsx";
 import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
 import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
+import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
 import { normalizePublishContract } from "@/lib/registry-publish-contract";
+import { normalizeThirdPartyDependenciesInput } from "@/lib/third-party-dependency-input";
+import {
+  evaluateThirdPartyDependencies,
+  excludeExplicitRegistryDependencies,
+  getRejectedDependencyDecisions,
+} from "@/lib/third-party-dependency-governance";
 import { getWritableOrganizationTargetForUser } from "@/lib/publish-target";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
 import { publishFailureCategoryForCode } from "@/lib/registry-publish-failure";
@@ -31,6 +42,7 @@ type VersionRequestBody = {
   provenance?: unknown;
   provenancePolicy?: unknown;
   applyStubInference?: unknown;
+  dependencies?: unknown;
 };
 
 /** 获取组件的版本列表 + 当前版本 */
@@ -83,6 +95,32 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const { content, files, bump, message } = body;
+  const normalizedDeclaredDependencies = normalizeThirdPartyDependenciesInput(
+    body.dependencies,
+  );
+  if (normalizedDeclaredDependencies.error) {
+    return NextResponse.json(
+      {
+        error: normalizedDeclaredDependencies.error,
+        code: "DEPENDENCIES_INVALID_FORMAT",
+        failureCategory: publishFailureCategoryForCode("DEPENDENCIES_INVALID_FORMAT"),
+      },
+      { status: 400 },
+    );
+  }
+  const normalizedRegistryDependencies = normalizeRegistryDependenciesInput(
+    body.registryDependencies,
+  );
+  if (normalizedRegistryDependencies.error) {
+    return NextResponse.json(
+      {
+        error: normalizedRegistryDependencies.error,
+        code: "REGDEP_INVALID_FORMAT",
+        failureCategory: publishFailureCategoryForCode("REGDEP_INVALID_FORMAT"),
+      },
+      { status: 400 },
+    );
+  }
 
   const item = await getRegistryItemByOwnerNameAndVersion(
     owner,
@@ -162,6 +200,51 @@ export async function POST(request: Request, { params }: Params) {
       };
       finalContent = undefined;
     }
+  }
+
+  const dependencies = (() => {
+    if (isTheme) return [];
+    const isBare = (spec: string) =>
+      !spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/");
+    const all = new Set<string>();
+    const addDepsFromSource = (src: string | undefined) => {
+      if (!src) return;
+      for (const dep of extractDependencies(src)) {
+        if (isBare(dep)) all.add(dep);
+      }
+    };
+    if (finalFiles) {
+      for (const src of Object.values(finalFiles)) {
+        addDepsFromSource(src);
+      }
+    } else {
+      addDepsFromSource(finalContent);
+    }
+    return Array.from(all).sort();
+  })();
+  const dependencyDecisions = evaluateThirdPartyDependencies({
+    discovered: excludeExplicitRegistryDependencies(
+      dependencies,
+      normalizedRegistryDependencies.value,
+    ),
+    declared: normalizedDeclaredDependencies.value,
+  });
+  const rejectedDependencies = getRejectedDependencyDecisions(
+    dependencyDecisions,
+  );
+  if (rejectedDependencies.length > 0) {
+    const lines = rejectedDependencies
+      .map((decision) => `- ${decision.packageName}: ${decision.message}`)
+      .join("\n");
+    return NextResponse.json(
+      {
+        error: `Unsupported third-party dependencies:\n${lines}`,
+        code: "THIRD_PARTY_DEPENDENCY_REJECTED",
+        failureCategory: publishFailureCategoryForCode("THIRD_PARTY_DEPENDENCY_REJECTED"),
+        dependencyDiagnostics: dependencyDecisions,
+      },
+      { status: 400 },
+    );
   }
 
   const contract = normalizePublishContract({
@@ -278,6 +361,7 @@ export async function POST(request: Request, { params }: Params) {
         previewProps: contract.value.previewProps,
         previewExport: contract.value.previewExport,
         registryDependencies: nextRegistryDependencies,
+        dependencyDecisions,
         requestUserId: userId,
       });
       if (!smoke.ok) {
@@ -301,6 +385,9 @@ export async function POST(request: Request, { params }: Params) {
       bump: bumpType,
       userId,
       message: typeof message === "string" ? message : undefined,
+      dependencies,
+      declaredDependencies: normalizedDeclaredDependencies.value,
+      dependencyDecisions,
       registryDependencies: contract.value.registryDependenciesToWrite,
       previewProps: contract.value.previewProps,
       previewExport: contract.value.previewExport,
@@ -309,6 +396,7 @@ export async function POST(request: Request, { params }: Params) {
       version: result.version,
       hints,
       publishDiagnostics: {
+        dependencyDiagnostics: dependencyDecisions,
         appliedRegistryDependencies:
           contract.value.appliedRegistryDependencies ??
           contract.value.registryDependenciesToWrite ??
@@ -329,6 +417,9 @@ export async function POST(request: Request, { params }: Params) {
     }
     if (msg.includes("Only owner")) {
       return NextResponse.json({ error: msg }, { status: 403 });
+    }
+    if (msg.includes("cannot be modified")) {
+      return NextResponse.json({ error: msg, code: "ITEM_ARCHIVED" }, { status: 409 });
     }
     return NextResponse.json({ error: msg }, { status: 500 });
   }

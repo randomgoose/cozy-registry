@@ -3,10 +3,10 @@ import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import {
+  archiveOrganizationRegistryItem,
+  archiveRegistryItem,
   createRegistryItem,
   createRegistryItemVersion,
-  deleteOrganizationRegistryItem,
-  deleteRegistryItem,
   getCurrentVersion,
   getRegistryItemByName,
   getRegistryItemByOrganizationAndName,
@@ -27,6 +27,13 @@ import {
 import { findAppSpecificUsage } from "@/lib/registry-app-usage-scan";
 import { normalizePublishThemeArgs } from "@/lib/theme-publish-args";
 import { diagnosePublishReadiness } from "@/lib/diagnose-publish-readiness";
+import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
+import { normalizeThirdPartyDependenciesInput } from "@/lib/third-party-dependency-input";
+import {
+  evaluateThirdPartyDependencies,
+  excludeExplicitRegistryDependencies,
+  getRejectedDependencyDecisions,
+} from "@/lib/third-party-dependency-governance";
 import { getAuthContextFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
 import {
@@ -2133,30 +2140,27 @@ ${fileContent}
         }
         canonicalOwner =
           (await getOrganizationCanonicalOwnerRef(organizationId)) ?? ownerId;
-        await deleteOrganizationRegistryItem({
+        await archiveOrganizationRegistryItem({
           organizationId,
           name,
           requestUserId: userId,
-          ownerRef: canonicalOwner,
         });
       } else {
         const orgOnly = await resolveOrganizationBySlug(ownerId);
         if (orgOnly) {
           canonicalOwner =
             (await getOrganizationCanonicalOwnerRef(orgOnly.id)) ?? ownerId;
-          await deleteOrganizationRegistryItem({
+          await archiveOrganizationRegistryItem({
             organizationId: orgOnly.id,
             name,
             requestUserId: userId,
-            ownerRef: canonicalOwner,
           });
         } else {
           canonicalOwner = (await resolveOwner(ownerId))?.handle ?? ownerId;
-          await deleteRegistryItem({
+          await archiveRegistryItem({
             ownerId,
             name,
             requestUserId: userId,
-            ownerRef: canonicalOwner,
           });
         }
       }
@@ -2165,7 +2169,7 @@ ${fileContent}
         content: [
           {
             type: "text" as const,
-            text: `Deleted component @${canonicalOwner}/${name} and all of its versions.`,
+            text: `Archived component @${canonicalOwner}/${name}. It is now hidden from browse/search but remains directly resolvable for historical references.`,
           },
         ],
       };
@@ -2234,6 +2238,12 @@ ${fileContent}
           .record(z.string(), z.string())
           .optional()
           .describe("Multi-file bundle; same as publish_component."),
+        dependencies: z
+          .unknown()
+          .optional()
+          .describe(
+            "Optional explicit third-party dependency declarations, for example [{\"name\":\"lucide-react\",\"version\":\"0.511.0\"}]. Missing versions are allowed but force runtime-only compatibility mode.",
+          ),
         registryDependencies: z.unknown().optional(),
         previewProps: z.unknown().optional(),
         previewExport: z.string().optional(),
@@ -2272,6 +2282,7 @@ ${fileContent}
         code: args.code,
         files: args.files,
         input: {
+          dependencies: args.dependencies,
           registryDependencies: args.registryDependencies,
           previewProps: args.previewProps,
           previewExport: args.previewExport,
@@ -2413,6 +2424,12 @@ ${fileContent}
         .optional()
         .describe(
           "Optional explicit refs, e.g. [\"@owner/theme\", \"@owner/button@1.0.0\"]. Not auto-filled; use list_components / suggest_registry_dependencies to choose. Omit on version update to inherit previous.",
+        ),
+      dependencies: z
+        .unknown()
+        .optional()
+        .describe(
+          "Optional explicit third-party dependency declarations, for example [{\"name\":\"lucide-react\",\"version\":\"0.511.0\"}]. Missing versions are allowed but force runtime-only compatibility mode.",
         ),
       provenance: z
         .unknown()
@@ -2778,6 +2795,15 @@ ${fileContent}
       })();
 
       if (existing) {
+        const normalizedDeclaredDependencies = normalizeThirdPartyDependenciesInput(
+          args.dependencies,
+        );
+        if (normalizedDeclaredDependencies.error) {
+          return {
+            content: [{ type: "text" as const, text: normalizedDeclaredDependencies.error }],
+            isError: true,
+          };
+        }
         const contract = normalizePublishContract({
           mode: "version",
           input: args as {
@@ -2809,6 +2835,54 @@ ${fileContent}
         const nextRegistryDependencies =
           contract.value.registryDependenciesToWrite ??
           ((existing.registryDependencies ?? []) as string[]);
+        const dependencies = (() => {
+          const isBare = (spec: string) =>
+            !spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/");
+
+          const allDeps = new Set<string>();
+          const addDepsFromSource = (src: string | undefined | null) => {
+            if (!src) return;
+            for (const dep of extractDependencies(src)) {
+              if (isBare(dep)) allDeps.add(dep);
+            }
+          };
+
+          if (nextFiles) {
+            for (const source of Object.values(nextFiles)) {
+              if (typeof source !== "string") continue;
+              addDepsFromSource(source);
+            }
+          } else {
+            addDepsFromSource(content ?? undefined);
+          }
+
+          return Array.from(allDeps).sort();
+        })();
+        const dependencyDecisions = evaluateThirdPartyDependencies({
+          discovered: excludeExplicitRegistryDependencies(
+            dependencies,
+            nextRegistryDependencies,
+          ),
+          declared: normalizedDeclaredDependencies.value,
+        });
+        const rejectedDependencies = getRejectedDependencyDecisions(
+          dependencyDecisions,
+        );
+        if (rejectedDependencies.length > 0) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  "Unsupported third-party dependencies: " +
+                  rejectedDependencies
+                    .map((decision) => `${decision.packageName} (${decision.message})`)
+                    .join(", "),
+              },
+            ],
+            isError: true,
+          };
+        }
         if (!isTheme) {
           const smoke = await runRegistryPreviewSmokeTest({
             name,
@@ -2817,6 +2891,7 @@ ${fileContent}
             previewProps: contract.value.previewProps,
             previewExport: contract.value.previewExport,
             registryDependencies: nextRegistryDependencies,
+            dependencyDecisions,
             requestUserId: userId,
           });
           if (!smoke.ok) {
@@ -2842,6 +2917,9 @@ ${fileContent}
           bump: bumpType,
           userId,
           message: description || undefined,
+          dependencies,
+          declaredDependencies: normalizedDeclaredDependencies.value,
+          dependencyDecisions,
           previewProps: contract.value.previewProps,
           previewExport: contract.value.previewExport,
           previewStories: args.previewStories,
@@ -2945,6 +3023,43 @@ ${fileContent}
 
         return Array.from(allDeps).sort();
       })();
+      const normalizedDeclaredDependencies = normalizeThirdPartyDependenciesInput(
+        args.dependencies,
+      );
+      if (normalizedDeclaredDependencies.error) {
+        return {
+          content: [{ type: "text" as const, text: normalizedDeclaredDependencies.error }],
+          isError: true,
+        };
+      }
+      const normalizedRegistryDependencies = normalizeRegistryDependenciesInput(
+        args.registryDependencies,
+      );
+      const dependencyDecisions = evaluateThirdPartyDependencies({
+        discovered: excludeExplicitRegistryDependencies(
+          dependencies,
+          normalizedRegistryDependencies.value,
+        ),
+        declared: normalizedDeclaredDependencies.value,
+      });
+      const rejectedDependencies = getRejectedDependencyDecisions(
+        dependencyDecisions,
+      );
+      if (rejectedDependencies.length > 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                "Unsupported third-party dependencies: " +
+                rejectedDependencies
+                  .map((decision) => `${decision.packageName} (${decision.message})`)
+                  .join(", "),
+            },
+          ],
+          isError: true,
+        };
+      }
       const contract = normalizePublishContract({
         mode: "create",
         input: args as {
@@ -2981,6 +3096,7 @@ ${fileContent}
           previewProps: contract.value.previewProps,
           previewExport: contract.value.previewExport,
           registryDependencies: nextRegistryDependencies,
+          dependencyDecisions,
           requestUserId: userId,
         });
         if (!smoke.ok) {
@@ -3008,6 +3124,8 @@ ${fileContent}
         organizationId: orgTarget?.id ?? null,
         visibility: visibility === "public" ? "public" : "private",
         dependencies,
+        declaredDependencies: normalizedDeclaredDependencies.value,
+        dependencyDecisions,
         registryDependencies: nextRegistryDependencies,
         previewProps: contract.value.previewProps,
         previewExport: contract.value.previewExport,

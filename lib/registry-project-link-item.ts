@@ -28,12 +28,16 @@ export async function linkRegistryItemToProject(params: {
       id: registryItems.id,
       userId: registryItems.userId,
       organizationId: registryItems.organizationId,
+      status: registryItems.status,
     })
     .from(registryItems)
     .where(eq(registryItems.id, itemId))
     .limit(1);
   if (!item) {
     return { ok: false, error: "Registry item not found" };
+  }
+  if (item.status !== "active") {
+    return { ok: false, error: "Only active registry items can be linked to projects" };
   }
 
   if (project.organizationId) {
