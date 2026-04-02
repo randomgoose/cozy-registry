@@ -109,8 +109,16 @@ export async function GET(request: Request) {
     lastError:
       artifact.lastErrorCode || artifact.lastErrorMessage
         ? {
-            code: artifact.lastErrorCode ?? "PREVIEW_ARTIFACT_BUILD_FAILED",
-            message: artifact.lastErrorMessage ?? "Preview artifact build failed.",
+            code:
+              artifact.lastErrorCode ??
+              (artifact.status === "skipped"
+                ? "SKIPPED_POLICY_NO_PREBUNDLE"
+                : "PREVIEW_ARTIFACT_BUILD_FAILED"),
+            message:
+              artifact.lastErrorMessage ??
+              (artifact.status === "skipped"
+                ? "Preview artifact prebundle was skipped by policy."
+                : "Preview artifact build failed."),
           }
         : null,
   });

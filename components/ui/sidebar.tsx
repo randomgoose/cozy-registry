@@ -106,7 +106,7 @@ function SidebarHeader({
   return (
     <div
       className={cn(
-        "mb-3 flex items-center",
+        "mb-1 flex items-center",
         open ? "justify-between" : "justify-center",
         className,
       )}

@@ -14,7 +14,6 @@ import {
 } from "@/lib/preview-messages";
 
 type Size = { width: number; height: number };
-const DEFAULT_STAGE_SIZE: Size = { width: 1200, height: 900 };
 
 export type PreviewFrameHandle = {
   sendPreviewProps: (props: Record<string, unknown>) => void;
@@ -54,6 +53,12 @@ export type PreviewFrameProps = {
   maxFitScaleMultiplier?: number;
   stageSize?: Size;
   interactive?: boolean;
+  /**
+   * When true, skip the intersection gate and load the iframe immediately.
+   * Use when multiple previews are stacked (e.g. keep-alive); hidden layers
+   * can otherwise stay below lazy + IO thresholds and never finish loading.
+   */
+  loadImmediately?: boolean;
 };
 
 type PreviewRuntimeErrorPayload = {
@@ -66,23 +71,11 @@ type PreviewRuntimeErrorPayload = {
 
 export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
   function PreviewFrame(props, ref) {
-    const {
-      src,
-      title,
-      className,
-      allowUpscale = true,
-      alignX = "center",
-      alignY = "center",
-      fitMode = "contain",
-      minFillHeight = 0,
-      maxFitScaleMultiplier = 1,
-      stageSize = DEFAULT_STAGE_SIZE,
-      interactive = false,
-    } = props;
+    const { src, title, className, interactive = false, loadImmediately = false } = props;
     const containerRef = useRef<HTMLDivElement | null>(null);
     const iframeRef = useRef<HTMLIFrameElement | null>(null);
-    const [containerSize, setContainerSize] = useState<Size>({ width: 0, height: 0 });
-    const [shouldLoad, setShouldLoad] = useState(false);
+    const [intersectionReady, setIntersectionReady] = useState(false);
+    const shouldSetSrc = loadImmediately || intersectionReady;
     const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
     const [runtimeError, setRuntimeError] = useState<PreviewRuntimeErrorPayload | null>(null);
     const loaded = loadedSrc === src;
@@ -123,28 +116,13 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
 
     useEffect(() => {
       const el = containerRef.current;
-      if (!el) return;
-
-      const ro = new ResizeObserver(() => {
-        const rect = el.getBoundingClientRect();
-        setContainerSize({
-          width: Math.max(0, Math.floor(rect.width)),
-          height: Math.max(0, Math.floor(rect.height)),
-        });
-      });
-      ro.observe(el);
-      return () => ro.disconnect();
-    }, []);
-
-    useEffect(() => {
-      const el = containerRef.current;
-      if (!el || shouldLoad) return;
+      if (!el || loadImmediately || intersectionReady) return;
 
       const observer = new IntersectionObserver(
         (entries) => {
           const entry = entries[0];
           if (!entry?.isIntersecting) return;
-          setShouldLoad(true);
+          setIntersectionReady(true);
           observer.disconnect();
         },
         { rootMargin: "240px 0px" },
@@ -152,66 +130,7 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
 
       observer.observe(el);
       return () => observer.disconnect();
-    }, [shouldLoad]);
-
-    const transform = useMemo(() => {
-      const cw = containerSize.width;
-      const ch = containerSize.height;
-      const iw = stageSize.width;
-      const ih = stageSize.height;
-
-      if (cw <= 0 || ch <= 0 || iw <= 0 || ih <= 0) {
-        return {
-          scale: 1,
-          tx: 0,
-          ty: 0,
-        };
-      }
-
-      if (fitMode === "actual") {
-        const scale = 1;
-        const tx = alignX === "left" ? 0 : (cw - iw * scale) / 2;
-        const ty = alignY === "top" ? 0 : (ch - ih * scale) / 2;
-        return { scale, tx, ty };
-      }
-
-      const fitScale =
-        fitMode === "fill-width"
-          ? cw / iw
-          : fitMode === "fill-height"
-            ? ch / ih
-            : fitMode === "cover"
-              ? Math.max(cw / iw, ch / ih)
-              : Math.min(cw / iw, ch / ih);
-      let scale = allowUpscale ? fitScale : Math.min(1, fitScale);
-      if (minFillHeight > 0) {
-        const desiredScale = (ch * minFillHeight) / ih;
-        const boundedDesiredScale = allowUpscale
-          ? desiredScale
-          : Math.min(1, desiredScale);
-        scale = Math.max(scale, boundedDesiredScale);
-        if (maxFitScaleMultiplier > 1) {
-          scale = Math.min(
-            scale,
-            (allowUpscale ? fitScale : Math.min(1, fitScale)) * maxFitScaleMultiplier,
-          );
-        }
-      }
-      const tx = alignX === "left" ? 0 : (cw - iw * scale) / 2;
-      const ty = alignY === "top" ? 0 : (ch - ih * scale) / 2;
-      return { scale, tx, ty };
-    }, [
-      alignX,
-      alignY,
-      allowUpscale,
-      containerSize.height,
-      containerSize.width,
-      fitMode,
-      maxFitScaleMultiplier,
-      minFillHeight,
-      stageSize.height,
-      stageSize.width,
-    ]);
+    }, [intersectionReady, loadImmediately]);
 
     const debugSrc = useMemo(() => {
       try {
@@ -233,10 +152,10 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
       >
         <iframe
           ref={iframeRef}
-          src={shouldLoad ? src : undefined}
+          src={shouldSetSrc ? src : undefined}
           title={title}
           sandbox="allow-scripts allow-same-origin"
-          loading="lazy"
+          loading={loadImmediately ? "eager" : "lazy"}
           onLoad={() => {
             setLoadedSrc(src);
             setRuntimeError(null);

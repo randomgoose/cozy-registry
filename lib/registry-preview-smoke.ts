@@ -9,6 +9,10 @@ import {
 } from "@/lib/registry-resolver";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 import { materializeInstalledRegistryFilesFromResolvedGraph } from "@/lib/registry-install-layout";
+import {
+  getPrebundleDependencies,
+  type DependencyDecision,
+} from "@/lib/third-party-dependency-governance";
 
 type SmokeTestCode = "PREVIEW_BUILD_FAILED" | "PREVIEW_RENDER_FAILED";
 const SMOKE_EXECUTION_TIMEOUT_MS = 3000;
@@ -59,6 +63,7 @@ export async function runRegistryPreviewSmokeTest(params: {
   previewProps?: unknown;
   previewExport?: string;
   registryDependencies?: string[];
+  dependencyDecisions?: DependencyDecision[];
   requestUserId?: string | null;
 }): Promise<RegistryPreviewSmokeTestResult> {
   const rootFiles =
@@ -150,6 +155,9 @@ export async function runRegistryPreviewSmokeTest(params: {
       camel: slugToCamelExportName(params.name),
     });
     const importSpecifiers = collectBareImportSpecifiers(files);
+    const passThroughBareImports = await collectHostResolutionBareImports(
+      getPrebundleDependencies(params.dependencyDecisions ?? []),
+    );
     const unsupportedBareImports = findUnsupportedBareImports(importSpecifiers);
     if (unsupportedBareImports.length > 0) {
       return {
@@ -235,7 +243,11 @@ export const __previewProps = PREVIEW_PROPS;
         }));
       },
     };
-    const stubbedBareModulePlugin = createBareModuleStubPlugin(importSpecifiers);
+    const stubbedBareModulePlugin = createBareModuleStubPlugin(
+      importSpecifiers,
+      passThroughBareImports,
+    );
+    const previewNodePaths = resolvePreviewNodePaths();
 
     const result = await esbuild.build({
       entryPoints: [entryPath],
@@ -246,6 +258,7 @@ export const __previewProps = PREVIEW_PROPS;
       jsx: "automatic",
       write: false,
       logLevel: "silent",
+      nodePaths: previewNodePaths,
       plugins: [
         cssPlugin,
         figmaAssetPlugin,
@@ -265,7 +278,11 @@ export const __previewProps = PREVIEW_PROPS;
 
     const smokeBundlePath = path.join(tmpDir, "smoke-bundle.cjs");
     await fs.writeFile(smokeBundlePath, output, "utf8");
-    const execution = await runNodeModule(smokeBundlePath, output);
+    const execution = await runNodeModule(
+      smokeBundlePath,
+      output,
+      passThroughBareImports,
+    );
     if (execution.ok) {
       return { ok: true };
     }
@@ -291,6 +308,7 @@ export const __previewProps = PREVIEW_PROPS;
 async function runNodeModule(
   modulePath: string,
   source: string,
+  allowedModuleImports: Set<string>,
 ): Promise<
   | { ok: true }
   | { ok: false; message: string; stack?: string }
@@ -310,14 +328,21 @@ async function runNodeModule(
       if (isRuntimeJsxRequest(spec)) {
         return runtime.jsxRuntime;
       }
+      if (allowedModuleImports.has(spec)) {
+        return appRequire(spec);
+      }
       throw new Error(
-        `Preview smoke runtime blocked module import: "${spec}". Only React runtime modules are allowed.`,
+        `Preview smoke runtime blocked module import: "${spec}". Only React runtime modules and governance-approved preview dependencies are allowed.`,
       );
     }) as NodeJS.Require;
     runtimeRequire.resolve = ((spec: string) => {
-      if (!isRuntimeReactRequest(spec) && !isRuntimeJsxRequest(spec)) {
+      if (
+        !isRuntimeReactRequest(spec) &&
+        !isRuntimeJsxRequest(spec) &&
+        !allowedModuleImports.has(spec)
+      ) {
         throw new Error(
-          `Preview smoke runtime blocked module resolution: "${spec}". Only React runtime modules are allowed.`,
+          `Preview smoke runtime blocked module resolution: "${spec}". Only React runtime modules and governance-approved preview dependencies are allowed.`,
         );
       }
       return appRequire.resolve(spec);
@@ -774,12 +799,16 @@ function walkAst(
 
 function createBareModuleStubPlugin(
   specifiers: Map<string, BareImportSpecifiers>,
+  passThroughBareImports: Set<string>,
 ): import("esbuild").Plugin {
   return {
     name: "smoke-bare-module-stub",
     setup(build: import("esbuild").PluginBuild) {
       build.onResolve({ filter: /^[^./].*/ }, (args) => {
         if (args.path === "react" || args.path === "react-dom/server" || args.path === "react/jsx-runtime") {
+          return null;
+        }
+        if (passThroughBareImports.has(args.path)) {
           return null;
         }
         return {
@@ -846,4 +875,71 @@ function isNodeBuiltinImport(spec: string, builtinModules: Set<string>) {
   const idx = spec.indexOf("/");
   const root = idx === -1 ? spec : spec.slice(0, idx);
   return builtinModules.has(root);
+}
+
+function resolvePreviewNodePaths() {
+  const appRequire = Module.createRequire(
+    path.join(process.cwd(), "package.json"),
+  );
+  const candidates = [
+    path.join(process.cwd(), "node_modules"),
+    path.dirname(appRequire.resolve("react/package.json")),
+  ];
+
+  return Array.from(new Set(candidates));
+}
+
+async function collectHostResolutionBareImports(
+  roots: string[],
+): Promise<Set<string>> {
+  const appRequire = Module.createRequire(
+    path.join(process.cwd(), "package.json"),
+  );
+  const out = new Set<string>();
+  const queue = [...roots];
+
+  while (queue.length > 0) {
+    const spec = queue.shift();
+    if (!spec || out.has(spec)) continue;
+    out.add(spec);
+
+    try {
+      const packageEntryPath = appRequire.resolve(spec);
+      const packageJsonPath = await findNearestPackageJson(packageEntryPath);
+      if (!packageJsonPath) continue;
+      const raw = await fs.readFile(packageJsonPath, "utf8");
+      const parsed = JSON.parse(raw) as {
+        dependencies?: Record<string, string>;
+        peerDependencies?: Record<string, string>;
+      };
+      for (const dep of Object.keys(parsed.dependencies ?? {})) {
+        if (!out.has(dep)) queue.push(dep);
+      }
+      for (const dep of Object.keys(parsed.peerDependencies ?? {})) {
+        if (!out.has(dep)) queue.push(dep);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return out;
+}
+
+async function findNearestPackageJson(fromPath: string): Promise<string | null> {
+  let current = path.dirname(fromPath);
+
+  while (true) {
+    const candidate = path.join(current, "package.json");
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return null;
+      }
+      current = parent;
+    }
+  }
 }

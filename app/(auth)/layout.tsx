@@ -6,7 +6,8 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
-import { getWorkspaceContextForUser } from "@/lib/workspace-context";
+import { createServerTimingLogger, timeAsync } from "@/lib/server-timing";
+import { getWorkspaceContextForUser, type WorkspaceContext } from "@/lib/workspace-context";
 import { AppShell } from "./AppShell";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,10 @@ const getCachedWorkspaceContext = unstable_cache(
 );
 
 export default async function AuthLayout({ children }: { children: ReactNode }) {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const timings = createServerTimingLogger("auth-layout");
+  const session = await timeAsync(timings, "sessionLookup", async () =>
+    auth.api.getSession({ headers: await headers() }),
+  );
   const email = session?.user?.email ?? null;
   const fullName =
     session?.user?.name?.trim() ||
@@ -42,14 +46,28 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
 
   const userId = session?.user?.id ?? null;
   const activeOrganizationId = session?.session?.activeOrganizationId ?? null;
-  const [cachedHandle, workspace] = userId
-    ? await Promise.all([
-        getCachedUserHandle(userId),
-        getCachedWorkspaceContext(userId, activeOrganizationId),
-      ])
-    : [null, { organizations: [], activeOrganizationId: null, activeOrganization: null }];
+  let cachedHandle: string | null = null;
+  let workspace: WorkspaceContext = {
+    user: null,
+    organizations: [],
+    activeOrganizationId: null,
+    activeOrganization: null,
+  };
+
+  if (userId) {
+    cachedHandle = await timeAsync(timings, "userHandleLookup", async () =>
+      getCachedUserHandle(userId),
+    );
+    workspace = await timeAsync(timings, "workspaceContextLoad", async () =>
+      getCachedWorkspaceContext(userId, activeOrganizationId),
+    );
+  }
 
   username = cachedHandle ?? username;
+  timings.flush({
+    userId,
+    activeOrganizationId,
+  });
 
   return (
     <AppShell

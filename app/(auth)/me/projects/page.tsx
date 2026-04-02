@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
+import { listProjectsForScope } from "@/lib/project-list";
 import { ProjectsPanel } from "../../dashboard/CollectionsPanel";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,10 @@ export default async function PersonalProjectsPage() {
     .limit(1);
   const registryOwner =
     ownerRow?.handle ?? session.user.email?.split("@")[0] ?? "owner";
+  const initialProjects = await listProjectsForScope({
+    userId: session.user.id,
+    activeOrganizationId: null,
+  });
 
   return (
     <ProjectsPanel
@@ -38,6 +43,7 @@ export default async function PersonalProjectsPage() {
       scopeLabel="Personal"
       isOrgScope={false}
       projectsBasePath="/me/projects"
+      initialProjects={initialProjects}
     />
   );
 }

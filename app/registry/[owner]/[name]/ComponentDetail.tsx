@@ -17,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { PropField } from "@/lib/validate-tsx";
+import type { DependencyDecision } from "@/lib/third-party-dependency-governance";
 import { ThemeTokensTable } from "./ThemeTokensTable";
 
 interface VersionInfo {
@@ -24,6 +25,22 @@ interface VersionInfo {
   createdAt: Date;
   createdBy: string | null;
 }
+
+type PreviewArtifactStatus =
+  | "missing"
+  | "queued"
+  | "running"
+  | "ready"
+  | "failed"
+  | "skipped";
+
+type PreviewArtifactStatusPayload = {
+  artifactStatus: PreviewArtifactStatus;
+  lastError?: {
+    code?: string | null;
+    message?: string | null;
+  } | null;
+};
 
 interface ComponentDetailProps {
   owner: string;
@@ -45,6 +62,7 @@ interface ComponentDetailProps {
   isOwner: boolean;
   /** npm deps (e.g. react, clsx) */
   dependencies: string[];
+  dependencyDiagnostics: DependencyDecision[];
   /** In-registry deps (e.g. @owner/other-component) */
   registryDependencies: string[];
   /** Props parsed from TSX */
@@ -67,6 +85,7 @@ export function ComponentDetail({
   versions,
   isOwner,
   dependencies,
+  dependencyDiagnostics,
   registryDependencies,
   propsFromCode,
   files,
@@ -80,6 +99,8 @@ export function ComponentDetail({
   );
   const [localSelectedVersion, setLocalSelectedVersion] =
     useState(selectedVersion);
+  const [artifactStatus, setArtifactStatus] =
+    useState<PreviewArtifactStatusPayload | null>(null);
   const router = useRouter();
 
   // Keep selector in sync when route search params change
@@ -90,6 +111,40 @@ export function ComponentDetail({
   useEffect(() => {
     setLocalVisibility(visibility);
   }, [visibility]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadArtifactStatus() {
+      try {
+        const search = new URLSearchParams({
+          owner,
+          name,
+          v: localSelectedVersion,
+        });
+        const res = await fetch(
+          `/api/registry/preview-artifacts/status?${search.toString()}`,
+        );
+        if (!res.ok) {
+          if (!cancelled) {
+            setArtifactStatus(null);
+          }
+          return;
+        }
+        const data = (await res.json()) as PreviewArtifactStatusPayload;
+        if (!cancelled) {
+          setArtifactStatus(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setArtifactStatus(null);
+        }
+      }
+    }
+    loadArtifactStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [owner, name, localSelectedVersion]);
 
   async function handleCopy() {
     await navigator.clipboard.writeText(code);
@@ -126,6 +181,46 @@ export function ComponentDetail({
   const isTheme = type === "registry:theme";
   const canEditTheme =
     isTheme && isOwner && localSelectedVersion === currentVersion;
+  const artifactStatusTone = (() => {
+    switch (artifactStatus?.artifactStatus) {
+      case "ready":
+        return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
+      case "skipped":
+        return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
+      case "failed":
+        return "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200";
+      case "queued":
+      case "running":
+        return "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200";
+      default:
+        return "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+    }
+  })();
+  const artifactStatusLabel = (() => {
+    switch (artifactStatus?.artifactStatus) {
+      case "queued":
+        return "Artifact queued";
+      case "running":
+        return "Artifact building";
+      case "ready":
+        return "Artifact ready";
+      case "failed":
+        return "Artifact failed";
+      case "skipped":
+        return "Runtime preview only";
+      case "missing":
+        return "Artifact missing";
+      default:
+        return null;
+    }
+  })();
+  const artifactStatusMessage =
+    artifactStatus?.artifactStatus === "skipped"
+      ? artifactStatus.lastError?.message ??
+        "Prebundle was skipped by policy because one or more dependencies are runtime-only."
+      : artifactStatus?.artifactStatus === "failed"
+        ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
+        : null;
 
   function handleVersionChange(e: ChangeEvent<HTMLSelectElement>) {
     const v = e.target.value;
@@ -277,6 +372,49 @@ export function ComponentDetail({
                   ))}
                 </div>
               )}
+              {dependencyDiagnostics.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Preview dependency support
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {dependencyDiagnostics.map((decision) => (
+                      <div
+                        key={decision.packageName}
+                        className="rounded-2xl border border-zinc-200 bg-zinc-100/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/70"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs text-zinc-800 dark:text-zinc-200">
+                            {decision.packageName}
+                          </span>
+                          <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                            {decision.tier}
+                          </span>
+                          <span
+                            className={
+                              decision.previewCapability === "prebundle-supported"
+                                ? "rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                                : decision.previewCapability === "runtime-only"
+                                  ? "rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                                  : "rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-800 dark:bg-red-900/40 dark:text-red-200"
+                            }
+                          >
+                            {decision.previewCapability}
+                          </span>
+                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+                            {decision.requestedVersion
+                              ? `v${decision.requestedVersion}`
+                              : "version unknown"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          {decision.message}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
               <Link
@@ -415,9 +553,18 @@ export function ComponentDetail({
 
         <section className="mb-8">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-              {isTheme ? "Theme preview" : "Component preview"}
-            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                {isTheme ? "Theme preview" : "Component preview"}
+              </h2>
+              {artifactStatusLabel ? (
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${artifactStatusTone}`}
+                >
+                  {artifactStatusLabel}
+                </span>
+              ) : null}
+            </div>
             <Link
               href={previewHref}
               target="_blank"
@@ -436,6 +583,11 @@ export function ComponentDetail({
               alignY="center"
             />
           </div>
+          {artifactStatusMessage ? (
+            <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+              {artifactStatusMessage}
+            </p>
+          ) : null}
         </section>
 
         {versions.length > 0 && (

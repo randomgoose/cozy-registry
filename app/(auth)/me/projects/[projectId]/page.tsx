@@ -4,7 +4,8 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
-import { getProjectIfAccessible } from "@/lib/project-permissions";
+import { listProjectsForScope } from "@/lib/project-list";
+import { getProjectIfAccessible, getUserProjectRole, roleCanEditProject } from "@/lib/project-permissions";
 import { ProjectsPanel } from "../../../dashboard/CollectionsPanel";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +44,13 @@ export default async function PersonalProjectDetailPage({
     .limit(1);
   const registryOwner =
     ownerRow?.handle ?? session.user.email?.split("@")[0] ?? "owner";
+  const initialProjects = await listProjectsForScope({
+    userId: session.user.id,
+    activeOrganizationId: null,
+  });
+  const canEdit = roleCanEditProject(
+    await getUserProjectRole(session.user.id, projectId, project.ownerUserId),
+  );
 
   const visibility = project.visibility === "public" ? "public" : "private";
 
@@ -56,6 +64,8 @@ export default async function PersonalProjectDetailPage({
       initialProjectTitle={project.title}
       initialProjectSlug={project.slug}
       initialProjectVisibility={visibility}
+      initialProjects={initialProjects}
+      canEditProject={canEdit}
     />
   );
 }

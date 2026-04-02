@@ -40,6 +40,13 @@ import { db } from "@/lib/db";
 import { registryItemVersions, registryPreviewArtifacts } from "@/lib/db/schema";
 import { enqueuePreviewArtifactJob } from "@/lib/preview-artifact-jobs";
 import { pickPreviewStory } from "@/lib/preview-stories";
+import {
+  evaluateThirdPartyDependencies,
+  excludeExplicitRegistryDependencies,
+  getRejectedDependencyDecisions,
+  getRuntimePreviewDependencies,
+  readDeclaredThirdPartyDependenciesFromMeta,
+} from "@/lib/third-party-dependency-governance";
 
 function escapeHtml(s: string): string {
   return s
@@ -646,10 +653,50 @@ ${versionToolbarHtml}
   const allDependencies = Array.from(
     new Set<string>([...depsFromDb, ...depsFromFiles]),
   ).sort();
-  // 仅对裸模块依赖构建 import map / external；相对路径交给 esbuild 走本地文件
-  const runtimeDependencies = allDependencies.filter(isBareModuleSpecifier);
+  const dependencyDecisions = evaluateThirdPartyDependencies({
+    discovered: excludeExplicitRegistryDependencies(
+      allDependencies.filter(isBareModuleSpecifier),
+      (item.registryDependencies ?? []) as string[],
+    ),
+    declared: readDeclaredThirdPartyDependenciesFromMeta(item.meta),
+  });
+  const rejectedDependencies = getRejectedDependencyDecisions(
+    dependencyDecisions,
+  );
+  if (rejectedDependencies.length > 0) {
+    const html = `<!DOCTYPE html>
+<html lang="en" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Preview dependency blocked</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  </head>
+  <body style="margin:0;padding:24px;font-family:system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;background:#fef2f2;color:#b91c1c;">
+    <h1 style="font-size:16px;margin:0 0 8px;">Preview blocked by dependency policy</h1>
+    <pre style="white-space:pre-wrap;font-size:13px;background:#fff;border-radius:8px;border:1px solid #fecaca;padding:12px;color:#991b1b;">${escapeHtml(
+      rejectedDependencies
+        .map((decision) => `${decision.packageName}: ${decision.message}`)
+        .join("\n"),
+    )}</pre>
+  </body>
+</html>`;
+    return new NextResponse(html, {
+      status: 500,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
+  // 仅对已允许的裸模块依赖构建 import map / external；相对路径交给 esbuild 走本地文件
+  const runtimeDependencies = getRuntimePreviewDependencies(dependencyDecisions);
   const rootFilesHash = hashFiles(files);
-  const runtimeDepsHash = sha256(stableStringify(runtimeDependencies));
+  const runtimeDepsHash = sha256(
+    stableStringify(
+      dependencyDecisions.map((decision) => ({
+        packageName: decision.packageName,
+        previewCapability: decision.previewCapability,
+        requestedVersion: decision.requestedVersion,
+      })),
+    ),
+  );
 
   const cacheKeySummary = {
     owner,

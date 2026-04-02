@@ -1,7 +1,8 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { isUserOrganizationMember, resolveOrganizationBySlug } from "@/lib/registry-organization";
+import { listProjectsForScope } from "@/lib/project-list";
+import { getCachedWorkspaceRouteAccess } from "@/lib/workspace-route";
 import { ProjectsPanel } from "../../../dashboard/CollectionsPanel";
 
 export const dynamic = "force-dynamic";
@@ -25,10 +26,13 @@ export default async function WorkspaceProjectsPage({ params }: { params: Promis
     );
   }
 
-  const org = await resolveOrganizationBySlug(slug);
-  if (!org) notFound();
-  const allowed = await isUserOrganizationMember(session.user.id, org.id);
-  if (!allowed) notFound();
+  const access = await getCachedWorkspaceRouteAccess(session.user.id, slug);
+  if (!access.org || !access.isMember) notFound();
+  const org = access.org;
+  const initialProjects = await listProjectsForScope({
+    userId: session.user.id,
+    activeOrganizationId: org.id,
+  });
 
   const projectsBasePath = `/workspace/${encodeURIComponent(org.slug)}/projects`;
 
@@ -38,6 +42,7 @@ export default async function WorkspaceProjectsPage({ params }: { params: Promis
       scopeLabel={`${org.name} (@${org.slug})`}
       isOrgScope
       projectsBasePath={projectsBasePath}
+      initialProjects={initialProjects}
     />
   );
 }

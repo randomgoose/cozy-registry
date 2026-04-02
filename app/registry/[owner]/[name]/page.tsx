@@ -9,6 +9,7 @@ import {
   getCurrentVersion,
   toShadcnRegistryItem,
 } from "@/lib/registry";
+import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-governance";
 import { extractPropsFromTsx } from "@/lib/validate-tsx";
 import { ComponentDetail } from "./ComponentDetail";
 
@@ -99,6 +100,7 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
       versions={versions}
       isOwner={item.userId === requestUserId}
       dependencies={dependencies}
+      dependencyDiagnostics={readDependencyDecisionsFromMeta(item.meta)}
       registryDependencies={registryDependencies}
       propsFromCode={propsFromCode}
       files={files}

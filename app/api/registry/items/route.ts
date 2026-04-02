@@ -19,6 +19,12 @@ import { getUserIdFromToken } from "@/lib/auth-api";
 import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
 import { normalizePublishContract } from "@/lib/registry-publish-contract";
 import { normalizeRegistryDependenciesInput } from "@/lib/registry-dependency-input";
+import { normalizeThirdPartyDependenciesInput } from "@/lib/third-party-dependency-input";
+import {
+  evaluateThirdPartyDependencies,
+  excludeExplicitRegistryDependencies,
+  getRejectedDependencyDecisions,
+} from "@/lib/third-party-dependency-governance";
 import { resolvePublishTargetForUser } from "@/lib/publish-target";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
 import { publishFailureCategoryForCode } from "@/lib/registry-publish-failure";
@@ -41,6 +47,7 @@ export async function POST(request: Request) {
       targetRef?: string | null;
       organizationSlug?: string | null;
       organizationId?: string | null;
+      dependencies?: unknown;
     };
 
     const hasFiles =
@@ -58,18 +65,33 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    const normalizedRegistryDeps = normalizeRegistryDependenciesInput(
+      body.registryDependencies,
+    );
     if (Object.prototype.hasOwnProperty.call(body, "registryDependencies")) {
-      const nd = normalizeRegistryDependenciesInput(body.registryDependencies);
-      if (nd.error) {
+      if (normalizedRegistryDeps.error) {
         return NextResponse.json(
           {
-            error: nd.error,
+            error: normalizedRegistryDeps.error,
             code: "REGDEP_INVALID_FORMAT",
             failureCategory: publishFailureCategoryForCode("REGDEP_INVALID_FORMAT"),
           },
           { status: 400 },
         );
       }
+    }
+    const normalizedDeclaredDependencies = normalizeThirdPartyDependenciesInput(
+      body.dependencies,
+    );
+    if (normalizedDeclaredDependencies.error) {
+      return NextResponse.json(
+        {
+          error: normalizedDeclaredDependencies.error,
+          code: "DEPENDENCIES_INVALID_FORMAT",
+          failureCategory: publishFailureCategoryForCode("DEPENDENCIES_INVALID_FORMAT"),
+        },
+        { status: 400 },
+      );
     }
 
     let userId: string | null = null;
@@ -238,6 +260,30 @@ export async function POST(request: Request) {
 
       return Array.from(all).sort();
     })();
+    const dependencyDecisions = evaluateThirdPartyDependencies({
+      discovered: excludeExplicitRegistryDependencies(
+        dependencies,
+        normalizedRegistryDeps.value,
+      ),
+      declared: normalizedDeclaredDependencies.value,
+    });
+    const rejectedDependencies = getRejectedDependencyDecisions(
+      dependencyDecisions,
+    );
+    if (rejectedDependencies.length > 0) {
+      const lines = rejectedDependencies
+        .map((decision) => `- ${decision.packageName}: ${decision.message}`)
+        .join("\n");
+      return NextResponse.json(
+        {
+          error: `Unsupported third-party dependencies:\n${lines}`,
+          code: "THIRD_PARTY_DEPENDENCY_REJECTED",
+          failureCategory: publishFailureCategoryForCode("THIRD_PARTY_DEPENDENCY_REJECTED"),
+          dependencyDiagnostics: dependencyDecisions,
+        },
+        { status: 400 },
+      );
+    }
 
     if (!normalizedFiles && hasFiles) {
       normalizedFiles = Object.fromEntries(
@@ -308,6 +354,7 @@ export async function POST(request: Request) {
         previewProps: contract.value.previewProps,
         previewExport: contract.value.previewExport,
         registryDependencies: depsToWrite,
+        dependencyDecisions,
         requestUserId: userId,
       });
       if (!smoke.ok) {
@@ -334,6 +381,8 @@ export async function POST(request: Request) {
       organizationId: orgTarget?.id ?? null,
       visibility: validVisibility,
       dependencies,
+      declaredDependencies: normalizedDeclaredDependencies.value,
+      dependencyDecisions,
       registryDependencies: depsToWrite,
       previewProps: contract.value.previewProps,
       previewExport: contract.value.previewExport,
@@ -353,6 +402,7 @@ export async function POST(request: Request) {
         : { kind: "user", userId, targetRef: "personal" },
       hints,
       publishDiagnostics: {
+        dependencyDiagnostics: dependencyDecisions,
         appliedRegistryDependencies: contract.value.appliedRegistryDependencies ?? depsToWrite,
         droppedPaths: contract.value.diagnostics.droppedPaths,
         dirtyDependencyPaths: contract.value.diagnostics.dirtyDependencyPaths,

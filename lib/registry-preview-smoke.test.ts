@@ -3,6 +3,7 @@ import {
   __previewSmokeInternals,
   runRegistryPreviewSmokeTest,
 } from "@/lib/registry-preview-smoke";
+import { evaluateThirdPartyDependencies } from "@/lib/third-party-dependency-governance";
 
 describe("registry-preview-smoke", () => {
   it("passes a simple renderable component", async () => {
@@ -18,6 +19,9 @@ describe("registry-preview-smoke", () => {
       },
     });
 
+    if (!result.ok) {
+      throw new Error(`${result.code}: ${result.message}`);
+    }
     expect(result.ok).toBe(true);
   });
 
@@ -90,6 +94,35 @@ describe("registry-preview-smoke", () => {
       },
     });
 
+    expect(result.ok).toBe(true);
+  });
+
+  it("resolves prebundle-supported packages through governance instead of stubbing them", async () => {
+    const dependencyDecisions = evaluateThirdPartyDependencies({
+      discovered: ["class-variance-authority"],
+      declared: [{ name: "class-variance-authority", version: "0.7.1" }],
+    });
+    const result = await runRegistryPreviewSmokeTest({
+      name: "cva-card",
+      dependencyDecisions,
+      files: {
+        "index.tsx": `
+          import React from "react";
+          import { cva } from "class-variance-authority";
+          const button = cva("base");
+          export default function CvaCard() {
+            if (typeof button !== "function") {
+              throw new Error("cva not real");
+            }
+            return <div className={button()}>ok</div>;
+          }
+        `,
+      },
+    });
+
+    if (!result.ok) {
+      throw new Error(`${result.code}: ${result.message}`);
+    }
     expect(result.ok).toBe(true);
   });
 

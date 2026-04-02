@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { ComponentCard } from "@/app/components/ComponentCard";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { PublishProjectsToShell } from "@/app/(auth)/dashboard/ProjectsShellCache";
+import { CodeBlock } from "@/app/registry/[owner]/[name]/CodeBlock";
+import { PreviewFrame } from "@/app/components/PreviewFrame";
 import {
   Dialog,
   DialogContent,
@@ -12,21 +14,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { getThumbnailFromMeta } from "@/lib/thumbnail";
+import { extractPropsFromTsx } from "@/lib/validate-tsx";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import type { ProjectListItem } from "@/lib/project-list";
 
-function normalizeVisibility(value: string): "public" | "private" {
-  return value === "private" ? "private" : "public";
-}
-
-type Project = {
-  id: string;
-  slug: string;
-  title: string;
-  description: string | null;
-  visibility: "public" | "private";
-  itemCount?: number;
-  previewItems?: Array<{ title: string; name: string; type: string }>;
-};
+type Project = ProjectListItem;
 
 type ProjectItemRow = {
   itemId: string;
@@ -43,12 +42,48 @@ type CreatedProject = { id: string; slug: string; title: string };
 
 type MemberRow = { userId: string; role: string; name: string | null; email: string };
 
+type ProjectItemDetailData = {
+  type: string;
+  dependencies: string[];
+  registryDependencies: string[];
+  files: { path: string; content: string; type: string }[];
+};
+
+function normalizeProjectItemDetailData(value: unknown): ProjectItemDetailData | null {
+  if (!value || typeof value !== "object") return null;
+  const data = value as Record<string, unknown>;
+  const rawFiles = Array.isArray(data.files) ? data.files : [];
+  const files = rawFiles
+    .filter((file): file is Record<string, unknown> => !!file && typeof file === "object")
+    .map((file) => ({
+      path: typeof file.path === "string" ? file.path : "",
+      content: typeof file.content === "string" ? file.content : "",
+      type: typeof file.type === "string" ? file.type : "registry:ui",
+    }))
+    .filter((file) => file.path.length > 0);
+  return {
+    type: typeof data.type === "string" ? data.type : "registry:ui",
+    dependencies: Array.isArray(data.dependencies)
+      ? data.dependencies.filter((dep): dep is string => typeof dep === "string")
+      : [],
+    registryDependencies: Array.isArray(data.registryDependencies)
+      ? data.registryDependencies.filter((dep): dep is string => typeof dep === "string")
+      : [],
+    files,
+  };
+}
+
+function isCodeFile(path: string): boolean {
+  return /\.(tsx?|jsx?|css|json)$/i.test(path);
+}
+
 export function ProjectsPanel(props: {
   /** Registry path segment for item links (`@handle` scope or org slug). */
   registryOwner: string;
   className?: string;
   scopeLabel?: string;
   isOrgScope?: boolean;
+  canEditProject?: boolean;
   /** e.g. `/me/projects` or `/workspace/acme/projects` — enables double-click to open project URL */
   projectsBasePath?: string;
   /** When set (project detail route), pre-select project and show back link */
@@ -57,10 +92,11 @@ export function ProjectsPanel(props: {
   initialProjectTitle?: string;
   initialProjectSlug?: string;
   initialProjectVisibility?: "public" | "private";
+  initialProjects?: Project[];
 }) {
   const isProjectDetail = Boolean(props.initialProjectId);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [projects, setProjects] = useState<Project[]>(() => props.initialProjects ?? []);
+  const [loading, setLoading] = useState(() => props.initialProjects == null);
   const [creating, setCreating] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createStep, setCreateStep] = useState<1 | 2>(1);
@@ -76,7 +112,18 @@ export function ProjectsPanel(props: {
   const [selectedId, setSelectedId] = useState<string | null>(() => props.initialProjectId ?? null);
   const [projectItems, setProjectItems] = useState<ProjectItemRow[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [previewKeepAliveItemIds, setPreviewKeepAliveItemIds] = useState<string[]>([]);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [detailByItemId, setDetailByItemId] = useState<Record<string, ProjectItemDetailData>>({});
+  const [itemDetailLoadingId, setItemDetailLoadingId] = useState<string | null>(null);
+  const [itemDetailError, setItemDetailError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [itemActionPending, setItemActionPending] = useState<"remove" | "move" | null>(null);
+  const [itemActionError, setItemActionError] = useState<string | null>(null);
+  const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === selectedId) ?? null,
@@ -90,6 +137,11 @@ export function ProjectsPanel(props: {
   const detailSlug = props.initialProjectSlug ?? selectedProject?.slug ?? "";
   const detailVisibility =
     props.initialProjectVisibility ?? selectedProject?.visibility ?? "private";
+  const canEditProject = props.canEditProject ?? false;
+  const moveTargetProjects = useMemo(
+    () => projects.filter((project) => project.id !== selectedId),
+    [projects, selectedId],
+  );
 
   async function refreshProjects() {
     const res = await fetch("/api/projects", { cache: "no-store" });
@@ -109,15 +161,48 @@ export function ProjectsPanel(props: {
     }
   }
 
+  const ensureItemDetail = useCallback(async (item: ProjectItemRow) => {
+    if (detailByItemId[item.itemId]) return;
+    setItemDetailLoadingId(item.itemId);
+    setItemDetailError(null);
+    try {
+      const res = await fetch(
+        `/api/r/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(item.name)}`,
+        { cache: "force-cache" },
+      );
+      if (!res.ok) {
+        setItemDetailError(`Failed to load (${res.status})`);
+        return;
+      }
+      const rawData = (await res.json()) as unknown;
+      const detail = normalizeProjectItemDetailData(rawData);
+      if (!detail) {
+        setItemDetailError("Invalid detail response");
+        return;
+      }
+      setDetailByItemId((prev) => ({ ...prev, [item.itemId]: detail }));
+    } catch {
+      setItemDetailError("Failed to load detail");
+    } finally {
+      setItemDetailLoadingId((current) => (current === item.itemId ? null : current));
+    }
+  }, [detailByItemId, props.registryOwner]);
+
   useEffect(() => {
-    (async () => {
+    if (props.initialProjects != null) {
+      setProjects(props.initialProjects);
+      setLoading(false);
+      return;
+    }
+
+    void (async () => {
       try {
         await refreshProjects();
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [props.initialProjects]);
 
   useEffect(() => {
     if (!isProjectDetail || !selectedId) return;
@@ -125,10 +210,64 @@ export function ProjectsPanel(props: {
   }, [selectedId, isProjectDetail]);
 
   useEffect(() => {
+    if (!isProjectDetail) return;
+    if (!projectItems.length) {
+      setSelectedItemId(null);
+      return;
+    }
+    const nextId =
+      selectedItemId && projectItems.some((it) => it.itemId === selectedItemId)
+        ? selectedItemId
+        : projectItems[0]?.itemId ?? null;
+    setSelectedItemId(nextId);
+  }, [isProjectDetail, projectItems, selectedItemId]);
+
+  useEffect(() => {
+    if (!isProjectDetail || !selectedItemId) return;
+    const selectedItem = projectItems.find((it) => it.itemId === selectedItemId);
+    if (!selectedItem) return;
+    void ensureItemDetail(selectedItem);
+    const index = projectItems.findIndex((it) => it.itemId === selectedItemId);
+    const neighbors = [projectItems[index + 1], projectItems[index + 2]].filter(Boolean) as ProjectItemRow[];
+    neighbors.forEach((item) => {
+      void ensureItemDetail(item);
+    });
+  }, [ensureItemDetail, isProjectDetail, selectedItemId, projectItems]);
+
+  useEffect(() => {
+    if (!isProjectDetail || !selectedItemId) {
+      setPreviewKeepAliveItemIds([]);
+      return;
+    }
+    const selectedIndex = projectItems.findIndex((it) => it.itemId === selectedItemId);
+    const neighborIds = [
+      projectItems[selectedIndex + 1]?.itemId,
+      projectItems[selectedIndex + 2]?.itemId,
+    ].filter((id): id is string => Boolean(id));
+    const MAX_PREVIEW_KEEPALIVE = 12;
+    setPreviewKeepAliveItemIds((prev) => {
+      const head = [selectedItemId, ...neighborIds];
+      const rest = prev.filter(
+        (id) => projectItems.some((it) => it.itemId === id) && !head.includes(id),
+      );
+      return [...head, ...rest].slice(0, MAX_PREVIEW_KEEPALIVE);
+    });
+  }, [isProjectDetail, selectedItemId, projectItems]);
+
+  useEffect(() => {
     if (props.initialProjectId) {
       setSelectedId(props.initialProjectId);
     }
   }, [props.initialProjectId]);
+
+  useEffect(() => {
+    if (!moveOpen) return;
+    const firstTarget = moveTargetProjects[0]?.id ?? "";
+    setMoveTargetProjectId((current) =>
+      current && moveTargetProjects.some((project) => project.id === current) ? current : firstTarget,
+    );
+    setItemActionError(null);
+  }, [moveOpen, moveTargetProjects]);
 
   async function loadStep2Members(projectId: string) {
     setMembersLoading(true);
@@ -256,8 +395,83 @@ export function ProjectsPanel(props: {
     setCreateOpen(false);
   }
 
+  async function handleRemoveSelectedItem() {
+    if (!selectedId || !selectedItemId) return;
+    const removedItemId = selectedItemId;
+    setItemActionPending("remove");
+    setItemActionError(null);
+    try {
+      const response = await fetch(`/api/projects/${selectedId}/items/${removedItemId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? "Failed to remove resource");
+      }
+
+      const remainingItems = projectItems.filter((item) => item.itemId !== removedItemId);
+      const removedIndex = projectItems.findIndex((item) => item.itemId === removedItemId);
+      const nextSelectedItem =
+        remainingItems[removedIndex] ??
+        remainingItems[Math.max(0, removedIndex - 1)] ??
+        null;
+
+      setProjectItems(remainingItems);
+      setSelectedItemId(nextSelectedItem?.itemId ?? null);
+      setSelectedPath(null);
+      setPreviewKeepAliveItemIds((current) => current.filter((itemId) => itemId !== removedItemId));
+      setDetailByItemId((current) => {
+        const next = { ...current };
+        delete next[removedItemId];
+        return next;
+      });
+
+      setRemoveOpen(false);
+    } catch (error) {
+      setItemActionError(error instanceof Error ? error.message : "Failed to remove resource");
+    } finally {
+      setItemActionPending(null);
+    }
+  }
+
+  async function handleMoveSelectedItem() {
+    if (!selectedId || !selectedItemId || !moveTargetProjectId) return;
+    setItemActionPending("move");
+    setItemActionError(null);
+    try {
+      const addResponse = await fetch(`/api/projects/${moveTargetProjectId}/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId: selectedItemId }),
+      });
+      if (!addResponse.ok) {
+        const data = (await addResponse.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? "Failed to add resource to target project");
+      }
+
+      const removeResponse = await fetch(`/api/projects/${selectedId}/items/${selectedItemId}`, {
+        method: "DELETE",
+      });
+      if (!removeResponse.ok) {
+        const data = (await removeResponse.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(
+          data?.error ??
+            "Resource was added to the target project, but removing it from the current project failed",
+        );
+      }
+
+      setMoveOpen(false);
+      await Promise.all([refreshSelectedItems(selectedId), refreshProjects()]);
+    } catch (error) {
+      setItemActionError(error instanceof Error ? error.message : "Failed to move resource");
+    } finally {
+      setItemActionPending(null);
+    }
+  }
+
   return (
     <section className={props.className ?? ""}>
+      <PublishProjectsToShell projects={projects} />
       {isProjectDetail ? (
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
@@ -558,29 +772,310 @@ export function ProjectsPanel(props: {
               </p>
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {projectItems.map((it) => (
-                <div key={it.itemId} className="relative">
-                  <ComponentCard
-                    itemId={it.itemId}
-                    owner={props.registryOwner}
-                    name={it.name}
-                    title={it.title}
-                    description={it.description}
-                    visibility={normalizeVisibility(it.visibility)}
-                    thumbnailUrl={getThumbnailFromMeta(it.meta)?.url ?? null}
-                  />
-                  <span
-                    className={`absolute right-3 top-3 rounded-full px-2 py-0.5 text-xs font-medium ${
-                      it.visibility === "private"
-                        ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
-                        : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                    }`}
-                  >
-                    {it.visibility === "private" ? "Private" : "Public"}
-                  </span>
+            <div className="grid gap-4 lg:grid-cols-[minmax(240px,320px)_minmax(0,1fr)]">
+              <section className="min-h-[420px] rounded-2xl border border-zinc-200/80 bg-white/90 dark:border-zinc-800 dark:bg-zinc-900/80">
+                <div className="border-b border-zinc-200/80 px-4 py-3 dark:border-zinc-800">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                    Resources
+                  </p>
                 </div>
-              ))}
+                <div className="max-h-[70vh] space-y-1 overflow-auto p-2">
+                  {projectItems.map((it) => {
+                    const active = it.itemId === selectedItemId;
+                    return (
+                      <button
+                        key={it.itemId}
+                        type="button"
+                        onClick={() => {
+                          setSelectedItemId(it.itemId);
+                          setSelectedPath(null);
+                          setItemDetailError(null);
+                        }}
+                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                          active
+                            ? "border-zinc-900 bg-zinc-100 dark:border-zinc-100 dark:bg-zinc-800"
+                            : "border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/70"
+                        }`}
+                      >
+                        <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{it.title}</p>
+                        <p className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">{it.name}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="min-h-[420px] overflow-hidden rounded-2xl border border-zinc-200/80 bg-white/90 dark:border-zinc-800 dark:bg-zinc-900/80">
+                {(() => {
+                  const selectedItem = projectItems.find((it) => it.itemId === selectedItemId) ?? null;
+                  const selectedDetail = selectedItemId ? detailByItemId[selectedItemId] : null;
+                  const preferredFile =
+                    selectedDetail?.files.find((file) => file.path === selectedPath) ??
+                    selectedDetail?.files.find((file) => /\.(tsx?|jsx?)$/i.test(file.path)) ??
+                    selectedDetail?.files.find((file) => isCodeFile(file.path)) ??
+                    selectedDetail?.files[0] ??
+                    null;
+                  const code = preferredFile?.content ?? "";
+                  const propsFromCode =
+                    selectedDetail?.type === "registry:theme" || !code ? [] : extractPropsFromTsx(code);
+                  return (
+                    <>
+                      <div className="border-b border-zinc-200/80 px-4 py-3 dark:border-zinc-800">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                              {selectedItem?.title ?? "Select a resource"}
+                            </p>
+                            {selectedItem ? (
+                              <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                                {props.registryOwner} / {selectedItem.name}
+                              </p>
+                            ) : null}
+                          </div>
+                          {selectedItem && canEditProject ? (
+                            <div className="flex shrink-0 items-center gap-2">
+                              <Dialog
+                                open={moveOpen}
+                                onOpenChange={(open) => {
+                                  setMoveOpen(open);
+                                  if (!open) setItemActionError(null);
+                                }}
+                              >
+                                <DialogTrigger
+                                  render={
+                                    <button
+                                      type="button"
+                                      className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                    />
+                                  }
+                                >
+                                  Move
+                                </DialogTrigger>
+                                <DialogContent className="max-w-md gap-4 px-5 pt-5 pb-5">
+                                  <DialogHeader>
+                                    <DialogTitle>Move resource</DialogTitle>
+                                    <DialogDescription>
+                                      Move{" "}
+                                      <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                        {selectedItem.title}
+                                      </span>{" "}
+                                      to another project in this workspace.
+                                    </DialogDescription>
+                                  </DialogHeader>
+                                  {moveTargetProjects.length === 0 ? (
+                                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                                      Create another project first, then you can move this resource there.
+                                    </p>
+                                  ) : (
+                                    <div className="space-y-2">
+                                      <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                                        Target project
+                                      </label>
+                                      <select
+                                        value={moveTargetProjectId}
+                                        onChange={(event) => setMoveTargetProjectId(event.target.value)}
+                                        className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                                      >
+                                        {moveTargetProjects.map((project) => (
+                                          <option key={project.id} value={project.id}>
+                                            {project.title} ({project.slug})
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  )}
+                                  {itemActionError ? (
+                                    <p className="text-sm text-red-600 dark:text-red-400">{itemActionError}</p>
+                                  ) : null}
+                                  <DialogFooter className="flex flex-row justify-end gap-2 pt-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setMoveOpen(false)}
+                                      className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleMoveSelectedItem}
+                                      disabled={
+                                        itemActionPending === "move" ||
+                                        !moveTargetProjectId ||
+                                        moveTargetProjects.length === 0
+                                      }
+                                      className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                                    >
+                                      {itemActionPending === "move" ? "Moving..." : "Move resource"}
+                                    </button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+
+                              <Dialog
+                                open={removeOpen}
+                                onOpenChange={(open) => {
+                                  setRemoveOpen(open);
+                                  if (!open) setItemActionError(null);
+                                }}
+                              >
+                                <DialogTrigger
+                                  render={
+                                    <button
+                                      type="button"
+                                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/60"
+                                    />
+                                  }
+                                >
+                                  Remove
+                                </DialogTrigger>
+                                <DialogContent className="max-w-md gap-4 px-5 pt-5 pb-5">
+                                  <DialogHeader>
+                                    <DialogTitle>Remove resource</DialogTitle>
+                                    <DialogDescription>
+                                      Remove{" "}
+                                      <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                                        {selectedItem.title}
+                                      </span>{" "}
+                                      from this project. The underlying registry resource will not be deleted.
+                                    </DialogDescription>
+                                  </DialogHeader>
+                                  {itemActionError ? (
+                                    <p className="text-sm text-red-600 dark:text-red-400">{itemActionError}</p>
+                                  ) : null}
+                                  <DialogFooter className="flex flex-row justify-end gap-2 pt-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setRemoveOpen(false)}
+                                      className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleRemoveSelectedItem}
+                                      disabled={itemActionPending === "remove"}
+                                      className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 dark:bg-red-500 dark:hover:bg-red-400"
+                                    >
+                                      {itemActionPending === "remove" ? "Removing..." : "Remove from project"}
+                                    </button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                      {!selectedItem ? (
+                        <div className="flex h-[520px] items-center justify-center text-sm text-zinc-500">
+                          Select a resource to preview.
+                        </div>
+                      ) : (
+                        <div className="grid h-[70vh] grid-rows-[minmax(280px,44%)_minmax(0,1fr)]">
+                          <div className="relative border-b border-zinc-200/80 dark:border-zinc-800">
+                            {previewKeepAliveItemIds.map((itemId) => {
+                              const previewItem = projectItems.find((it) => it.itemId === itemId);
+                              if (!previewItem) return null;
+                              const active = selectedItemId === itemId;
+                              return (
+                                <div
+                                  key={itemId}
+                                  className={`absolute inset-0 transition-opacity duration-150 ${
+                                    active ? "z-10 opacity-100" : "pointer-events-none z-0 opacity-0"
+                                  }`}
+                                >
+                                  <PreviewFrame
+                                    src={`/preview/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(previewItem.name)}`}
+                                    title={`${previewItem.title} preview`}
+                                    className="h-full w-full"
+                                    interactive={active}
+                                    alignX="left"
+                                    alignY="top"
+                                    fitMode="actual"
+                                    loadImmediately
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="grid min-h-0 grid-cols-[220px_minmax(0,1fr)]">
+                            <div className="min-h-0 overflow-auto border-r border-zinc-200/80 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/30">
+                              {itemDetailLoadingId === selectedItem.itemId && !selectedDetail ? (
+                                <p className="text-xs text-zinc-500">Loading…</p>
+                              ) : selectedDetail?.files.length ? (
+                                <div className="space-y-1">
+                                  {selectedDetail.files.map((file) => (
+                                    <button
+                                      key={file.path}
+                                      type="button"
+                                      onClick={() => setSelectedPath(file.path)}
+                                      className={`block w-full rounded-md px-2 py-1 text-left text-xs ${
+                                        (selectedPath ? selectedPath === file.path : preferredFile?.path === file.path)
+                                          ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                                          : "text-zinc-700 hover:bg-zinc-200/70 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                      }`}
+                                    >
+                                      {file.path}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-zinc-500">{itemDetailError ?? "No files to show"}</p>
+                              )}
+                            </div>
+                            <div className="min-h-0 overflow-auto">
+                              {itemDetailError && !selectedDetail ? (
+                                <div className="flex min-h-[220px] items-center justify-center px-4 text-sm text-amber-600 dark:text-amber-400">
+                                  {itemDetailError}
+                                </div>
+                              ) : (
+                                <CodeBlock
+                                  code={code || "// source unavailable"}
+                                  language={
+                                    preferredFile?.path?.endsWith(".css")
+                                      ? "css"
+                                      : preferredFile?.path?.endsWith(".json")
+                                        ? "json"
+                                        : "tsx"
+                                  }
+                                  variant="flush"
+                                  overflowMode="narrow"
+                                />
+                              )}
+                              {propsFromCode.length > 0 ? (
+                                <div className="border-t border-zinc-200/80 p-3 dark:border-zinc-800">
+                                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                                    Props
+                                  </p>
+                                  <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead>Name</TableHead>
+                                          <TableHead>Type</TableHead>
+                                          <TableHead>Optional</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {propsFromCode.map((prop) => (
+                                          <TableRow key={prop.name}>
+                                            <TableCell className="font-mono">{prop.name}</TableCell>
+                                            <TableCell className="font-mono">{prop.type}</TableCell>
+                                            <TableCell>{prop.optional ? "Yes" : "—"}</TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </section>
             </div>
           )}
         </div>
@@ -624,7 +1119,7 @@ export function ProjectsPanel(props: {
                     return (
                       <div
                         key={`${c.id}-slot-${i}`}
-                        className="flex min-h-[4.25rem] flex-col justify-center rounded-xl border border-zinc-100 bg-zinc-50/90 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/50"
+                        className="flex min-h-17 flex-col justify-center rounded-xl border border-zinc-100 bg-zinc-50/90 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/50"
                       >
                         {it ? (
                           <>

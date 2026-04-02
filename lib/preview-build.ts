@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import Module from "node:module";
 import { createHash } from "node:crypto";
 import {
   PREVIEW_MSG_INITIAL_PROPS,
@@ -603,6 +604,8 @@ root.render(
       },
     };
 
+    const previewNodePaths = resolvePreviewNodePaths();
+
     // Run esbuild to bundle the preview entry into a single ESM file.
     const result = await esbuild.build({
       entryPoints: [previewEntryPath],
@@ -614,6 +617,7 @@ root.render(
       target: ["es2018"],
       sourcemap: debugEnabled ? "inline" : false,
       plugins: [cssPlugin, figmaAssetPlugin],
+      nodePaths: previewNodePaths,
       // React 相关始终由 runtime import map 提供
       external: [
         "react",
@@ -736,4 +740,16 @@ function normalizeWorkspacePath(relPath: string) {
 
 function hashContent(content: string) {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function resolvePreviewNodePaths() {
+  const appRequire = Module.createRequire(
+    path.join(process.cwd(), "package.json"),
+  );
+  const candidates = [
+    path.join(process.cwd(), "node_modules"),
+    path.dirname(appRequire.resolve("react/package.json")),
+  ];
+
+  return Array.from(new Set(candidates));
 }

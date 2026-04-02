@@ -12,6 +12,14 @@ import {
 import { extractDependencies } from "@/lib/validate-tsx";
 import { buildPreviewBundle } from "@/lib/preview-build";
 import {
+  evaluateThirdPartyDependencies,
+  excludeExplicitRegistryDependencies,
+  getPrebundleDependencies,
+  getRejectedDependencyDecisions,
+  hasRuntimeOnlyDependencies,
+  readDeclaredThirdPartyDependenciesFromMeta,
+} from "@/lib/third-party-dependency-governance";
+import {
   buildRegistryPreviewArtifactPath,
   uploadPublicAsset,
 } from "@/lib/storage";
@@ -302,13 +310,55 @@ export async function processPreviewArtifactJob(jobId: string) {
           !spec.startsWith("/"),
       )
       .sort();
+    const dependencyDecisions = evaluateThirdPartyDependencies({
+      discovered: excludeExplicitRegistryDependencies(
+        runtimeDeps,
+        (item.registryDependencies ?? []) as string[],
+      ),
+      declared: readDeclaredThirdPartyDependenciesFromMeta(itemMeta),
+    });
+    const rejectedDependencies = getRejectedDependencyDecisions(
+      dependencyDecisions,
+    );
+    if (rejectedDependencies.length > 0) {
+      const details = rejectedDependencies
+        .map((decision) => `${decision.packageName}: ${decision.message}`)
+        .join("; ");
+      throw new Error(`Rejected preview dependencies: ${details}`);
+    }
+    if (hasRuntimeOnlyDependencies(dependencyDecisions)) {
+      const reasonCode = "SKIPPED_RUNTIME_ONLY_DEPENDENCIES";
+      const message =
+        "Artifact prebundle was skipped by policy because one or more dependencies are runtime-only.";
+
+      await db
+        .update(registryPreviewArtifacts)
+        .set({
+          status: "skipped",
+          finishedAt: new Date(),
+          lastErrorCode: reasonCode,
+          lastErrorMessage: message,
+          jsUrl: null,
+          cssUrl: null,
+          manifestUrl: null,
+        })
+        .where(eq(registryPreviewArtifacts.artifactKey, artifactKey));
+
+      await completePreviewArtifactJob(jobId);
+      return {
+        ok: true as const,
+        artifactKey,
+        skipped: true as const,
+        reasonCode,
+      };
+    }
 
     const buildResult = await buildPreviewBundle(
       {
         name: payload.name,
         version: payload.version,
         files,
-        dependencies: runtimeDeps,
+        dependencies: getPrebundleDependencies(dependencyDecisions),
         previewExport,
       },
       previewProps,

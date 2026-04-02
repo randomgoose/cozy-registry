@@ -1,8 +1,9 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { getProjectIfAccessible } from "@/lib/project-permissions";
-import { isUserOrganizationMember, resolveOrganizationBySlug } from "@/lib/registry-organization";
+import { listProjectsForScope } from "@/lib/project-list";
+import { getProjectIfAccessible, getUserProjectRole, roleCanEditProject } from "@/lib/project-permissions";
+import { getCachedWorkspaceRouteAccess } from "@/lib/workspace-route";
 import { ProjectsPanel } from "../../../../dashboard/CollectionsPanel";
 
 export const dynamic = "force-dynamic";
@@ -30,15 +31,21 @@ export default async function WorkspaceProjectDetailPage({
     );
   }
 
-  const org = await resolveOrganizationBySlug(slug);
-  if (!org) notFound();
-  const allowed = await isUserOrganizationMember(session.user.id, org.id);
-  if (!allowed) notFound();
+  const access = await getCachedWorkspaceRouteAccess(session.user.id, slug);
+  if (!access.org || !access.isMember) notFound();
+  const org = access.org;
 
   const project = await getProjectIfAccessible(session.user.id, projectId);
   if (!project || project.organizationId !== org.id) {
     notFound();
   }
+  const initialProjects = await listProjectsForScope({
+    userId: session.user.id,
+    activeOrganizationId: org.id,
+  });
+  const canEdit = roleCanEditProject(
+    await getUserProjectRole(session.user.id, projectId, project.ownerUserId),
+  );
 
   const projectsBasePath = `/workspace/${encodeURIComponent(org.slug)}/projects`;
   const visibility = project.visibility === "public" ? "public" : "private";
@@ -53,6 +60,8 @@ export default async function WorkspaceProjectDetailPage({
       initialProjectTitle={project.title}
       initialProjectSlug={project.slug}
       initialProjectVisibility={visibility}
+      initialProjects={initialProjects}
+      canEditProject={canEdit}
     />
   );
 }

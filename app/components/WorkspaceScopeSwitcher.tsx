@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Check, ChevronDown, Plus } from "lucide-react";
+import { Check, ChevronDown, Plus, User } from "lucide-react";
 import { toast } from "sonner";
+import { CozyLogoIcon } from "@/app/components/icons/CozyLogoIcon";
 import type { WorkspaceContext } from "@/lib/workspace-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,8 +27,46 @@ import { Input } from "@/components/ui/input";
 
 type WorkspaceScopeSwitcherProps = {
   workspace: WorkspaceContext;
-  userId: string | null;
+  className?: string;
+  personalName?: string | null;
+  personalImage?: string | null;
 };
+
+function ScopeAvatar(props: {
+  name: string;
+  image?: string | null;
+  fallback: "user" | "organization";
+  className?: string;
+}) {
+  const initials = props.name
+    .trim()
+    .split(/\s+/)
+    .map((part) => part[0]?.toUpperCase())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("");
+
+  return (
+    <span
+      className={cn(
+        "flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-black/8 bg-zinc-100 text-zinc-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-100",
+        props.className,
+      )}
+      aria-hidden="true"
+    >
+      {props.image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={props.image} alt="" className="size-full object-cover" />
+      ) : props.fallback === "organization" ? (
+        <CozyLogoIcon className="size-4" />
+      ) : initials ? (
+        <span className="text-[11px] font-semibold">{initials}</span>
+      ) : (
+        <User className="size-4" />
+      )}
+    </span>
+  );
+}
 
 function slugifyWorkspaceName(value: string) {
   return value
@@ -75,20 +114,30 @@ function workspacePathForSlug(orgSlug: string, section: ReturnType<typeof inferN
 
 export function WorkspaceScopeSwitcher({
   workspace,
-  userId: _userId,
+  className,
+  personalName,
+  personalImage,
 }: WorkspaceScopeSwitcherProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [optimisticOrganizationId, setOptimisticOrganizationId] = useState<string | null | undefined>(undefined);
   const [pending, startTransition] = useTransition();
   const [createOpen, setCreateOpen] = useState(false);
   const [orgName, setOrgName] = useState("");
 
-  const activePrimaryLabel = workspace.activeOrganization?.name ?? "Personal";
-  const activeSecondaryLabel = workspace.activeOrganization
-    ? `@${workspace.activeOrganization.slug}`
+  const effectiveActiveOrganization =
+    optimisticOrganizationId === undefined
+      ? workspace.activeOrganization
+      : workspace.organizations.find((org) => org.id === optimisticOrganizationId) ?? null;
+
+  const activePrimaryLabel = effectiveActiveOrganization?.name ?? "Personal";
+  const activeSecondaryLabel = effectiveActiveOrganization
+    ? `@${effectiveActiveOrganization.slug}`
     : "Your own registry";
+  const activeAvatarName = effectiveActiveOrganization?.name ?? personalName ?? "Personal";
+  const activeAvatarImage = effectiveActiveOrganization?.logo ?? personalImage ?? null;
 
   async function postJson(path: string, body: Record<string, string | null>) {
     const response = await fetch(path, {
@@ -106,22 +155,29 @@ export function WorkspaceScopeSwitcher({
     }
   }
 
+  function syncScopeInBackground(organizationId: string | null) {
+    void postJson("/api/auth/organization/set-active", { organizationId }).catch((nextError) => {
+      const message =
+        nextError instanceof Error
+          ? nextError.message
+          : "Failed to switch workspace";
+      setOptimisticOrganizationId(undefined);
+      setSwitchError(message);
+      toast.error(message);
+      router.refresh();
+    });
+  }
+
   function switchToPersonal() {
+    if (!workspace.activeOrganization && optimisticOrganizationId == null) return;
     startTransition(async () => {
       try {
         setSwitchError(null);
-        await postJson("/api/auth/organization/set-active", {
-          organizationId: null,
-        });
+        setOptimisticOrganizationId(null);
         router.push(personalPathForSection(inferNavSection(pathname)));
-        router.refresh();
-      } catch (nextError) {
-        const message =
-          nextError instanceof Error
-            ? nextError.message
-            : "Failed to switch workspace";
-        setSwitchError(message);
-        toast.error(message);
+        syncScopeInBackground(null);
+      } catch {
+        setOptimisticOrganizationId(undefined);
       }
     });
   }
@@ -129,23 +185,16 @@ export function WorkspaceScopeSwitcher({
   function switchToOrganization(organizationId: string) {
     const org = workspace.organizations.find((o) => o.id === organizationId);
     const slug = org?.slug;
+    if (!slug) return;
+    if (workspace.activeOrganization?.id === organizationId && optimisticOrganizationId !== null) return;
     startTransition(async () => {
       try {
         setSwitchError(null);
-        await postJson("/api/auth/organization/set-active", {
-          organizationId,
-        });
-        if (slug) {
-          router.push(workspacePathForSlug(slug, inferNavSection(pathname)));
-        }
-        router.refresh();
-      } catch (nextError) {
-        const message =
-          nextError instanceof Error
-            ? nextError.message
-            : "Failed to switch workspace";
-        setSwitchError(message);
-        toast.error(message);
+        setOptimisticOrganizationId(organizationId);
+        router.push(workspacePathForSlug(slug, inferNavSection(pathname)));
+        syncScopeInBackground(organizationId);
+      } catch {
+        setOptimisticOrganizationId(undefined);
       }
     });
   }
@@ -195,7 +244,7 @@ export function WorkspaceScopeSwitcher({
   }
 
   return (
-    <div className="px-2">
+    <div className={cn(className)}>
       <Dialog
         open={createOpen}
         onOpenChange={(open) => {
@@ -249,16 +298,23 @@ export function WorkspaceScopeSwitcher({
             <button
               type="button"
               disabled={pending}
-              className="inline-flex w-full items-center justify-between rounded-2xl border border-zinc-200/80 bg-zinc-100/88 px-3 py-2.5 text-left shadow-[0_10px_24px_rgba(15,23,42,0.06),inset_0_1px_0_rgba(255,255,255,0.55)] transition-colors hover:bg-zinc-100 disabled:cursor-wait disabled:opacity-70 dark:border-white/12 dark:bg-white/[0.08] dark:shadow-[0_12px_28px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.08)] dark:hover:bg-white/[0.1]"
+              className="inline-flex w-full items-center justify-between rounded-2xl px-2 text-left transition-colors hover:cursor-pointer disabled:cursor-wait disabled:opacity-70"
             />
           }
         >
-          <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold text-zinc-950 dark:text-zinc-50">
-              {activePrimaryLabel}
-            </div>
-            <div className="truncate pt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-              {activeSecondaryLabel}
+          <div className="flex min-w-0 items-center gap-3">
+            <ScopeAvatar
+              name={activeAvatarName}
+              image={activeAvatarImage}
+              fallback={effectiveActiveOrganization ? "organization" : "user"}
+            />
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-semibold text-zinc-950 dark:text-zinc-50">
+                {activePrimaryLabel}
+              </div>
+              <div className="truncate pt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                {activeSecondaryLabel}
+              </div>
             </div>
           </div>
           <ChevronDown className="ml-2 size-4 shrink-0 opacity-70" />
@@ -277,13 +333,20 @@ export function WorkspaceScopeSwitcher({
             onClick={switchToPersonal}
           >
             <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate font-medium">Personal</div>
-                <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-                  Your own registry assets
+              <div className="flex min-w-0 items-center gap-3">
+                <ScopeAvatar
+                  name={personalName ?? "Personal"}
+                  image={personalImage}
+                  fallback="user"
+                />
+                <div className="min-w-0">
+                  <div className="truncate font-medium">Personal</div>
+                  <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                    Your own registry assets
+                  </div>
                 </div>
               </div>
-              {!workspace.activeOrganization ? <Check className="size-4 shrink-0" /> : null}
+              {!effectiveActiveOrganization ? <Check className="size-4 shrink-0" /> : null}
             </div>
           </DropdownMenuItem>
 
@@ -299,18 +362,25 @@ export function WorkspaceScopeSwitcher({
                 onClick={() => switchToOrganization(organization.id)}
               >
                 <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{organization.name}</div>
-                    <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-                      @{organization.slug} ·{" "}
-                      {organization.role === "owner"
-                        ? "Owner"
-                        : organization.role === "editor"
-                          ? "Editor"
-                          : "Viewer"}
+                  <div className="flex min-w-0 items-center gap-3">
+                    <ScopeAvatar
+                      name={organization.name}
+                      image={organization.logo}
+                      fallback="organization"
+                    />
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{organization.name}</div>
+                      <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                        @{organization.slug} ·{" "}
+                        {organization.role === "owner"
+                          ? "Owner"
+                          : organization.role === "editor"
+                            ? "Editor"
+                            : "Viewer"}
+                      </div>
                     </div>
                   </div>
-                  {organization.isActive ? <Check className="size-4 shrink-0" /> : null}
+                  {effectiveActiveOrganization?.id === organization.id ? <Check className="size-4 shrink-0" /> : null}
                 </div>
               </DropdownMenuItem>
             ))}
@@ -339,10 +409,7 @@ export function WorkspaceScopeSwitcher({
           switchError ? "text-amber-600 dark:text-amber-400" : "",
         )}
       >
-        {switchError ??
-          (workspace.activeOrganization
-            ? "You are viewing this organization’s registry scope."
-            : "You are viewing your personal scope.")}
+        {switchError}
       </p>
     </div>
   );

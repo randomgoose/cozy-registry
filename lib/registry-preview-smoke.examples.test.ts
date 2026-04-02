@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
+import { evaluateThirdPartyDependencies } from "@/lib/third-party-dependency-governance";
 
 describe("registry-preview-smoke examples", () => {
   it("supports default-export component", async () => {
@@ -90,6 +91,64 @@ describe("registry-preview-smoke examples", () => {
       },
     });
     expect(result.ok).toBe(true);
+  });
+
+  it("supports governance-approved prebundle deps (e.g. cva) when an explicit version is declared", async () => {
+    const dependencyDecisions = evaluateThirdPartyDependencies({
+      discovered: ["class-variance-authority"],
+      declared: [{ name: "class-variance-authority", version: "0.7.1" }],
+    });
+
+    const result = await runRegistryPreviewSmokeTest({
+      name: "example-cva-prebundle-supported",
+      dependencyDecisions,
+      files: {
+        "index.tsx": `
+          import React from "react";
+          import { cva } from "class-variance-authority";
+
+          const buttonVariants = cva("base");
+
+          export default function ExampleCvaPrebundleSupported() {
+            if (typeof buttonVariants !== "function") {
+              throw new Error("Expected buttonVariants to be a function (real cva), but got: " + String(typeof buttonVariants));
+            }
+            return <button className={buttonVariants()}>ok</button>;
+          }
+        `,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("fails cva usage when version is not explicitly declared (downgraded to runtime-only, stubbed in smoke)", async () => {
+    const dependencyDecisions = evaluateThirdPartyDependencies({
+      discovered: ["class-variance-authority"],
+      declared: [],
+    });
+
+    const result = await runRegistryPreviewSmokeTest({
+      name: "example-cva-version-unknown-runtime-only",
+      dependencyDecisions,
+      files: {
+        "index.tsx": `
+          import React from "react";
+          import { cva } from "class-variance-authority";
+
+          const buttonVariants = cva("base");
+
+          export default function ExampleCvaVersionUnknown() {
+            return <button className={buttonVariants()}>ok</button>;
+          }
+        `,
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("PREVIEW_RENDER_FAILED");
+    expect(result.message).toContain("buttonVariants is not a function");
   });
 
   it("blocks Node builtin imports for safety", async () => {

@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { member, organization } from "@/lib/db/schema";
+import { member, organization, user } from "@/lib/db/schema";
 
 type SessionLike =
   | {
@@ -17,11 +17,17 @@ export type WorkspaceOrganization = {
   id: string;
   name: string;
   slug: string;
+  logo: string | null;
   role: string;
   isActive: boolean;
 };
 
 export type WorkspaceContext = {
+  user: {
+    id: string;
+    name: string | null;
+    image: string | null;
+  } | null;
   organizations: WorkspaceOrganization[];
   activeOrganizationId: string | null;
   activeOrganization: WorkspaceOrganization | null;
@@ -29,6 +35,7 @@ export type WorkspaceContext = {
 
 function emptyWorkspaceContext(): WorkspaceContext {
   return {
+    user: null,
     organizations: [],
     activeOrganizationId: null,
     activeOrganization: null,
@@ -48,24 +55,35 @@ export async function getWorkspaceContextForUser(
   userId: string,
   activeOrganizationId: string | null,
 ): Promise<WorkspaceContext> {
-  const organizationRows = await db
-    .select({
-      organizationId: organization.id,
-      organizationName: organization.name,
-      organizationSlug: organization.slug,
-      role: member.role,
-    })
-    .from(member)
-    .innerJoin(organization, eq(member.organizationId, organization.id))
-    .where(eq(member.userId, userId))
-    .orderBy(asc(organization.name));
-
-  if (organizationRows.length === 0) return emptyWorkspaceContext();
+  const [[userRow], organizationRows] = await Promise.all([
+    db
+      .select({
+        id: user.id,
+        name: user.name,
+        image: user.image,
+      })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1),
+    db
+      .select({
+        organizationId: organization.id,
+        organizationName: organization.name,
+        organizationSlug: organization.slug,
+        organizationLogo: organization.logo,
+        role: member.role,
+      })
+      .from(member)
+      .innerJoin(organization, eq(member.organizationId, organization.id))
+      .where(eq(member.userId, userId))
+      .orderBy(asc(organization.name)),
+  ]);
 
   const organizations: WorkspaceOrganization[] = organizationRows.map((row) => ({
     id: row.organizationId,
     name: row.organizationName,
     slug: row.organizationSlug,
+    logo: row.organizationLogo,
     role: row.role,
     isActive: row.organizationId === activeOrganizationId,
   }));
@@ -73,6 +91,13 @@ export async function getWorkspaceContextForUser(
   const activeOrganization = organizations.find((item) => item.id === activeOrganizationId) ?? null;
 
   return {
+    user: userRow
+      ? {
+          id: userRow.id,
+          name: userRow.name,
+          image: userRow.image,
+        }
+      : null,
     organizations,
     activeOrganizationId: activeOrganization?.id ?? null,
     activeOrganization,

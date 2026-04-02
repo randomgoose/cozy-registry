@@ -48,3 +48,7 @@ Source of truth: yes
 
 - [项目优化与健康状况（非测试）](../20-engineering/project-optimization.md)：CI、安全、可观测性、性能与后续优先级。
 - [Registry 依赖测试方案](../20-engineering/registry-dependency-test-plan.md)：自动化测试与集成建议。
+- [API / Service Extraction Spec](../20-engineering/api-service-extraction-spec.md)：将平台能力从 Web 宿主中抽离的阶段性架构方案。
+- [Dashboard Navigation Performance Plan](../20-engineering/dashboard-navigation-performance-plan.md)：后台页面切换慢的阶段性优化方案。
+- [Registry Resource Lifecycle Spec](../20-engineering/registry-resource-lifecycle-spec.md)：资源归档、硬删除与个人/组织归属迁移方案。
+- [Preview Third-Party Dependency Governance Spec](../20-engineering/preview-third-party-dependency-governance-spec.md)：第三方依赖的分级准入、发布校验与预构建治理方案。

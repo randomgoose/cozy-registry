@@ -6,6 +6,12 @@ import {
   validateComponentBundle,
 } from "@/lib/validate-tsx";
 import { normalizePublishContract } from "@/lib/registry-publish-contract";
+import { normalizeThirdPartyDependenciesInput } from "@/lib/third-party-dependency-input";
+import {
+  evaluateThirdPartyDependencies,
+  excludeExplicitRegistryDependencies,
+  getRejectedDependencyDecisions,
+} from "@/lib/third-party-dependency-governance";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
 import {
   REGISTRY_THEME_TYPE,
@@ -31,6 +37,7 @@ export type DiagnosePublishReadinessResult =
         note: string | null;
       };
       publishDiagnostics?: {
+        dependencyDiagnostics?: unknown;
         droppedPaths: string[];
         dirtyDependencyPaths: string[];
         stubInferredRegistryDependencies: string[];
@@ -48,6 +55,7 @@ export type DiagnosePublishReadinessResult =
     };
 
 type ContractInput = {
+  dependencies?: unknown;
   registryDependencies?: unknown;
   previewProps?: unknown;
   previewExport?: unknown;
@@ -73,6 +81,18 @@ export async function diagnosePublishReadiness(params: {
   runPreviewSmoke?: boolean;
 }): Promise<DiagnosePublishReadinessResult> {
   const runPreviewSmoke = params.runPreviewSmoke ?? false;
+  const normalizedDeclaredDependencies = normalizeThirdPartyDependenciesInput(
+    params.input.dependencies,
+  );
+  if (normalizedDeclaredDependencies.error) {
+    return {
+      ok: false,
+      step: "dependencies_input",
+      failureCategory: "VALIDATION_FAILED",
+      code: "DEPENDENCIES_INVALID_FORMAT",
+      message: normalizedDeclaredDependencies.error,
+    };
+  }
   const nameRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
   if (!nameRegex.test(params.name)) {
     return {
@@ -243,6 +263,47 @@ export async function diagnosePublishReadiness(params: {
 
   const nextFiles = contract.value.filesToWrite ?? normalizedTheme.files ?? files;
   const nextRegistryDependencies = contract.value.registryDependenciesToWrite ?? [];
+  const discoveredThirdPartyDependencies = (() => {
+    if (isTheme) return [];
+    const all = new Set<string>();
+    const addFromSource = (src: string | undefined) => {
+      if (!src) return;
+      for (const dep of extractDependencies(src)) {
+        if (!isRelativeImport(dep) && !dep.startsWith("/")) {
+          all.add(dep);
+        }
+      }
+    };
+    if (nextFiles) {
+      for (const src of Object.values(nextFiles)) addFromSource(src);
+    } else {
+      addFromSource(normalizedTheme.content ?? content ?? undefined);
+    }
+    return Array.from(all).sort();
+  })();
+  const dependencyDecisions = evaluateThirdPartyDependencies({
+    discovered: excludeExplicitRegistryDependencies(
+      discoveredThirdPartyDependencies,
+      nextRegistryDependencies,
+    ),
+    declared: normalizedDeclaredDependencies.value,
+  });
+  const rejectedDependencies = getRejectedDependencyDecisions(
+    dependencyDecisions,
+  );
+  if (rejectedDependencies.length > 0) {
+    return {
+      ok: false,
+      step: "dependency_governance",
+      failureCategory: "VALIDATION_FAILED",
+      code: "THIRD_PARTY_DEPENDENCY_REJECTED",
+      message:
+        "Unsupported third-party dependencies: " +
+        rejectedDependencies
+          .map((decision) => `${decision.packageName} (${decision.message})`)
+          .join(", "),
+    };
+  }
 
   const previewAdvice = !isTheme
     ? getPreviewExportAdvice({
@@ -264,6 +325,7 @@ export async function diagnosePublishReadiness(params: {
       previewProps: contract.value.previewProps,
       previewExport: contract.value.previewExport,
       registryDependencies: nextRegistryDependencies,
+      dependencyDecisions,
       requestUserId: params.requestUserId,
     });
     if (!smoke.ok) {
@@ -287,6 +349,7 @@ export async function diagnosePublishReadiness(params: {
       : "Contract normalization passed. Re-run with runPreviewSmoke: true to match full publish preview gate.",
     previewAdvice,
     publishDiagnostics: {
+      dependencyDiagnostics: dependencyDecisions,
       droppedPaths: d.droppedPaths,
       dirtyDependencyPaths: d.dirtyDependencyPaths,
       stubInferredRegistryDependencies: d.stubInferredRegistryDependencies,

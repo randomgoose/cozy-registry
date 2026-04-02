@@ -190,3 +190,4 @@ Registry 条目格式保持 shadcn 兼容；项目内安装状态由 Cozy 自定
 - [System Overview](./system-overview.md)
 - [Registry Dependency Management Spec](../20-engineering/registry-dependency-management-spec.md)
 - [Install Protocol](../20-engineering/install-protocol.md)
+- [Registry Resource Lifecycle Spec](../20-engineering/registry-resource-lifecycle-spec.md)

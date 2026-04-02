@@ -5,7 +5,8 @@ import { auth } from "@/lib/auth";
 import { getRegistryItemsByOrganizationId } from "@/lib/registry";
 import { ComponentCard } from "@/app/components/ComponentCard";
 import { getThumbnailFromMeta } from "@/lib/thumbnail";
-import { isUserOrganizationMember, resolveOrganizationBySlug } from "@/lib/registry-organization";
+import { createServerTimingLogger, timeAsync } from "@/lib/server-timing";
+import { getCachedWorkspaceRouteAccess } from "@/lib/workspace-route";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +15,12 @@ function normalizeVisibility(value: string): "public" | "private" {
 }
 
 export default async function WorkspaceItemsPage({ params }: { params: Promise<{ slug: string }> }) {
+  const timings = createServerTimingLogger("workspace-items-page");
   const { slug: rawSlug } = await params;
   const slug = decodeURIComponent(rawSlug);
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await timeAsync(timings, "sessionLookup", async () =>
+    auth.api.getSession({ headers: await headers() }),
+  );
 
   if (!session?.user?.id) {
     return (
@@ -32,16 +36,45 @@ export default async function WorkspaceItemsPage({ params }: { params: Promise<{
     );
   }
 
-  const org = await resolveOrganizationBySlug(slug);
-  if (!org) notFound();
-  const allowed = await isUserOrganizationMember(session.user.id, org.id);
-  if (!allowed) notFound();
+  const access = await timeAsync(timings, "workspaceAccessLoad", async () =>
+    getCachedWorkspaceRouteAccess(session.user.id, slug),
+  );
+  if (!access.org) {
+    timings.flush({
+      slug,
+      userId: session.user.id,
+      outcome: "org-not-found",
+      accessTimingsMs: access.timingsMs,
+    });
+    notFound();
+  }
+  if (!access.isMember) {
+    timings.flush({
+      slug,
+      userId: session.user.id,
+      outcome: "membership-denied",
+      accessTimingsMs: access.timingsMs,
+    });
+    notFound();
+  }
 
-  const items = await getRegistryItemsByOrganizationId(org.id);
+  const org = access.org;
+
+  const items = await timeAsync(timings, "registryItemLoad", async () =>
+    getRegistryItemsByOrganizationId(org.id),
+  );
   const publicCount = items.filter((item) => item.visibility === "public").length;
   const privateCount = items.length - publicCount;
   const latestItem = items[0] ?? null;
   const base = `/workspace/${encodeURIComponent(org.slug)}`;
+  timings.flush({
+    slug: org.slug,
+    organizationId: org.id,
+    userId: session.user.id,
+    itemCount: items.length,
+    outcome: "ok",
+    accessTimingsMs: access.timingsMs,
+  });
 
   return (
     <>

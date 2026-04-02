@@ -3,12 +3,16 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-type Props = { organizationId: string };
+type Props = {
+  organizationId: string;
+  activeOrganizationId: string | null;
+};
 
-export function WorkspaceScopeSync({ organizationId }: Props) {
+export function WorkspaceScopeSync({ organizationId, activeOrganizationId }: Props) {
   const router = useRouter();
 
   useEffect(() => {
+    if (activeOrganizationId === organizationId) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -26,7 +30,7 @@ export function WorkspaceScopeSync({ organizationId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [organizationId, router]);
+  }, [activeOrganizationId, organizationId, router]);
 
   return null;
 }

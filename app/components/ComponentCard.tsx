@@ -36,6 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PREVIEW_MSG_INITIAL_PROPS } from "@/lib/preview-messages";
+import type { DependencyDecision } from "@/lib/third-party-dependency-governance";
 import { filterControllableProps } from "@/lib/preview-prop-controls";
 import { cn } from "@/lib/utils";
 import { extractPropsFromTsx, type PropField } from "@/lib/validate-tsx";
@@ -54,7 +55,24 @@ type ExpandedDetailData = {
   type: string;
   dependencies: string[];
   registryDependencies: string[];
+  dependencyDiagnostics: DependencyDecision[];
   files: { path: string; content: string; type: string }[];
+};
+
+type PreviewArtifactStatus =
+  | "missing"
+  | "queued"
+  | "running"
+  | "ready"
+  | "failed"
+  | "skipped";
+
+type PreviewArtifactStatusPayload = {
+  artifactStatus: PreviewArtifactStatus;
+  lastError?: {
+    code?: string | null;
+    message?: string | null;
+  } | null;
 };
 
 function normalizeExpandedDetailData(
@@ -80,6 +98,17 @@ function normalizeExpandedDetailData(
       : [],
     registryDependencies: Array.isArray(data.registryDependencies)
       ? data.registryDependencies.filter((dep): dep is string => typeof dep === "string")
+      : [],
+    dependencyDiagnostics: Array.isArray(data.dependencyDiagnostics)
+      ? data.dependencyDiagnostics.filter(
+          (entry): entry is DependencyDecision =>
+            !!entry &&
+            typeof entry === "object" &&
+            typeof (entry as DependencyDecision).packageName === "string" &&
+            typeof (entry as DependencyDecision).tier === "string" &&
+            typeof (entry as DependencyDecision).previewCapability === "string" &&
+            typeof (entry as DependencyDecision).versionPolicyStatus === "string",
+        )
       : [],
     files,
   };
@@ -176,6 +205,8 @@ export function ComponentCard({
     versions: { version: string }[];
   } | null>(null);
   const [versionsLoading, setVersionsLoading] = useState(false);
+  const [artifactStatus, setArtifactStatus] =
+    useState<PreviewArtifactStatusPayload | null>(null);
 
   const vParam = useMemo(() => {
     if (selectedDetailVersion == null) return null;
@@ -495,6 +526,7 @@ export function ComponentCard({
     setExpandedMainTab("preview");
     setSelectedDetailVersion(null);
     setVersionMeta(null);
+    setArtifactStatus(null);
   }, [name, owner]);
 
   useEffect(() => {
@@ -647,6 +679,87 @@ export function ComponentCard({
     if (!expanded || livePreviewProps == null) return;
     expandedPreviewRef.current?.sendPreviewProps(livePreviewProps);
   }, [expanded, livePreviewProps, vParam]);
+
+  useEffect(() => {
+    if (!expanded) return;
+
+    let cancelled = false;
+
+    async function loadArtifactStatus() {
+      try {
+        const search = new URLSearchParams({ owner, name });
+        if (vParam) {
+          search.set("v", vParam);
+        }
+        const res = await fetch(
+          `/api/registry/preview-artifacts/status?${search.toString()}`,
+          { cache: "no-store" },
+        );
+        if (!res.ok || cancelled) {
+          if (!cancelled) {
+            setArtifactStatus(null);
+          }
+          return;
+        }
+        const data = (await res.json()) as PreviewArtifactStatusPayload;
+        if (!cancelled) {
+          setArtifactStatus(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setArtifactStatus(null);
+        }
+      }
+    }
+
+    void loadArtifactStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, owner, name, vParam]);
+
+  const artifactStatusTone = (() => {
+    switch (artifactStatus?.artifactStatus) {
+      case "ready":
+        return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
+      case "skipped":
+        return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
+      case "failed":
+        return "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200";
+      case "queued":
+      case "running":
+        return "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200";
+      default:
+        return "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+    }
+  })();
+
+  const artifactStatusLabel = (() => {
+    switch (artifactStatus?.artifactStatus) {
+      case "queued":
+        return "Artifact queued";
+      case "running":
+        return "Artifact building";
+      case "ready":
+        return "Artifact ready";
+      case "failed":
+        return "Artifact failed";
+      case "skipped":
+        return "Runtime preview only";
+      case "missing":
+        return "Artifact missing";
+      default:
+        return null;
+    }
+  })();
+
+  const artifactStatusMessage =
+    artifactStatus?.artifactStatus === "skipped"
+      ? artifactStatus.lastError?.message ??
+        "Prebundle was skipped by policy because one or more dependencies are runtime-only."
+      : artifactStatus?.artifactStatus === "failed"
+        ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
+        : null;
 
   const handlePreviewPropChange = useCallback((propName: string, value: unknown) => {
     setLivePreviewProps((prev) => (prev ? { ...prev, [propName]: value } : null));
@@ -1011,6 +1124,51 @@ export function ComponentCard({
                       </div>
                     ) : null}
 
+                    {detailData?.dependencyDiagnostics?.length ? (
+                      <section className="mt-4 space-y-2">
+                        <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                          Preview dependency support
+                        </h3>
+                        <div className="flex flex-col gap-2">
+                          {detailData.dependencyDiagnostics.map((decision) => (
+                            <div
+                              key={decision.packageName}
+                              className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-xs text-zinc-800 dark:text-zinc-200">
+                                  {decision.packageName}
+                                </span>
+                                <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                                  {decision.tier}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                                    decision.previewCapability === "prebundle-supported"
+                                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                                      : decision.previewCapability === "runtime-only"
+                                        ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                                        : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+                                  )}
+                                >
+                                  {decision.previewCapability}
+                                </span>
+                                {decision.requestedVersion ? (
+                                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+                                    v{decision.requestedVersion}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                {decision.message}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ) : null}
+
                     <div className="mt-6 space-y-6 pb-2">
                       <section className="space-y-3">
                         <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
@@ -1152,6 +1310,23 @@ export function ComponentCard({
                       role="tabpanel"
                       aria-hidden={expandedMainTab !== "preview"}
                     >
+                      {artifactStatusLabel ? (
+                        <div className="pointer-events-none absolute left-4 top-4 z-20 flex max-w-[calc(100%-2rem)] flex-col gap-2">
+                          <span
+                            className={cn(
+                              "w-fit rounded-full px-3 py-1 text-xs font-medium shadow-sm",
+                              artifactStatusTone,
+                            )}
+                          >
+                            {artifactStatusLabel}
+                          </span>
+                          {artifactStatusMessage ? (
+                            <p className="max-w-xl rounded-2xl bg-white/88 px-3 py-2 text-xs text-zinc-600 shadow-sm ring-1 ring-black/5 backdrop-blur dark:bg-zinc-950/80 dark:text-zinc-300 dark:ring-white/10">
+                              {artifactStatusMessage}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                       <PreviewFrame
                         ref={expandedPreviewRef}
                         key={`expanded-preview-${owner}-${name}-${vParam ?? "latest"}`}
