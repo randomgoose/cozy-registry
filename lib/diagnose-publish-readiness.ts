@@ -38,6 +38,7 @@ export type DiagnosePublishReadinessResult =
       };
       publishDiagnostics?: {
         dependencyDiagnostics?: unknown;
+        previewDependencyResolutionDiagnostics?: unknown[];
         droppedPaths: string[];
         dirtyDependencyPaths: string[];
         stubInferredRegistryDependencies: string[];
@@ -316,6 +317,7 @@ export async function diagnosePublishReadiness(params: {
         content: nextFiles ? null : normalizedTheme.content ?? content ?? undefined,
       })
     : undefined;
+  let previewDependencyResolutionDiagnostics: unknown[] = [];
 
   if (!isTheme && runPreviewSmoke) {
     const smoke = await runRegistryPreviewSmokeTest({
@@ -338,6 +340,8 @@ export async function diagnosePublishReadiness(params: {
         stack: smoke.stack,
       };
     }
+    previewDependencyResolutionDiagnostics =
+      smoke.dependencyResolutionDiagnostics ?? [];
   }
 
   const d = contract.value.diagnostics;
@@ -350,6 +354,7 @@ export async function diagnosePublishReadiness(params: {
     previewAdvice,
     publishDiagnostics: {
       dependencyDiagnostics: dependencyDecisions,
+      previewDependencyResolutionDiagnostics,
       droppedPaths: d.droppedPaths,
       dirtyDependencyPaths: d.dirtyDependencyPaths,
       stubInferredRegistryDependencies: d.stubInferredRegistryDependencies,

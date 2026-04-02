@@ -8,6 +8,7 @@ import {
   PREVIEW_MSG_RUNTIME_ERROR,
   PREVIEW_MSG_SET_PROPS,
 } from "@/lib/preview-messages";
+import type { PreviewDependencyResolutionDiagnostic } from "@/lib/preview-dependency-provider";
 
 type EsbuildModule = typeof import("esbuild");
 
@@ -126,7 +127,12 @@ function pickPreviewEntrySourcePath(
 }
 
 export type PreviewBuildResult =
-  | { ok: true; code: string; css?: string }
+  | {
+      ok: true;
+      code: string;
+      css?: string;
+      dependencyResolutionDiagnostics?: PreviewDependencyResolutionDiagnostic[];
+    }
   | {
       ok: false;
       error: {
@@ -161,6 +167,8 @@ export async function buildPreviewBundle(
     workspaceKey?: string;
     debug?: boolean;
     externalizeDependencies?: boolean;
+    dependencyNodePaths?: string[];
+    dependencyResolutionDiagnostics?: PreviewDependencyResolutionDiagnostic[];
   },
 ): Promise<PreviewBuildResult> {
   // 注意：为了避免 Next.js 在服务器 bundle 时把 esbuild 的可执行文件等一起打包，
@@ -604,7 +612,9 @@ root.render(
       },
     };
 
-    const previewNodePaths = resolvePreviewNodePaths();
+    const previewNodePaths = resolvePreviewNodePaths(
+      options?.dependencyNodePaths,
+    );
 
     // Run esbuild to bundle the preview entry into a single ESM file.
     const result = await esbuild.build({
@@ -641,7 +651,12 @@ root.render(
 
     const css =
       collectedCss.length > 0 ? collectedCss.join("\n\n") : undefined;
-    return { ok: true, code: output, css };
+    return {
+      ok: true,
+      code: output,
+      css,
+      dependencyResolutionDiagnostics: options?.dependencyResolutionDiagnostics,
+    };
   } catch (err) {
     if (isEsbuildBuildError(err)) {
       const first = err.errors[0];
@@ -742,13 +757,14 @@ function hashContent(content: string) {
   return createHash("sha256").update(content).digest("hex");
 }
 
-function resolvePreviewNodePaths() {
+function resolvePreviewNodePaths(additionalNodePaths?: string[]) {
   const appRequire = Module.createRequire(
     path.join(process.cwd(), "package.json"),
   );
   const candidates = [
     path.join(process.cwd(), "node_modules"),
     path.dirname(appRequire.resolve("react/package.json")),
+    ...(additionalNodePaths ?? []),
   ];
 
   return Array.from(new Set(candidates));

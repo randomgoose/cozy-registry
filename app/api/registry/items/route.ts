@@ -345,6 +345,7 @@ export async function POST(request: Request) {
 
     const filesToWrite = contract.value.filesToWrite ?? normalizedFiles;
     const depsToWrite = contract.value.registryDependenciesToWrite ?? [];
+    let previewDependencyResolutionDiagnostics: unknown[] = [];
 
     if (!isTheme) {
       const smoke = await runRegistryPreviewSmokeTest({
@@ -368,8 +369,9 @@ export async function POST(request: Request) {
           { status: 422 },
         );
       }
+      previewDependencyResolutionDiagnostics =
+        smoke.dependencyResolutionDiagnostics ?? [];
     }
-
     const item = await createRegistryItem({
       name,
       type: normalizedType,
@@ -403,6 +405,7 @@ export async function POST(request: Request) {
       hints,
       publishDiagnostics: {
         dependencyDiagnostics: dependencyDecisions,
+        previewDependencyResolutionDiagnostics,
         appliedRegistryDependencies: contract.value.appliedRegistryDependencies ?? depsToWrite,
         droppedPaths: contract.value.diagnostics.droppedPaths,
         dirtyDependencyPaths: contract.value.diagnostics.dirtyDependencyPaths,

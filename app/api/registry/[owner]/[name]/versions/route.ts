@@ -353,6 +353,7 @@ export async function POST(request: Request, { params }: Params) {
     const nextRegistryDependencies =
       contract.value.registryDependenciesToWrite ??
       ((item.registryDependencies ?? []) as string[]);
+    let previewDependencyResolutionDiagnostics: unknown[] = [];
     if (!isTheme) {
       const smoke = await runRegistryPreviewSmokeTest({
         name,
@@ -375,6 +376,8 @@ export async function POST(request: Request, { params }: Params) {
           { status: 422 },
         );
       }
+      previewDependencyResolutionDiagnostics =
+        smoke.dependencyResolutionDiagnostics ?? [];
     }
     const result = await createRegistryItemVersion({
       ownerId: item.userId ?? undefined,
@@ -397,6 +400,7 @@ export async function POST(request: Request, { params }: Params) {
       hints,
       publishDiagnostics: {
         dependencyDiagnostics: dependencyDecisions,
+        previewDependencyResolutionDiagnostics,
         appliedRegistryDependencies:
           contract.value.appliedRegistryDependencies ??
           contract.value.registryDependenciesToWrite ??

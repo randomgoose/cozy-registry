@@ -24,6 +24,7 @@ import {
   uploadPublicAsset,
 } from "@/lib/storage";
 import { pickPreviewStory } from "@/lib/preview-stories";
+import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
 
 export const BUILD_PREVIEW_ARTIFACT_JOB = "build_preview_artifact" as const;
 
@@ -352,6 +353,9 @@ export async function processPreviewArtifactJob(jobId: string) {
         reasonCode,
       };
     }
+    const resolvedPreviewDependencies = await resolvePreviewDependencies({
+      decisions: dependencyDecisions,
+    });
 
     const buildResult = await buildPreviewBundle(
       {
@@ -362,7 +366,14 @@ export async function processPreviewArtifactJob(jobId: string) {
         previewExport,
       },
       previewProps,
-      { mode, debug: false, externalizeDependencies: false },
+      {
+        mode,
+        debug: false,
+        externalizeDependencies: false,
+        dependencyNodePaths: resolvedPreviewDependencies.nodePaths,
+        dependencyResolutionDiagnostics:
+          resolvedPreviewDependencies.diagnostics,
+      },
     );
 
     if (!buildResult.ok) {
@@ -420,6 +431,8 @@ export async function processPreviewArtifactJob(jobId: string) {
       generatedAt: new Date().toISOString(),
       jsUrl: uploadedJs.url,
       cssUrl: uploadedCssUrl,
+      dependencyResolutionDiagnostics:
+        buildResult.dependencyResolutionDiagnostics ?? [],
     };
     const manifestPath = buildRegistryPreviewArtifactPath({
       owner: payload.owner,

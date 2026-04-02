@@ -2907,6 +2907,74 @@ ${fileContent}
               isError: true,
             };
           }
+          const previewDependencyResolutionDiagnostics =
+            smoke.dependencyResolutionDiagnostics ?? [];
+          const result = await createRegistryItemVersion({
+            ownerId: orgTarget ? undefined : userId,
+            organizationId: orgTarget?.id,
+            name,
+            content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
+            files: nextFiles,
+            bump: bumpType,
+            userId,
+            message: description || undefined,
+            dependencies,
+            declaredDependencies: normalizedDeclaredDependencies.value,
+            dependencyDecisions,
+            previewProps: contract.value.previewProps,
+            previewExport: contract.value.previewExport,
+            previewStories: args.previewStories,
+            previewDefaultStoryId: args.previewDefaultStoryId,
+            registryDependencies: contract.value.registryDependenciesToWrite,
+          });
+          const defaultStoryIdForVersion =
+            (typeof args.previewDefaultStoryId === "string" &&
+            args.previewDefaultStoryId.trim().length > 0
+              ? args.previewDefaultStoryId.trim()
+              : null) ?? getPreviewDefaultStoryIdFromMeta(existing.meta);
+
+          const effectiveRegistryDeps =
+            contract.value.registryDependenciesToWrite ??
+            ((existing.registryDependencies ?? []) as string[]);
+          let healthSuffix = "";
+          if (effectiveRegistryDeps.length > 0) {
+            const health = await computeRegistryDependencyHealth(
+              effectiveRegistryDeps,
+              userId,
+            );
+            healthSuffix = formatDependencyHealthForMcp(health);
+          }
+          const orgRef =
+            orgTarget?.targetRef ??
+            (existing.organizationId
+              ? existing.organizationId
+              : userId ?? "me");
+          const previewStatusNote = `\n\nPreview artifact status: queued\nCheck: /api/registry/preview-artifacts/status?owner=${encodeURIComponent(
+            orgRef,
+          )}&name=${encodeURIComponent(name)}&v=${encodeURIComponent(
+            result.version,
+          )}${defaultStoryIdForVersion ? `&story=${encodeURIComponent(defaultStoryIdForVersion)}` : ""}`;
+          const dependencyResolutionNote =
+            previewDependencyResolutionDiagnostics.length > 0
+              ? `\n\nPreview dependency resolution:\n${JSON.stringify(
+                  previewDependencyResolutionDiagnostics,
+                  null,
+                  2,
+                )}`
+              : "";
+          const baseText =
+            `Published @${orgRef}/${name}@${result.version} (private=${String(
+              visibility !== "public",
+            )}).` +
+            healthSuffix;
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `${baseText}${previewStatusNote}${dependencyResolutionNote}`,
+              },
+            ],
+          };
         }
         const result = await createRegistryItemVersion({
           ownerId: orgTarget ? undefined : userId,

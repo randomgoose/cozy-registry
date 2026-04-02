@@ -13,12 +13,16 @@ import {
   getPrebundleDependencies,
   type DependencyDecision,
 } from "@/lib/third-party-dependency-governance";
+import {
+  resolvePreviewDependencies,
+  type PreviewDependencyResolutionDiagnostic,
+} from "@/lib/preview-dependency-provider";
 
 type SmokeTestCode = "PREVIEW_BUILD_FAILED" | "PREVIEW_RENDER_FAILED";
 const SMOKE_EXECUTION_TIMEOUT_MS = 3000;
 
 export type RegistryPreviewSmokeTestResult =
-  | { ok: true }
+  | { ok: true; dependencyResolutionDiagnostics?: PreviewDependencyResolutionDiagnostic[] }
   | {
       ok: false;
       code: SmokeTestCode;
@@ -155,8 +159,12 @@ export async function runRegistryPreviewSmokeTest(params: {
       camel: slugToCamelExportName(params.name),
     });
     const importSpecifiers = collectBareImportSpecifiers(files);
-    const passThroughBareImports = await collectHostResolutionBareImports(
+    const resolvedPreviewDependencies = await resolvePreviewDependencies({
+      decisions: params.dependencyDecisions ?? [],
+    });
+    const passThroughBareImports = await collectPassThroughBareImports(
       getPrebundleDependencies(params.dependencyDecisions ?? []),
+      resolvedPreviewDependencies.nodePaths,
     );
     const unsupportedBareImports = findUnsupportedBareImports(importSpecifiers);
     if (unsupportedBareImports.length > 0) {
@@ -258,7 +266,9 @@ export const __previewProps = PREVIEW_PROPS;
       jsx: "automatic",
       write: false,
       logLevel: "silent",
-      nodePaths: previewNodePaths,
+      nodePaths: Array.from(
+        new Set([...previewNodePaths, ...resolvedPreviewDependencies.nodePaths]),
+      ),
       plugins: [
         cssPlugin,
         figmaAssetPlugin,
@@ -284,7 +294,11 @@ export const __previewProps = PREVIEW_PROPS;
       passThroughBareImports,
     );
     if (execution.ok) {
-      return { ok: true };
+      return {
+        ok: true,
+        dependencyResolutionDiagnostics:
+          resolvedPreviewDependencies.diagnostics,
+      };
     }
     return {
       ok: false,
@@ -889,8 +903,9 @@ function resolvePreviewNodePaths() {
   return Array.from(new Set(candidates));
 }
 
-async function collectHostResolutionBareImports(
+async function collectPassThroughBareImports(
   roots: string[],
+  nodePaths: string[],
 ): Promise<Set<string>> {
   const appRequire = Module.createRequire(
     path.join(process.cwd(), "package.json"),
@@ -904,7 +919,7 @@ async function collectHostResolutionBareImports(
     out.add(spec);
 
     try {
-      const packageEntryPath = appRequire.resolve(spec);
+      const packageEntryPath = appRequire.resolve(spec, { paths: nodePaths });
       const packageJsonPath = await findNearestPackageJson(packageEntryPath);
       if (!packageJsonPath) continue;
       const raw = await fs.readFile(packageJsonPath, "utf8");

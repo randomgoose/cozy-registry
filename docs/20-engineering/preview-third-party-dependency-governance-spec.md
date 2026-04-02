@@ -29,6 +29,24 @@ Source of truth: yes
 
 这是一个过渡模型，不适合作为长期平台基础。
 
+### 1.1 Current Known Limitation
+
+当前实现已经能在 publish 前对第三方依赖做治理分类，但对 `prebundle-supported` 依赖的真实解析仍存在一个已知限制：
+
+- publish preview smoke 对 `prebundle-supported` 依赖不会再 stub，而是要求真实模块可解析
+- 这一步当前仍依赖宿主仓库的 `node_modules` / `appRequire(...)`
+- 因此即使某个依赖已经被治理层判定为 `trusted-built-in + prebundle-supported`，只要宿主环境未安装对应包，smoke 仍可能失败
+
+这说明当前系统已经拥有：
+
+- dependency governance contract
+
+但还没有完全拥有：
+
+- platform-controlled dependency provider contract
+
+`class-variance-authority@0.7.1` 这类 case 暴露的正是这个缺口。
+
 ## 2. Goals
 
 - 提升组件首次发布成功率，不因常见第三方依赖直接“首发失败”
@@ -428,6 +446,99 @@ artifact prebuild 是受控构建路径，应更严格。
 - 不再默认依赖宿主仓库的 `node_modules`
 - 依赖来源必须可解释、可复现、可收口
 
+## 11.4 Dependency Provider Repair Strategy (normative)
+
+为修复 “治理已通过但 smoke / prebuild 仍依赖宿主 `node_modules`” 的问题，平台必须引入统一的 **dependency provider** 层。
+
+### 11.4.1 Required boundary
+
+新增统一边界，例如：
+
+- `preview-dependency-provider`
+
+职责：
+
+- 输入：`dependencyDecisions`
+- 输出：
+  - 哪些依赖应保持 `runtime-only`
+  - 哪些依赖应进入 `prebundle-supported`
+  - 对 `prebundle-supported` 依赖，平台应从哪里获取真实可解析模块
+
+这个 provider 必须成为以下路径的共享输入：
+
+- publish preview smoke
+- runtime preview import-map 生成
+- preview artifact prebuild
+
+### 11.4.2 What must change
+
+当前系统的问题不是 governance 缺失，而是 “真实解析来源” 仍然绑定宿主环境。
+
+因此修复方向必须是：
+
+- 不再默认通过宿主 `appRequire(spec)` 解析 `prebundle-supported` 依赖
+- 改为通过 dependency provider 返回的受控来源进行解析
+
+### 11.4.3 Accepted near-term implementation
+
+第一阶段允许的平台实现方式：
+
+1. **Vendor trusted built-ins**
+   - 平台为少量 trusted built-ins 维护受控副本或固定版本产物
+   - smoke / prebuild 都从该受控来源读取
+
+2. **Prewarmed internal cache/store**
+   - 平台预先准备 trusted built-ins 的固定版本缓存
+   - worker / smoke 从该缓存读取
+
+第一阶段不要求：
+
+- 任意 npm 包在线安装
+- 面向未知包的通用包管理器
+
+### 11.4.4 Short-term compatibility rule
+
+宿主 `node_modules` 可以作为短期 fallback 保留，但必须满足：
+
+- 只用于兼容路径或开发环境
+- 需要有显式 diagnostics 标识 `hostFallbackUsed`
+- 不得再作为 `prebundle-supported` 成功语义的唯一保障
+
+### 11.4.5 Required behavior for trusted built-ins
+
+对于 `trusted-built-in` 且带显式版本声明的依赖：
+
+- 若 provider 有受控来源，则 smoke / prebuild 必须使用 provider
+- 若 provider 暂无受控来源：
+  - 可以临时回退到 host fallback
+  - 但 diagnostics 必须明确标注这是过渡路径
+  - 不得把这种状态误描述成“平台已完全受控支持”
+
+### 11.4.6 Example
+
+对于：
+
+```json
+{
+  "dependencies": [
+    { "name": "class-variance-authority", "version": "0.7.1" }
+  ]
+}
+```
+
+治理层应得到：
+
+- `tier = trusted-built-in`
+- `previewCapability = prebundle-supported`
+
+修复后的 smoke / artifact 路径不应再简单依赖：
+
+- 宿主仓库是否恰好安装了 `class-variance-authority`
+
+而应优先依赖：
+
+- provider 返回的 `class-variance-authority@0.7.1` 受控来源
+
 ## 12. Diagnostics and UX
 
 ### 12.1 Publish Diagnostics
@@ -641,6 +752,23 @@ publish 响应应包含依赖诊断信息，至少包括：
 验收：
 
 - artifact build 不再默认依赖宿主仓库预装依赖
+
+### Agent F: Dependency Provider
+
+目标：
+
+- 引入统一的受控依赖提供层，消除 governance-approved 依赖对宿主解析的硬绑定
+
+任务：
+
+- 新建 provider 层（建议：`lib/preview-dependency-provider.ts`）
+- 让 publish smoke 与 artifact prebuild 都通过 provider 获取 `prebundle-supported` 依赖来源
+- 为 host fallback 增加显式 diagnostics
+
+验收：
+
+- `trusted-built-in + explicit version` 的依赖不再仅依赖宿主 `node_modules` 才能 smoke 通过
+- smoke 与 artifact prebuild 共享同一套真实解析来源决策
 
 ## Related
 
