@@ -1,8 +1,13 @@
 import nextra from "nextra";
+import { TRUSTED_BUILT_IN_DEPENDENCIES } from "./lib/third-party-dependency-catalog";
 
 const withNextra = nextra({
   contentDirBasePath: "/docs",
 });
+
+function toTracingGlob(packageName: string) {
+  return `./node_modules/${packageName}/**/*`;
+}
 
 const nextConfig = {
   async rewrites() {
@@ -12,6 +17,9 @@ const nextConfig = {
     ];
   },
   serverExternalPackages: ["esbuild"],
+  outputFileTracingIncludes: {
+    "/*": TRUSTED_BUILT_IN_DEPENDENCIES.map(toTracingGlob),
+  },
 };
 
 export default withNextra(nextConfig);
