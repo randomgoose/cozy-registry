@@ -44,7 +44,10 @@ import {
 } from "@/lib/registry-organization";
 import { parseTeamOwnerPath } from "@/lib/registry-team";
 import { getRegistryPolicyForApiKey } from "@/lib/registry-policy";
-import { findAccessibleRegistryProjectBySlug } from "@/lib/registry-project-access";
+import {
+  findAccessibleRegistryProjectBySlug,
+  resolveCanonicalRegistryProjectForWrite,
+} from "@/lib/registry-project-access";
 import { createRegistryProject } from "@/lib/registry-project-create";
 import { linkRegistryItemToProject } from "@/lib/registry-project-link-item";
 import { db } from "@/lib/db";
@@ -224,22 +227,16 @@ export function createRegistryMcpServer(request?: Request) {
     return policy;
   }
 
-  async function attachPublishedItemToProjectBySlug(
+  async function attachPublishedItemToProject(
     userId: string,
-    projectSlug: string | undefined,
+    project: { id: string; slug: string },
     itemId: string,
   ): Promise<{ ok: true; note: string } | { ok: false; error: string }> {
-    const slug = projectSlug?.trim() ?? "";
-    if (!slug) return { ok: true, note: "" };
-    const project = await findAccessibleRegistryProjectBySlug(userId, slug);
-    if (!project) {
-      return { ok: false, error: `Project "${slug}" not found or you have no access.` };
-    }
     const linked = await linkRegistryItemToProject({ userId, projectId: project.id, itemId });
     if (!linked.ok) {
       return { ok: false, error: linked.error };
     }
-    return { ok: true, note: `Linked to registry project "${slug}".` };
+    return { ok: true, note: `Linked to registry project "${project.slug}".` };
   }
 
   async function findProjectScopedRegistryItemByName(params: {
@@ -303,6 +300,62 @@ export function createRegistryMcpServer(request?: Request) {
     };
 
     return { ok: true as const, item: item ?? null };
+  }
+
+  async function findRegistryItemLinkedToProjectByName(params: {
+    project: { id: string; organizationId: string | null; ownerUserId: string | null };
+    name: string;
+  }) {
+    const ownershipClause =
+      params.project.organizationId != null
+        ? eq(registryItems.organizationId, params.project.organizationId)
+        : params.project.ownerUserId != null
+          ? eq(registryItems.userId, params.project.ownerUserId)
+          : null;
+    if (!ownershipClause) {
+      return { ok: false as const, error: "Project has no resolvable owner scope." };
+    }
+
+    const [row] = await db
+      .select({
+        id: registryItems.id,
+      })
+      .from(registryProjectItems)
+      .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
+      .where(
+        and(
+          eq(registryProjectItems.projectId, params.project.id),
+          eq(registryItems.name, params.name),
+          ownershipClause,
+        ),
+      )
+      .orderBy(desc(registryItems.updatedAt))
+      .limit(1);
+
+    if (!row) {
+      return { ok: true as const, item: null };
+    }
+
+    const [itemBase] = await db
+      .select()
+      .from(registryItems)
+      .where(eq(registryItems.id, row.id))
+      .limit(1);
+    if (!itemBase) {
+      return { ok: true as const, item: null };
+    }
+    const itemFiles = await db
+      .select()
+      .from(registryFiles)
+      .where(eq(registryFiles.itemId, itemBase.id));
+
+    return {
+      ok: true as const,
+      item: {
+        ...itemBase,
+        files: itemFiles,
+      },
+    };
   }
 
   async function listRegistryProjectsForMcp() {
@@ -2782,6 +2835,25 @@ ${fileContent}
         resolvedPublishTarget.target.kind === "organization"
           ? resolvedPublishTarget.target
           : null;
+      const canonicalProjectForLink = projectLinkSlug
+        ? await resolveCanonicalRegistryProjectForWrite({
+            userId,
+            projectSlug: projectLinkSlug,
+            ownerUserId: orgTarget ? null : userId,
+            organizationId: orgTarget?.id ?? null,
+          })
+        : { ok: true as const, project: null };
+      if (!canonicalProjectForLink.ok) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: canonicalProjectForLink.error,
+            },
+          ],
+          isError: true,
+        };
+      }
 
       // 归一化 theme：若 type === registry:theme，优先将 content / files 中的 JSON 视为 tokens.json，
       // 并从中派生 theme.css。
@@ -2791,7 +2863,7 @@ ${fileContent}
       // - When project slug is provided, only update an item already linked to that project.
       // - Otherwise keep legacy owner/name behavior.
       const existing = await (async () => {
-        if (!projectLinkSlug) {
+        if (!canonicalProjectForLink.project) {
           return orgTarget
             ? getRegistryItemByOrganizationAndName(orgTarget.id, name).catch(() => null)
             : getRegistryItemByOwnerNameAndVersion(
@@ -2801,9 +2873,8 @@ ${fileContent}
                 userId,
               ).catch(() => null);
         }
-        const scoped = await findProjectScopedRegistryItemByName({
-          userId,
-          projectSlug: projectLinkSlug,
+        const scoped = await findRegistryItemLinkedToProjectByName({
+          project: canonicalProjectForLink.project,
           name,
         });
         if (!scoped.ok) {
@@ -3060,10 +3131,10 @@ ${fileContent}
             : ""
         }`;
 
-        if (projectLinkSlug) {
-          const attach = await attachPublishedItemToProjectBySlug(
+        if (canonicalProjectForLink.project) {
+          const attach = await attachPublishedItemToProject(
             userId,
-            projectLinkSlug,
+            canonicalProjectForLink.project,
             existing.id,
           );
           if (!attach.ok) {
@@ -3217,6 +3288,7 @@ ${fileContent}
         previewExport: contract.value.previewExport,
         previewStories: args.previewStories,
         previewDefaultStoryId: args.previewDefaultStoryId,
+        requestUserId: userId,
       });
 
       const effectiveRegistryDepsCreate =
@@ -3276,10 +3348,10 @@ ${fileContent}
           : ""
       }`;
 
-      if (projectLinkSlug) {
-        const attach = await attachPublishedItemToProjectBySlug(
+      if (canonicalProjectForLink.project) {
+        const attach = await attachPublishedItemToProject(
           userId,
-          projectLinkSlug,
+          canonicalProjectForLink.project,
           item.id,
         );
         if (!attach.ok) {

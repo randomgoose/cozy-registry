@@ -8,6 +8,7 @@
     "with-env:prod": "tsx bin/run-with-env.ts prod",
     "cozy": "tsx bin/cozy-registry.ts",
     "cozy-registry": "tsx bin/cozy-registry.ts",
+    "publish-org-ui": "tsx bin/publish-org-project-ui.ts",
     "registry:migrate-layout": "tsx bin/migrate-registry-layout.ts",
     "cozy-thumbnail-debug": "tsx bin/cozy-thumbnail-debug.ts",
     "cozy-thumbnail-requeue-all": "tsx bin/cozy-thumbnail-requeue-all.ts",

@@ -24,7 +24,8 @@ import { authClient } from "@/lib/auth-client";
 import { FigmaMakeIcon } from "./icons/FigmaMakeIcon";
 import { CursorIcon } from "./icons/CursorIcon";
 
-type ToolKey = "figma" | "cursor";
+type ToolKey = "figma" | "cursor" | "codex";
+type OAuthToolKey = "figma" | "cursor";
 
 type ToolDefinition =
   | {
@@ -47,6 +48,14 @@ type ToolDefinition =
       description: string;
       steps: string[];
       icon?: ReactNode;
+    }
+  | {
+      key: "codex";
+      title: string;
+      description: string;
+      steps: string[];
+      note?: string;
+      icon?: ReactNode;
     };
 
 type OAuthConfig = {
@@ -59,7 +68,7 @@ type OAuthConfig = {
 type ConnectToolsDialogProps = {
   mcpUrl: string;
   isSignedIn: boolean;
-  oauthConfigs: Record<ToolKey, OAuthConfig>;
+  oauthConfigs: Record<OAuthToolKey, OAuthConfig>;
 };
 
 const TOOLS: ToolDefinition[] = [
@@ -97,6 +106,19 @@ const TOOLS: ToolDefinition[] = [
       "After connecting, prefer get_project_registry_status and analyze_project_registry for project analysis.",
     ],
     icon: <CursorIcon className="size-4" />,
+  },
+  {
+    key: "codex",
+    title: "Connect Codex",
+    description:
+      "Connect Cozy Registry in Codex CLI or the Codex app so agents can browse the registry, inspect bundles, and plan installs.",
+    steps: [
+      "Codex does not currently support a one-click MCP deeplink like Cursor. Use the CLI command or config file below.",
+      "After setup, run codex mcp list to verify the server is configured.",
+      "When asking Codex to use registry tools, point it at the Cozy Registry MCP server if needed.",
+    ],
+    note:
+      "Official Codex docs currently recommend `codex mcp add ... --url ...` or editing `~/.codex/config.toml` directly. There is no documented Codex install deeplink yet.",
   },
 ];
 
@@ -165,7 +187,9 @@ type CopyKind =
   | "oauthClientSecret"
   | "headerName"
   | "headerValue"
-  | "cursorInstall";
+  | "cursorInstall"
+  | "codexCommand"
+  | "codexConfig";
 
 function useAbsoluteMcpUrl(mcpUrl: string): string {
   const origin = useSyncExternalStore(
@@ -343,7 +367,7 @@ export function ConnectToolsDialog({
     () => TOOLS.find((tool) => tool.key === activeKey) ?? TOOLS[0],
     [activeKey],
   );
-  const activeOAuthConfig = oauthConfigs[activeKey];
+  const figmaOAuthConfig = oauthConfigs.figma;
   const absoluteMcpUrl = useAbsoluteMcpUrl(mcpUrl);
   const authHeaderName = "Authorization";
   const authHeaderValue = `Bearer ${generatedToken ?? "<your-token>"}`;
@@ -352,8 +376,12 @@ export function ConnectToolsDialog({
     () => buildCursorInstallLink(absoluteMcpUrl, cursorOAuthConfig),
     [absoluteMcpUrl, cursorOAuthConfig],
   );
+  const codexServerName = "cozy-registry";
+  const codexAddCommand = `codex mcp add ${codexServerName} --url ${absoluteMcpUrl}`;
+  const codexConfigSnippet = `[mcp_servers.${codexServerName}]
+url = "${absoluteMcpUrl}"`;
   const oauthSecretApplicable =
-    activeOAuthConfig.tokenEndpointAuthMethod !== "none";
+    figmaOAuthConfig.tokenEndpointAuthMethod !== "none";
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -545,6 +573,68 @@ export function ConnectToolsDialog({
                     </a>
                   </div>
                 </div>
+              ) : activeTool.key === "codex" ? (
+                <>
+                  <div className="rounded-2xl bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)] ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:shadow-[0_12px_30px_rgba(0,0,0,0.18)] dark:ring-zinc-800/80">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                          Codex CLI
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+                          Recommended setup. This config is shared between Codex CLI and the Codex IDE/app integration.
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-zinc-300 bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                        CLI
+                      </span>
+                    </div>
+                    <div className="mt-4">
+                      <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                        Add server
+                      </p>
+                      <CopyableSnippet
+                        value={codexAddCommand}
+                        kind="codexCommand"
+                        copied={copied}
+                        onCopy={handleCopy}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)] ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:shadow-[0_12px_30px_rgba(0,0,0,0.18)] dark:ring-zinc-800/80">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                          Config file
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+                          If you prefer manual setup, add this entry to <code className="font-mono text-xs">~/.codex/config.toml</code>.
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-zinc-300 bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                        TOML
+                      </span>
+                    </div>
+                    <div className="mt-4">
+                      <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                        Config snippet
+                      </p>
+                      <CopyableSnippet
+                        value={codexConfigSnippet}
+                        kind="codexConfig"
+                        copied={copied}
+                        onCopy={handleCopy}
+                      />
+                    </div>
+                  </div>
+
+                  {activeTool.note ? (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                      {activeTool.note}
+                    </div>
+                  ) : null}
+                </>
               ) : (
                 <>
               <div className="rounded-2xl bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)] ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:shadow-[0_12px_30px_rgba(0,0,0,0.18)] dark:ring-zinc-800/80">
@@ -588,7 +678,7 @@ export function ConnectToolsDialog({
                       Client id
                     </p>
                     <CopyableSnippet
-                      value={activeOAuthConfig.clientId}
+                      value={figmaOAuthConfig.clientId}
                       kind="oauthClientId"
                       copied={copied}
                       onCopy={handleCopy}
@@ -602,7 +692,7 @@ export function ConnectToolsDialog({
                       {isSignedIn ? (
                         <CopyableSnippet
                           value={
-                            activeOAuthConfig.clientSecret ?? "<not-configured>"
+                            figmaOAuthConfig.clientSecret ?? "<not-configured>"
                           }
                           kind="oauthClientSecret"
                           copied={copied}
@@ -612,7 +702,7 @@ export function ConnectToolsDialog({
                       ) : (
                         <CopyableSnippet
                           value={
-                            activeOAuthConfig.clientSecret
+                            figmaOAuthConfig.clientSecret
                               ? "Sign in to reveal"
                               : "Not configured"
                           }

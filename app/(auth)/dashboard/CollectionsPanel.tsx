@@ -31,12 +31,14 @@ import {
 } from "@/components/ui/table";
 import type { ProjectItemRow } from "@/lib/project-items";
 import type { ProjectListItem } from "@/lib/project-list";
+import type { PreviewStory } from "@/lib/preview-stories";
 import {
   REGISTRY_BLOCK_TYPE,
   REGISTRY_THEME_TYPE,
   REGISTRY_UI_TYPE,
   normalizeRegistryItemType,
 } from "@/lib/registry-types";
+import { buildStoryPreviewArtifactStatusQuery } from "@/lib/story-preview-urls";
 
 type Project = ProjectListItem;
 
@@ -48,13 +50,32 @@ type ProjectItemDetailData = {
   type: string;
   dependencies: string[];
   registryDependencies: string[];
+  previewStories: PreviewStory[];
+  previewDefaultStoryId: string | null;
   files: { path: string; content: string; type: string }[];
+};
+
+type PreviewArtifactStatus =
+  | "missing"
+  | "queued"
+  | "running"
+  | "ready"
+  | "failed"
+  | "skipped";
+
+type PreviewArtifactStatusPayload = {
+  artifactStatus: PreviewArtifactStatus;
+  lastError?: {
+    code?: string | null;
+    message?: string | null;
+  } | null;
 };
 
 function normalizeProjectItemDetailData(value: unknown): ProjectItemDetailData | null {
   if (!value || typeof value !== "object") return null;
   const data = value as Record<string, unknown>;
   const rawFiles = Array.isArray(data.files) ? data.files : [];
+  const rawPreviewStories = Array.isArray(data.previewStories) ? data.previewStories : [];
   const files = rawFiles
     .filter((file): file is Record<string, unknown> => !!file && typeof file === "object")
     .map((file) => ({
@@ -71,6 +92,27 @@ function normalizeProjectItemDetailData(value: unknown): ProjectItemDetailData |
     registryDependencies: Array.isArray(data.registryDependencies)
       ? data.registryDependencies.filter((dep): dep is string => typeof dep === "string")
       : [],
+    previewStories: rawPreviewStories
+      .filter((story): story is Record<string, unknown> => !!story && typeof story === "object")
+      .map((story) => ({
+        id: typeof story.id === "string" ? story.id : "",
+        title:
+          typeof story.title === "string" && story.title.trim().length > 0
+            ? story.title
+            : typeof story.id === "string"
+              ? story.id
+              : "Story",
+        props:
+          story.props && typeof story.props === "object" && !Array.isArray(story.props)
+            ? (story.props as Record<string, unknown>)
+            : undefined,
+        export: typeof story.export === "string" ? story.export : undefined,
+      }))
+      .filter((story) => story.id.trim().length > 0),
+    previewDefaultStoryId:
+      typeof data.previewDefaultStoryId === "string" && data.previewDefaultStoryId.trim().length > 0
+        ? data.previewDefaultStoryId.trim()
+        : null,
     files,
   };
 }
@@ -152,6 +194,9 @@ export function ProjectsPanel(props: {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<"preview" | "code">("preview");
   const [detailByItemId, setDetailByItemId] = useState<Record<string, ProjectItemDetailData>>({});
+  const [artifactStatusByItemId, setArtifactStatusByItemId] = useState<
+    Record<string, PreviewArtifactStatusPayload | null>
+  >({});
   const [itemDetailLoadingId, setItemDetailLoadingId] = useState<string | null>(null);
   const [itemDetailError, setItemDetailError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -161,7 +206,12 @@ export function ProjectsPanel(props: {
   const [itemActionError, setItemActionError] = useState<string | null>(null);
   const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
 
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedId) ?? null,
+    [projects, selectedId],
+  );
   const canEditProject = props.canEditProject ?? false;
+  const currentProjectNamespaceKey = selectedProject?.namespaceKey ?? null;
   const moveTargetProjects = useMemo(
     () => projects.filter((project) => project.id !== selectedId),
     [projects, selectedId],
@@ -191,7 +241,11 @@ export function ProjectsPanel(props: {
     setItemDetailError(null);
     try {
       const res = await fetch(
-        `/api/r/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(item.name)}`,
+        `/api/r/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(item.name)}${
+          currentProjectNamespaceKey
+            ? `?project=${encodeURIComponent(currentProjectNamespaceKey)}`
+            : ""
+        }`,
         { cache: "force-cache" },
       );
       if (!res.ok) {
@@ -210,7 +264,7 @@ export function ProjectsPanel(props: {
     } finally {
       setItemDetailLoadingId((current) => (current === item.itemId ? null : current));
     }
-  }, [detailByItemId, props.registryOwner]);
+  }, [currentProjectNamespaceKey, detailByItemId, props.registryOwner]);
 
   useEffect(() => {
     if (props.initialProjects != null) {
@@ -237,6 +291,53 @@ export function ProjectsPanel(props: {
     }
     refreshSelectedItems(selectedId).catch(() => {});
   }, [selectedId, isProjectDetail, props.initialProjectId, props.initialProjectItems]);
+
+  useEffect(() => {
+    const selectedItem = projectItems.find((it) => it.itemId === selectedItemId);
+    const selectedDetail = selectedItemId ? detailByItemId[selectedItemId] : null;
+    if (!selectedItem || !selectedDetail) return;
+
+    const selectedStoryId =
+      selectedDetail.previewDefaultStoryId ?? selectedDetail.previewStories[0]?.id ?? null;
+    const controller = new AbortController();
+    const selectedItemIdValue = selectedItem.itemId;
+    const selectedItemName = selectedItem.name;
+
+    async function loadArtifactStatus() {
+      try {
+        const search = buildStoryPreviewArtifactStatusQuery({
+          owner: props.registryOwner,
+          name: selectedItemName,
+          project: currentProjectNamespaceKey,
+          storyId: selectedStoryId,
+          enqueue: true,
+        });
+        const res = await fetch(`/api/registry/preview-artifacts/status?${search.toString()}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          setArtifactStatusByItemId((prev) => ({ ...prev, [selectedItemIdValue]: null }));
+          return;
+        }
+        const data = (await res.json()) as PreviewArtifactStatusPayload;
+        setArtifactStatusByItemId((prev) => ({ ...prev, [selectedItemIdValue]: data }));
+      } catch (error) {
+        if ((error as Error).name === "AbortError") return;
+        setArtifactStatusByItemId((prev) => ({ ...prev, [selectedItemIdValue]: null }));
+      }
+    }
+
+    void loadArtifactStatus();
+    return () => {
+      controller.abort();
+    };
+  }, [
+    currentProjectNamespaceKey,
+    detailByItemId,
+    projectItems,
+    props.registryOwner,
+    selectedItemId,
+  ]);
 
   useEffect(() => {
     if (!isProjectDetail) return;
@@ -827,6 +928,9 @@ export function ProjectsPanel(props: {
                 {(() => {
                   const selectedItem = projectItems.find((it) => it.itemId === selectedItemId) ?? null;
                   const selectedDetail = selectedItemId ? detailByItemId[selectedItemId] : null;
+                  const artifactStatus = selectedItemId
+                    ? artifactStatusByItemId[selectedItemId] ?? null
+                    : null;
                   const preferredFile =
                     selectedDetail?.files.find((file) => file.path === selectedPath) ??
                     selectedDetail?.files.find((file) => /\.(tsx?|jsx?)$/i.test(file.path)) ??
@@ -836,6 +940,46 @@ export function ProjectsPanel(props: {
                   const code = preferredFile?.content ?? "";
                   const propsFromCode =
                     selectedDetail?.type === "registry:theme" || !code ? [] : extractPropsFromTsx(code);
+                  const artifactStatusTone = (() => {
+                    switch (artifactStatus?.artifactStatus) {
+                      case "ready":
+                        return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
+                      case "skipped":
+                        return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
+                      case "failed":
+                        return "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200";
+                      case "queued":
+                      case "running":
+                        return "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200";
+                      default:
+                        return "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+                    }
+                  })();
+                  const artifactStatusLabel = (() => {
+                    switch (artifactStatus?.artifactStatus) {
+                      case "queued":
+                        return "Artifact queued";
+                      case "running":
+                        return "Artifact building";
+                      case "ready":
+                        return "Artifact ready";
+                      case "failed":
+                        return "Artifact failed";
+                      case "skipped":
+                        return "Runtime preview only";
+                      case "missing":
+                        return "Artifact missing";
+                      default:
+                        return null;
+                    }
+                  })();
+                  const artifactStatusMessage =
+                    artifactStatus?.artifactStatus === "skipped"
+                      ? artifactStatus.lastError?.message ??
+                        "Preview artifact prebundle was skipped by policy."
+                      : artifactStatus?.artifactStatus === "failed"
+                        ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
+                        : null;
                   return (
                     <>
                       <div className="border-b border-zinc-200/80 px-4 py-3 dark:border-zinc-800">
@@ -846,8 +990,24 @@ export function ProjectsPanel(props: {
                             </p>
                             {selectedItem ? (
                               <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                                {props.registryOwner} / {selectedItem.name}
+                                {currentProjectNamespaceKey
+                                  ? `${props.registryOwner} / ${currentProjectNamespaceKey} / ${selectedItem.name}`
+                                  : `${props.registryOwner} / ${selectedItem.name}`}
                               </p>
+                            ) : null}
+                            {artifactStatusLabel && detailTab === "preview" ? (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${artifactStatusTone}`}
+                                >
+                                  {artifactStatusLabel}
+                                </span>
+                                {artifactStatusMessage ? (
+                                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                                    {artifactStatusMessage}
+                                  </span>
+                                ) : null}
+                              </div>
                             ) : null}
                           </div>
                           {selectedItem ? (
@@ -1028,7 +1188,11 @@ export function ProjectsPanel(props: {
                                 }`}
                               >
                                 <PreviewFrame
-                                  src={`/preview/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(previewItem.name)}`}
+                                  src={`/preview/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(previewItem.name)}${
+                                    currentProjectNamespaceKey
+                                      ? `?project=${encodeURIComponent(currentProjectNamespaceKey)}`
+                                      : ""
+                                  }`}
                                   title={`${previewItem.title} preview`}
                                   className="h-full w-full"
                                   interactive={active}

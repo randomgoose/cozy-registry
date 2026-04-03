@@ -418,6 +418,7 @@ export async function POST(request: Request) {
       registryDependencies: depsToWrite,
       previewProps: contract.value.previewProps,
       previewExport: contract.value.previewExport,
+      requestUserId: userId,
     });
 
     return NextResponse.json({

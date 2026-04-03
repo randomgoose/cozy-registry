@@ -24,6 +24,7 @@ export function buildStoryPreviewArtifactStatusQuery(input: {
   owner: string;
   name: string;
   version?: string | null;
+  project?: string | null;
   storyId?: string | null;
   mode?: "default" | "thumbnail";
   enqueue?: boolean;
@@ -33,11 +34,15 @@ export function buildStoryPreviewArtifactStatusQuery(input: {
     name: input.name,
   });
   const version = input.version?.trim();
+  const project = input.project?.trim();
   const storyId = input.storyId?.trim();
   const mode = input.mode === "thumbnail" ? "thumbnail" : "default";
 
   if (version) {
     search.set("v", version);
+  }
+  if (project) {
+    search.set("project", project);
   }
   if (storyId) {
     search.set("story", storyId);

@@ -137,7 +137,9 @@ export function WorkspaceScopeSwitcher({
     ? `@${effectiveActiveOrganization.slug}`
     : "Your own registry";
   const activeAvatarName = effectiveActiveOrganization?.name ?? personalName ?? "Personal";
-  const activeAvatarImage = effectiveActiveOrganization?.logo ?? personalImage ?? null;
+  const activeAvatarImage = effectiveActiveOrganization
+    ? effectiveActiveOrganization.logo
+    : personalImage ?? null;
 
   async function postJson(path: string, body: Record<string, string | null>) {
     const response = await fetch(path, {

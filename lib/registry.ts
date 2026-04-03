@@ -1552,6 +1552,8 @@ export async function createRegistryItem(data: {
   previewStories?: unknown;
   /** 可选：default story id（meta.previewDefaultStoryId） */
   previewDefaultStoryId?: string | null;
+  /** 用于预热 preview artifact 的访问身份。组织私有资源需要它才能被 worker 读取。 */
+  requestUserId?: string | null;
 }) {
   if (!!data.userId === !!data.organizationId) {
     throw new Error("Registry items must belong to exactly one owner scope");
@@ -1725,7 +1727,7 @@ export async function createRegistryItem(data: {
         owner: thumbOwner,
         name: data.name,
         version: INITIAL_VERSION,
-        requestUserId: data.userId ?? null,
+        requestUserId: data.requestUserId ?? data.userId ?? null,
         meta: itemVersion.meta ?? item.meta,
       });
     }

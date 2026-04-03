@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getUserIdFromToken } from "@/lib/auth-api";
 import {
   getRegistryItemVersionsScoped,
   getRegistryItemByScopedIdentityAndVersion,
@@ -93,7 +94,10 @@ export async function GET(request: Request, { params }: Params) {
 export async function POST(request: Request, { params }: Params) {
   const { owner, name } = await params;
   const session = await auth.api.getSession({ headers: request.headers });
-  const userId = session?.user?.id;
+  let userId = session?.user?.id ?? null;
+  if (!userId) {
+    userId = await getUserIdFromToken(request);
+  }
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
