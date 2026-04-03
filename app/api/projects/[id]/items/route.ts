@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { getProjectScopeContext } from "@/lib/project-scope";
 import {
@@ -7,6 +7,7 @@ import {
   getUserProjectRole,
   roleCanEditProject,
 } from "@/lib/project-permissions";
+import { listProjectItems } from "@/lib/project-items";
 import { registryProjectItems, registryItems } from "@/lib/db/schema";
 
 export async function GET(
@@ -24,22 +25,7 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const rows = await db
-    .select({
-      itemId: registryItems.id,
-      name: registryItems.name,
-      type: registryItems.type,
-      title: registryItems.title,
-      description: registryItems.description,
-      visibility: registryItems.visibility,
-      meta: registryItems.meta,
-      addedAt: registryProjectItems.addedAt,
-    })
-    .from(registryProjectItems)
-    .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
-    .where(eq(registryProjectItems.projectId, id))
-    .orderBy(registryItems.name);
-
+  const rows = await listProjectItems(id);
   return NextResponse.json({ items: rows });
 }
 
@@ -47,7 +33,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId, activeOrganizationId } = await getProjectScopeContext(request);
+  const { userId } = await getProjectScopeContext(request);
   if (!userId) {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }

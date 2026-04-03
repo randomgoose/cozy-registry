@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { listProjectItems } from "@/lib/project-items";
 import { listProjectsForScope } from "@/lib/project-list";
 import { getProjectIfAccessible, getUserProjectRole, roleCanEditProject } from "@/lib/project-permissions";
 import { getCachedWorkspaceRouteAccess } from "@/lib/workspace-route";
@@ -43,6 +44,7 @@ export default async function WorkspaceProjectDetailPage({
     userId: session.user.id,
     activeOrganizationId: org.id,
   });
+  const initialProjectItems = await listProjectItems(projectId);
   const canEdit = roleCanEditProject(
     await getUserProjectRole(session.user.id, projectId, project.ownerUserId),
   );
@@ -61,6 +63,7 @@ export default async function WorkspaceProjectDetailPage({
       initialProjectSlug={project.slug}
       initialProjectVisibility={visibility}
       initialProjects={initialProjects}
+      initialProjectItems={initialProjectItems}
       canEditProject={canEdit}
     />
   );

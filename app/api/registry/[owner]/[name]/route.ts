@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import {
   archiveOrganizationRegistryItem,
   archiveRegistryItem,
-  getRegistryItemByOwnerNameAndVersion,
+  getRegistryItemByScopedIdentityAndVersion,
   permanentlyDeleteOrganizationRegistryItem,
   permanentlyDeleteRegistryItem,
   updateOrganizationRegistryItemVisibility,
@@ -26,6 +26,17 @@ type Params = { params: Promise<{ owner: string; name: string }> };
 export async function DELETE(request: Request, { params }: Params) {
   const { owner, name } = await params;
   const { searchParams } = new URL(request.url);
+  const projectParam = searchParams.get("project");
+  const project =
+    typeof projectParam === "string" && projectParam.trim().length > 0
+      ? projectParam.trim()
+      : null;
+  if (!project) {
+    return NextResponse.json(
+      { error: "Missing required query param: project" },
+      { status: 400 },
+    );
+  }
   const permanentDelete =
     searchParams.get("mode") === "permanent" || searchParams.get("permanent") === "true";
   const lifecycleReason = searchParams.get("reason");
@@ -55,14 +66,17 @@ export async function DELETE(request: Request, { params }: Params) {
       if (permanentDelete) {
         await permanentlyDeleteOrganizationRegistryItem({
           organizationId,
+          ownerRef: owner,
+          projectKey: project,
           name,
           requestUserId: userId,
-          ownerRef: owner,
           lifecycleReason,
         });
       } else {
         await archiveOrganizationRegistryItem({
           organizationId,
+          ownerRef: owner,
+          projectKey: project,
           name,
           requestUserId: userId,
           lifecycleReason,
@@ -76,14 +90,17 @@ export async function DELETE(request: Request, { params }: Params) {
       if (permanentDelete) {
         await permanentlyDeleteRegistryItem({
           ownerId: resolvedUser.userId,
+          ownerRef: owner,
+          projectKey: project,
           name,
           requestUserId: userId,
-          ownerRef: owner,
           lifecycleReason,
         });
       } else {
         await archiveRegistryItem({
           ownerId: resolvedUser.userId,
+          ownerRef: owner,
+          projectKey: project,
           name,
           requestUserId: userId,
           lifecycleReason,
@@ -97,14 +114,17 @@ export async function DELETE(request: Request, { params }: Params) {
       if (permanentDelete) {
         await permanentlyDeleteOrganizationRegistryItem({
           organizationId: org.id,
+          ownerRef: owner,
+          projectKey: project,
           name,
           requestUserId: userId,
-          ownerRef: owner,
           lifecycleReason,
         });
       } else {
         await archiveOrganizationRegistryItem({
           organizationId: org.id,
+          ownerRef: owner,
+          projectKey: project,
           name,
           requestUserId: userId,
           lifecycleReason,
@@ -138,17 +158,30 @@ export async function DELETE(request: Request, { params }: Params) {
 /**
  * 获取单个组件元信息（只读），方便未来扩展（目前 UI 用页面路由）。
  */
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
   const { owner, name } = await params;
+  const url = new URL(request.url);
+  const projectParam = url.searchParams.get("project");
+  const project =
+    typeof projectParam === "string" && projectParam.trim().length > 0
+      ? projectParam.trim()
+      : null;
+  if (!project) {
+    return NextResponse.json(
+      { error: "Missing required query param: project" },
+      { status: 400 },
+    );
+  }
   const session = await auth.api.getSession({ headers: await headers() });
   const requestUserId = session?.user?.id ?? null;
 
-  const item = await getRegistryItemByOwnerNameAndVersion(
-    owner,
+  const item = await getRegistryItemByScopedIdentityAndVersion({
+    ownerId: owner,
+    projectKey: project,
     name,
-    null,
+    version: null,
     requestUserId,
-  );
+  });
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -168,6 +201,12 @@ export async function GET(_request: Request, { params }: Params) {
  */
 export async function PATCH(request: Request, { params }: Params) {
   const { owner, name } = await params;
+  const url = new URL(request.url);
+  const projectParam = url.searchParams.get("project");
+  const project =
+    typeof projectParam === "string" && projectParam.trim().length > 0
+      ? projectParam.trim()
+      : null;
 
   let userId: string | null = null;
   const session = await auth.api.getSession({ headers: await headers() });
@@ -200,6 +239,8 @@ export async function PATCH(request: Request, { params }: Params) {
 
       const updated = await updateOrganizationRegistryItemVisibility({
         organizationId,
+        ownerRef: owner,
+        projectKey: project,
         name,
         requestUserId: userId,
         visibility,
@@ -216,6 +257,8 @@ export async function PATCH(request: Request, { params }: Params) {
     if (resolvedUser) {
       const updated = await updateRegistryItemVisibility({
         ownerId: resolvedUser.userId,
+        ownerRef: owner,
+        projectKey: project,
         name,
         requestUserId: userId,
         visibility,
@@ -232,6 +275,8 @@ export async function PATCH(request: Request, { params }: Params) {
     if (org) {
       const updated = await updateOrganizationRegistryItemVisibility({
         organizationId: org.id,
+        ownerRef: owner,
+        projectKey: project,
         name,
         requestUserId: userId,
         visibility,

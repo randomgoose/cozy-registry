@@ -94,6 +94,7 @@ export async function runRegistryPreviewSmokeTest(params: {
   for (const dep of directDeps) {
     const resolved = await resolveRegistryDependencies({
       owner: dep.owner,
+      projectKey: dep.project,
       name: dep.name,
       version: dep.version,
       requestUserId: params.requestUserId,

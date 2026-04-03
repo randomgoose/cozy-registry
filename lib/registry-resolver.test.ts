@@ -10,15 +10,15 @@ import {
 import * as registry from "@/lib/registry";
 
 vi.mock("@/lib/registry", () => ({
-  getRegistryDependencyAccessForRef: vi.fn(),
-  getRegistryItemByOwnerNameAndVersion: vi.fn(),
+  getRegistryDependencyAccessForScopedRef: vi.fn(),
+  getRegistryItemByScopedIdentityAndVersion: vi.fn(),
   getThemeEntryCss: vi.fn(),
 }));
 
-const mockAccess = registry.getRegistryDependencyAccessForRef as ReturnType<
+const mockAccess = registry.getRegistryDependencyAccessForScopedRef as ReturnType<
   typeof vi.fn
 >;
-const mockGetItem = registry.getRegistryItemByOwnerNameAndVersion as ReturnType<
+const mockGetItem = registry.getRegistryItemByScopedIdentityAndVersion as ReturnType<
   typeof vi.fn
 >;
 
@@ -40,15 +40,15 @@ describe("resolveRegistryDependencies", () => {
 
   it("detects cycle and throws RegistryDependencyCycleError", async () => {
     mockGetItem.mockImplementation(
-      async (_owner: string, name: string) => {
-        if (name === "a") {
+      async (input: { name: string }) => {
+        if (input.name === "a") {
           return {
             ...minimalItem(),
             registryDependencies: ["@alice/b"],
             name: "a",
           };
         }
-        if (name === "b") {
+        if (input.name === "b") {
           return {
             ...minimalItem(),
             registryDependencies: ["@alice/a"],
@@ -70,10 +70,12 @@ describe("resolveRegistryDependencies", () => {
   });
 
   it("throws RegistryDependencyPermissionDeniedError when access denied", async () => {
-    mockAccess.mockImplementation(async (_o: string, name: string) => {
-      if (name === "secret") return "denied";
-      return "ok";
-    });
+    mockAccess.mockImplementation(
+      async (input: { itemName: string }) => {
+        if (input.itemName === "secret") return "denied";
+        return "ok";
+      },
+    );
     mockGetItem.mockResolvedValue({
       ...minimalItem(),
       registryDependencies: ["@alice/secret"],
@@ -93,22 +95,22 @@ describe("resolveRegistryDependencies", () => {
   it("memoizes repeated access and item fetches within a request", async () => {
     const memo = createRegistryResolverMemo();
 
-    mockGetItem.mockImplementation(async (_owner: string, name: string) => {
-      if (name === "root") {
+    mockGetItem.mockImplementation(async (input: { name: string }) => {
+      if (input.name === "root") {
         return {
           ...minimalItem(),
           name: "root",
           registryDependencies: ["@alice/shared-a", "@alice/shared-b"],
         };
       }
-      if (name === "shared-a" || name === "shared-b") {
+      if (input.name === "shared-a" || input.name === "shared-b") {
         return {
           ...minimalItem(),
-          name,
+          name: input.name,
           registryDependencies: ["@alice/leaf"],
         };
       }
-      if (name === "leaf") {
+      if (input.name === "leaf") {
         return {
           ...minimalItem(),
           name: "leaf",
@@ -128,5 +130,48 @@ describe("resolveRegistryDependencies", () => {
 
     expect(mockAccess).toHaveBeenCalledTimes(4);
     expect(mockGetItem).toHaveBeenCalledTimes(4);
+  });
+
+  it("resolves project-scoped dependency refs", async () => {
+    mockAccess.mockImplementation(async () => "ok");
+    mockGetItem.mockImplementation(
+      async (input: {
+        ownerId: string;
+        projectKey: string | null;
+        name: string;
+        version: string | null;
+      }) => {
+        if (input.name === "root") {
+          return {
+            ...minimalItem(),
+            name: "root",
+            registryDependencies: ["@indeed-cozy/design-system/button"],
+          };
+        }
+        if (
+          input.ownerId === "indeed-cozy" &&
+          input.projectKey === "design-system" &&
+          input.name === "button"
+        ) {
+          return {
+            ...minimalItem(),
+            name: "button",
+            registryDependencies: [],
+          };
+        }
+        return null;
+      },
+    );
+
+    const resolved = await resolveRegistryDependencies({
+      owner: "indeed-cozy",
+      name: "root",
+      version: null,
+      requestUserId: "u1",
+    });
+
+    expect(resolved.ordered.map((node) => node.ref.ref)).toContain(
+      "@indeed-cozy/design-system/button",
+    );
   });
 });

@@ -71,7 +71,11 @@ export function buildRegistryGraph(items: BuildGraphInputItem[]): RegistryGraph 
     for (const raw of deps) {
       const parsed = parseRegistryDependencyRef(raw);
       if (!parsed) continue;
-      const keyWithoutVersion = `@${parsed.owner}/${parsed.name}` as RegistryNodeRef;
+      const keyWithoutVersion = (
+        parsed.project
+          ? `@${parsed.owner}/${parsed.project}/${parsed.name}`
+          : `@${parsed.owner}/${parsed.name}`
+      ) as RegistryNodeRef;
 
       if (nodes.has(keyWithoutVersion)) {
         out.push(keyWithoutVersion);
@@ -92,18 +96,20 @@ export function buildRegistryGraph(items: BuildGraphInputItem[]): RegistryGraph 
 export interface ParsedRegistryDependencyRef {
   raw: string;
   owner: string;
+  project: string | null;
   name: string;
   version: string | null;
 }
 
 export function parseRegistryDependencyRef(dep: string): ParsedRegistryDependencyRef | null {
   const t = dep.trim();
-  // Team ref: @orgSlug/teamSegment/itemName[@version]
+  // Scoped ref: @owner/project/name[@version]
   const m3 = t.match(/^@([^/@]+)\/([^/@]+)\/([^@]+)(?:@(.+))?$/);
   if (m3) {
     return {
       raw: dep,
-      owner: `${m3[1]}/${m3[2]}`,
+      owner: m3[1],
+      project: m3[2],
       name: m3[3],
       version: m3[4] ?? null,
     };
@@ -113,6 +119,7 @@ export function parseRegistryDependencyRef(dep: string): ParsedRegistryDependenc
   return {
     raw: dep,
     owner: m2[1],
+    project: null,
     name: m2[2],
     version: m2[3] ?? null,
   };
@@ -203,7 +210,9 @@ export function getPreviewThemeDepsInOrder(
   for (const raw of registryDependencies) {
     const parsed = parseRegistryDependencyRef(raw);
     if (!parsed) continue;
-    const key = `${parsed.owner}/${parsed.name}`;
+    const key = parsed.project
+      ? `${parsed.owner}/${parsed.project}/${parsed.name}`
+      : `${parsed.owner}/${parsed.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(parsed);

@@ -16,6 +16,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { PreviewStory } from "@/lib/preview-stories";
+import { resolveSelectedPreviewStoryId } from "@/lib/preview-story-selection";
+import {
+  buildStoryPreviewArtifactStatusQuery,
+  buildStoryPreviewPageUrl,
+} from "@/lib/story-preview-urls";
 import type { PropField } from "@/lib/validate-tsx";
 import type { DependencyDecision } from "@/lib/third-party-dependency-governance";
 import { ThemeTokensTable } from "./ThemeTokensTable";
@@ -67,6 +73,8 @@ interface ComponentDetailProps {
   registryDependencies: string[];
   /** Props parsed from TSX */
   propsFromCode: PropField[];
+  previewStories: PreviewStory[];
+  defaultPreviewStoryId: string | null;
   /** All files in the current version bundle */
   files: { path: string; content: string; type: string }[];
 }
@@ -88,6 +96,8 @@ export function ComponentDetail({
   dependencyDiagnostics,
   registryDependencies,
   propsFromCode,
+  previewStories,
+  defaultPreviewStoryId,
   files,
 }: ComponentDetailProps) {
   const [copied, setCopied] = useState(false);
@@ -101,6 +111,9 @@ export function ComponentDetail({
     useState(selectedVersion);
   const [artifactStatus, setArtifactStatus] =
     useState<PreviewArtifactStatusPayload | null>(null);
+  const [selectedStoryId, setSelectedStoryId] = useState<string | null>(
+    defaultPreviewStoryId ?? previewStories[0]?.id ?? null,
+  );
   const router = useRouter();
 
   // Keep selector in sync when route search params change
@@ -113,13 +126,25 @@ export function ComponentDetail({
   }, [visibility]);
 
   useEffect(() => {
+    setSelectedStoryId((current) => {
+      return resolveSelectedPreviewStoryId({
+        currentStoryId: current,
+        stories: previewStories,
+        defaultStoryId: defaultPreviewStoryId,
+      });
+    });
+  }, [defaultPreviewStoryId, previewStories]);
+
+  useEffect(() => {
     let cancelled = false;
     async function loadArtifactStatus() {
       try {
-        const search = new URLSearchParams({
+        const search = buildStoryPreviewArtifactStatusQuery({
           owner,
           name,
-          v: localSelectedVersion,
+          version: localSelectedVersion,
+          storyId: selectedStoryId,
+          enqueue: true,
         });
         const res = await fetch(
           `/api/registry/preview-artifacts/status?${search.toString()}`,
@@ -144,7 +169,7 @@ export function ComponentDetail({
     return () => {
       cancelled = true;
     };
-  }, [owner, name, localSelectedVersion]);
+  }, [owner, name, localSelectedVersion, selectedStoryId]);
 
   async function handleCopy() {
     await navigator.clipboard.writeText(code);
@@ -172,12 +197,15 @@ export function ComponentDetail({
       : type.replace("registry:", "") === "block"
         ? "Block"
         : "Component";
-  const previewHref =
-    localSelectedVersion && localSelectedVersion !== currentVersion
-      ? `/preview/${owner}/${name}?v=${encodeURIComponent(
-          localSelectedVersion,
-        )}`
-      : `/preview/${owner}/${name}`;
+  const previewHref = buildStoryPreviewPageUrl({
+    owner,
+    name,
+    version:
+      localSelectedVersion && localSelectedVersion !== currentVersion
+        ? localSelectedVersion
+        : null,
+    storyId: selectedStoryId,
+  });
   const isTheme = type === "registry:theme";
   const canEditTheme =
     isTheme && isOwner && localSelectedVersion === currentVersion;
@@ -217,7 +245,7 @@ export function ComponentDetail({
   const artifactStatusMessage =
     artifactStatus?.artifactStatus === "skipped"
       ? artifactStatus.lastError?.message ??
-        "Prebundle was skipped by policy because one or more dependencies are runtime-only."
+        "Preview artifact prebundle was skipped by policy."
       : artifactStatus?.artifactStatus === "failed"
         ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
         : null;
@@ -413,6 +441,28 @@ export function ComponentDetail({
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+              {previewStories.length > 0 && (
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Story:
+                  </span>
+                  <select
+                    aria-label="Select story"
+                    value={selectedStoryId ?? ""}
+                    onChange={(event) => {
+                      const next = event.target.value.trim();
+                      setSelectedStoryId(next.length > 0 ? next : null);
+                    }}
+                    className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                  >
+                    {previewStories.map((story) => (
+                      <option key={story.id} value={story.id}>
+                        {story.title}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
             </div>

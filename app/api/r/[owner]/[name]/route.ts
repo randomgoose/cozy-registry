@@ -1,26 +1,21 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
-import { and, desc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import {
   getCurrentVersion,
+  getRegistryItemByOwnerProjectName,
   getRegistryItemByOwnerNameAndVersionScoped,
   toShadcnRegistryItem,
 } from "@/lib/registry";
+import {
+  getPreviewDefaultStoryIdFromMeta,
+  getPreviewStoriesFromMeta,
+} from "@/lib/preview-stories";
 import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-governance";
 import { getAuthContextFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
 import { getOrganizationCanonicalOwnerRef } from "@/lib/registry-organization";
 import { getRegistryPolicyForApiKey } from "@/lib/registry-policy";
-import { findAccessibleRegistryProjectBySlug } from "@/lib/registry-project-access";
-import { db } from "@/lib/db";
-import {
-  registryFiles,
-  registryFileVersions,
-  registryItems,
-  registryItemVersions,
-  registryProjectItems,
-} from "@/lib/db/schema";
 
 export async function GET(
   request: Request,
@@ -36,7 +31,7 @@ export async function GET(
   const policy = tokenCtx ? await getRegistryPolicyForApiKey(tokenCtx.apiKeyId) : null;
 
   const item = await (async () => {
-    if (!projectSlug || !userId) {
+    if (!projectSlug) {
       return getRegistryItemByOwnerNameAndVersionScoped({
         ownerId: owner,
         name,
@@ -45,72 +40,13 @@ export async function GET(
         policy,
       });
     }
-    const project = await findAccessibleRegistryProjectBySlug(userId, projectSlug);
-    if (!project) return null;
-    const ownershipPredicate =
-      project.organizationId != null
-        ? eq(registryItems.organizationId, project.organizationId)
-        : project.ownerUserId != null
-          ? eq(registryItems.userId, project.ownerUserId)
-          : null;
-    if (!ownershipPredicate) return null;
-    const [linked] = await db
-      .select({ itemId: registryItems.id })
-      .from(registryProjectItems)
-      .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
-      .where(
-        and(
-          eq(registryProjectItems.projectId, project.id),
-          eq(registryItems.name, name),
-          ownershipPredicate,
-        ),
-      )
-      .orderBy(desc(registryItems.updatedAt))
-      .limit(1);
-    if (!linked) return null;
-
-    const [baseItem] = await db
-      .select()
-      .from(registryItems)
-      .where(eq(registryItems.id, linked.itemId))
-      .limit(1);
-    if (!baseItem) return null;
-    const baseFiles = await db
-      .select()
-      .from(registryFiles)
-      .where(eq(registryFiles.itemId, linked.itemId));
-    const base = {
-      ...baseItem,
-      files: baseFiles,
-    };
-    if (!base || (base.status !== "active" && base.status !== "archived")) return null;
-
-    const currentVer = getCurrentVersion(base);
-    if (!version || version === currentVer) return base;
-    const [itemVersion] = await db
-      .select()
-      .from(registryItemVersions)
-      .where(
-        and(eq(registryItemVersions.itemId, base.id), eq(registryItemVersions.version, version)),
-      );
-    if (!itemVersion) return null;
-    const versionFiles = await db
-      .select()
-      .from(registryFileVersions)
-      .where(eq(registryFileVersions.itemVersionId, itemVersion.id));
-    return {
-      ...base,
-      title: itemVersion.title,
-      description: itemVersion.description,
-      dependencies: itemVersion.dependencies,
-      registryDependencies: itemVersion.registryDependencies,
-      meta: itemVersion.meta ?? base.meta,
-      files: versionFiles.map((f) => ({
-        path: f.path,
-        content: f.content,
-        type: f.type,
-      })),
-    };
+    return getRegistryItemByOwnerProjectName(
+      owner,
+      projectSlug,
+      name,
+      version || null,
+      userId ?? null,
+    );
   })();
 
   if (!item) {
@@ -164,6 +100,8 @@ export async function GET(
     ...shadcnItem,
     dependencies: cleanDependencies,
     dependencyDiagnostics: readDependencyDecisionsFromMeta(item.meta),
+    previewStories: getPreviewStoriesFromMeta(item.meta),
+    previewDefaultStoryId: getPreviewDefaultStoryIdFromMeta(item.meta),
     files: filesWithHeader,
   });
 }

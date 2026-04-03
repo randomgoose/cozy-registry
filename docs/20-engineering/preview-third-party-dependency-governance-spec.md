@@ -270,6 +270,73 @@ runtime preview 与 artifact prebuild 可以采用不同输出策略，但必须
 - `tier` ∈ `runtime-provided | trusted-built-in | soft-allowed | rejected`
 - `previewCapability` ∈ `runtime-only | prebundle-supported | blocked`
 
+### 7.0 Matching Model
+
+catalog 不应只支持 exact package name，还应支持 namespace-level policy。
+
+推荐支持三层匹配：
+
+1. **exact package rule**
+2. **namespace / pattern rule**
+3. **unknown fallback rule**
+
+推荐优先级：
+
+- exact package rule 优先于 namespace rule
+- namespace rule 优先于 unknown fallback
+
+示例：
+
+- `class-variance-authority` → exact package rule
+- `@base-ui/*` → namespace rule
+- 其他未知包 → unknown fallback
+
+### 7.0.1 Namespace Rules
+
+平台应允许对某个 npm namespace 下的所有包设置默认策略，例如：
+
+- `@base-ui/*`
+- `@radix-ui/*`
+
+但 namespace rule 不应等同于“该 scope 下所有包一律完全放行”。
+
+推荐语义：
+
+- namespace rule 用于定义该生态下包的 **默认 tier / capability / version policy**
+- 高置信、高频使用的具体包仍然可通过 exact rule 单独覆盖
+
+### 7.0.2 Recommended Default for Namespace Rules
+
+对于像 `@base-ui/*` 这类 UI 生态 namespace，推荐默认策略是：
+
+- `soft-allowed + runtime-only`
+
+而不是直接：
+
+- `trusted-built-in + prebundle-supported`
+
+原因：
+
+- 同一 namespace 下的不同包，运行边界与稳定性不一定一致
+- namespace 级默认策略应优先解决“首次发布不要硬失败”
+- 只有经过验证的具体包，才应被提升为 `trusted-built-in`
+
+### 7.0.3 Exact Overrides Beat Namespace Defaults
+
+若同时命中：
+
+- exact package rule
+- namespace rule
+
+则必须以前者为准。
+
+示例：
+
+- `@base-ui/*` → `soft-allowed + runtime-only`
+- `@base-ui/react-dialog` → `trusted-built-in + prebundle-supported`
+
+则 `@base-ui/react-dialog` 必须按 exact rule 处理。
+
 ### 7.1 Version Policy
 
 建议版本策略至少支持：
@@ -290,6 +357,7 @@ runtime preview 与 artifact prebuild 可以采用不同输出策略，但必须
 - `trusted-built-in` 只有在 payload 提供显式版本，且该版本满足 catalog policy 时，才能获得 `prebundle-supported`
 - `trusted-built-in` 若缺少显式版本，必须降级为 `runtime-only`
 - 平台不得使用宿主 `node_modules` 中实际解析到的版本来“补全”缺失版本
+- namespace rule 也可以定义默认版本策略，但 exact rule 仍优先
 
 ## 8. Publish-Time Behavior
 
@@ -302,15 +370,56 @@ publish 流程中继续通过源码扫描和显式字段发现 bare-module 依�
 
 但这些发现结果不再只是信息展示，而要进入平台治理决策。
 
+### 8.1.1 Boundary with Registry Dependencies
+
+本 spec 只治理：
+
+- 第三方 npm / bare-module 依赖
+
+不治理：
+
+- registry 内部依赖（`registryDependencies`）
+
+也就是说：
+
+- `class-variance-authority`
+- `@radix-ui/react-dialog`
+- `@base-ui/react/dialog`
+
+属于本 spec 的第三方依赖治理范围
+
+而：
+
+- `@indeed-cozy/design-system/button`
+- `@indeed-cozy/landing/dialog`
+
+属于 registry identity / resolver contract 范围，而不是第三方 npm governance 范围。
+
+与 project-scoped registry identity spec 对齐后，`registryDependencies` 的 canonical ref 应为：
+
+- `@owner/project/name`
+- `@owner/project/name@version`
+
+因此 publish 阶段必须先把 registry refs 与 bare-module 第三方依赖分开：
+
+- `registryDependencies` 走 registry resolver / project-scoped identity
+- 第三方 bare deps 才进入本 spec 定义的 tier / capability / provider 决策
+
 ### 8.2 Classification Rules
 
 publish 时对每个 bare dependency 执行分类：
 
-1. 匹配 `runtime-provided`
-2. 匹配 `trusted-built-in`
-3. 匹配 catalog 中明确标记为 `rejected`
+1. 匹配 exact package rule
+2. 若未命中，再匹配 namespace rule
+3. 若命中 catalog 中明确标记为 `rejected`，直接拒绝
 4. 若未知但通过基础边界校验，则归入 `soft-allowed`
 5. 若未知且明确越界，则归入 `rejected`
+
+说明：
+
+- exact rule 可直接产出 `runtime-provided` / `trusted-built-in` / `rejected`
+- namespace rule 通常用于给某个生态设默认策略
+- unknown fallback 仍遵守 Admission Contract
 
 ### 8.3 Publish Outcome
 
@@ -657,6 +766,27 @@ publish 响应应包含依赖诊断信息，至少包括：
 }
 ```
 
+若未来支持 namespace policy，catalog 结构可扩展为：
+
+```json
+{
+  "exactRules": [
+    {
+      "packageName": "@base-ui/react-dialog",
+      "tier": "trusted-built-in",
+      "previewCapability": "prebundle-supported"
+    }
+  ],
+  "namespaceRules": [
+    {
+      "pattern": "@base-ui/*",
+      "tier": "soft-allowed",
+      "previewCapability": "runtime-only"
+    }
+  ]
+}
+```
+
 建议 artifact 状态输出结构至少支持：
 
 ```json
@@ -681,11 +811,13 @@ publish 响应应包含依赖诊断信息，至少包括：
 - 定义 catalog 存储方式（代码内置或 DB）
 - 明确默认 trusted / soft-allowed / rejected 集合
 - 明确基础边界校验（决定 unknown 是 soft-allowed 还是 rejected）
+- 扩展匹配模型为 exact rule + namespace rule + fallback
 
 验收：
 
 - 对同一份依赖输入，publish 与 preview 可得到一致分类结果
 - 未知包默认进入 `soft-allowed`，除非明确越界
+- exact rule 优先于 namespace rule
 
 ### Agent B: Publish Validation and Diagnostics
 

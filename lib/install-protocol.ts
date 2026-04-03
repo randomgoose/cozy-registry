@@ -630,9 +630,15 @@ async function installRegistryDependenciesFlat(params: {
     const parsed = parseRegistryDependencyRef(raw);
     if (!parsed) continue;
 
-    const coordinate = `@${parsed.owner}/${parsed.name}` as RegistryCoordinate;
+    const coordinate = (
+      parsed.project
+        ? `@${parsed.owner}/${parsed.project}/${parsed.name}`
+        : `@${parsed.owner}/${parsed.name}`
+    ) as RegistryCoordinate;
     const source = new URL(
-      `/api/r/${encodeURIComponent(parsed.owner)}/${parsed.name}`,
+      parsed.project
+        ? `/api/r/${encodeURIComponent(parsed.owner)}/${parsed.name}?project=${encodeURIComponent(parsed.project)}`
+        : `/api/r/${encodeURIComponent(parsed.owner)}/${parsed.name}`,
       base,
     ).toString();
     const version =
@@ -655,13 +661,24 @@ async function installRegistryDependenciesFlat(params: {
     const entryPath = pickInstallEntryPath(bundle.files);
     const target: InstallDependencyTarget = {
       owner: parsed.owner,
+      projectSlug: parsed.project,
       name: parsed.name,
       version,
       entryPath,
     };
     out.set(raw.trim(), target);
-    out.set(`@${parsed.owner}/${parsed.name}`, target);
-    out.set(`@${parsed.owner}/${parsed.name}@${version}`, target);
+    out.set(
+      parsed.project
+        ? `@${parsed.owner}/${parsed.project}/${parsed.name}`
+        : `@${parsed.owner}/${parsed.name}`,
+      target,
+    );
+    out.set(
+      parsed.project
+        ? `@${parsed.owner}/${parsed.project}/${parsed.name}@${version}`
+        : `@${parsed.owner}/${parsed.name}@${version}`,
+      target,
+    );
 
     const list = byName.get(parsed.name) ?? [];
     list.push(target);

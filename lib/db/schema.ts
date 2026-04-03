@@ -271,6 +271,10 @@ export const registryItems = pgTable(
     organizationId: text("organization_id").references(() => organization.id, {
       onDelete: "cascade",
     }),
+    canonicalProjectId: uuid("canonical_project_id").references(() => registryProjects.id, {
+      onDelete: "set null",
+    }),
+    canonicalProjectKey: text("canonical_project_key"),
     name: text("name").notNull(),
     type: text("type").notNull(), // registry:block, registry:component, etc.
     title: text("title").notNull(),
@@ -293,9 +297,18 @@ export const registryItems = pgTable(
   (table) => [
     index("registry_items_userId_idx").on(table.userId),
     index("registry_items_organization_id_idx").on(table.organizationId),
+    index("registry_items_canonical_project_id_idx").on(table.canonicalProjectId),
     index("registry_items_status_idx").on(table.status),
-    // Per-user unique: each user can have one component per name
-    unique("registry_items_user_name_key").on(table.userId, table.name),
+    unique("registry_items_user_project_name_key").on(
+      table.userId,
+      table.canonicalProjectKey,
+      table.name,
+    ),
+    unique("registry_items_org_project_name_key").on(
+      table.organizationId,
+      table.canonicalProjectKey,
+      table.name,
+    ),
   ]
 );
 
@@ -353,6 +366,7 @@ export const registryProjects = pgTable(
       onDelete: "cascade",
     }),
     ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: "cascade" }),
+    namespaceKey: text("namespace_key").notNull(),
     slug: text("slug").notNull(),
     title: text("title").notNull(),
     description: text("description"),
@@ -366,6 +380,14 @@ export const registryProjects = pgTable(
   (table) => [
     index("registry_projects_organization_id_idx").on(table.organizationId),
     index("registry_projects_owner_user_id_idx").on(table.ownerUserId),
+    unique("registry_projects_org_namespace_key").on(
+      table.organizationId,
+      table.namespaceKey,
+    ),
+    unique("registry_projects_user_namespace_key").on(
+      table.ownerUserId,
+      table.namespaceKey,
+    ),
   ],
 );
 

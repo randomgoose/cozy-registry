@@ -4,11 +4,16 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { resolveOwner } from "@/lib/owner";
 import {
-  getRegistryItemByOwnerNameAndVersion,
+  getRegistryItemByScopedIdentityAndVersion,
   getRegistryItemVersions,
+  getRegistryItemVersionsScoped,
   getCurrentVersion,
   toShadcnRegistryItem,
 } from "@/lib/registry";
+import {
+  getPreviewDefaultStoryIdFromMeta,
+  getPreviewStoriesFromMeta,
+} from "@/lib/preview-stories";
 import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-governance";
 import { extractPropsFromTsx } from "@/lib/validate-tsx";
 import { ComponentDetail } from "./ComponentDetail";
@@ -17,18 +22,18 @@ export const dynamic = "force-dynamic";
 
 type Props = {
   params: Promise<{ owner: string; name: string }>;
-  searchParams: Promise<{ v?: string }>;
+  searchParams: Promise<{ v?: string; project?: string }>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { owner, name } = await params;
   const requestUserId = null;
-  const item = await getRegistryItemByOwnerNameAndVersion(
-    owner,
+  const item = await getRegistryItemByScopedIdentityAndVersion({
+    ownerId: owner,
     name,
-    null,
-    requestUserId
-  ).catch(() => null);
+    version: null,
+    requestUserId,
+  }).catch(() => null);
   if (!item) return { title: "Component not found" };
   const canonicalOwner =
     (await resolveOwner(item.userId ?? owner))?.handle ?? owner;
@@ -40,20 +45,22 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function RegistryItemPage({ params, searchParams }: Props) {
   const { owner, name } = await params;
-  const { v: versionParam } = await searchParams;
+  const { v: versionParam, project: projectParam } = await searchParams;
   const session = await auth.api.getSession({ headers: await headers() });
   const requestUserId = session?.user?.id ?? null;
 
   const version = versionParam && versionParam.trim() ? versionParam.trim() : null;
+  const project = projectParam && projectParam.trim() ? projectParam.trim() : null;
 
-  let item: Awaited<ReturnType<typeof getRegistryItemByOwnerNameAndVersion>>;
+  let item: Awaited<ReturnType<typeof getRegistryItemByScopedIdentityAndVersion>>;
   try {
-    item = await getRegistryItemByOwnerNameAndVersion(
-      owner,
+    item = await getRegistryItemByScopedIdentityAndVersion({
+      ownerId: owner,
+      projectKey: project,
       name,
       version,
-      requestUserId
-    );
+      requestUserId,
+    });
   } catch {
     notFound();
   }
@@ -76,7 +83,12 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
 
   let versions: { version: string; createdAt: Date; createdBy: string | null }[] = [];
   try {
-    versions = await getRegistryItemVersions(item.userId ?? owner, name, requestUserId);
+    versions = await getRegistryItemVersionsScoped({
+      ownerId: owner,
+      projectKey: project,
+      name,
+      requestUserId,
+    });
   } catch {
     // If version history fails, UI still shows current version only
   }
@@ -94,7 +106,11 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
       type={item.type}
       visibility={visibility}
       code={code}
-      installUrl={baseUrl ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}` : null}
+      installUrl={
+        baseUrl
+          ? `${baseUrl}/api/r/${canonicalOwner}/${item.name}${project ? `?project=${encodeURIComponent(project)}` : ""}`
+          : null
+      }
       currentVersion={currentVersion}
       selectedVersion={version ?? currentVersion}
       versions={versions}
@@ -103,6 +119,8 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
       dependencyDiagnostics={readDependencyDecisionsFromMeta(item.meta)}
       registryDependencies={registryDependencies}
       propsFromCode={propsFromCode}
+      previewStories={getPreviewStoriesFromMeta(item.meta)}
+      defaultPreviewStoryId={getPreviewDefaultStoryIdFromMeta(item.meta)}
       files={files}
     />
   );

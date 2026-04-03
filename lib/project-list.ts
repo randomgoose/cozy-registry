@@ -14,6 +14,7 @@ export type ProjectListItem = {
   id: string;
   organizationId: string | null;
   ownerUserId: string | null;
+  namespaceKey: string;
   slug: string;
   title: string;
   description: string | null;
@@ -62,6 +63,7 @@ export async function listProjectsForScope(params: {
         id: registryProjects.id,
         organizationId: registryProjects.organizationId,
         ownerUserId: registryProjects.ownerUserId,
+        namespaceKey: registryProjects.namespaceKey,
         slug: registryProjects.slug,
         title: registryProjects.title,
         description: registryProjects.description,
@@ -97,6 +99,7 @@ export async function listProjectsForScope(params: {
       id: registryProjects.id,
       organizationId: registryProjects.organizationId,
       ownerUserId: registryProjects.ownerUserId,
+      namespaceKey: registryProjects.namespaceKey,
       slug: registryProjects.slug,
       title: registryProjects.title,
       description: registryProjects.description,
@@ -151,6 +154,7 @@ export async function listProjectsForOwner(params: {
       id: registryProjects.id,
       organizationId: registryProjects.organizationId,
       ownerUserId: registryProjects.ownerUserId,
+      namespaceKey: registryProjects.namespaceKey,
       slug: registryProjects.slug,
       title: registryProjects.title,
       description: registryProjects.description,

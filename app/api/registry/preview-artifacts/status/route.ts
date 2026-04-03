@@ -7,20 +7,29 @@ import {
   registryItemVersions,
   registryPreviewArtifacts,
 } from "@/lib/db/schema";
+import { enqueuePreviewArtifactJob } from "@/lib/preview-artifact-jobs";
+import { formatRuntimeOnlyDependencySkipMessage } from "@/lib/preview-artifact-jobs";
 import {
   getCurrentVersion,
-  getRegistryItemByOwnerNameAndVersion,
+  getRegistryItemByScopedIdentityAndVersion,
 } from "@/lib/registry";
+import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-governance";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const owner = url.searchParams.get("owner");
   const name = url.searchParams.get("name");
   const version = url.searchParams.get("v");
+  const projectParam = url.searchParams.get("project");
+  const project =
+    typeof projectParam === "string" && projectParam.trim().length > 0
+      ? projectParam.trim()
+      : null;
   const storyIdRaw = url.searchParams.get("story");
   const storyId = storyIdRaw && storyIdRaw.trim().length > 0 ? storyIdRaw.trim() : null;
   const normalizedStoryId = storyId ?? "";
   const mode = url.searchParams.get("mode") === "thumbnail" ? "thumbnail" : "default";
+  const shouldEnqueue = url.searchParams.get("enqueue") === "1";
 
   if (!owner || !name) {
     return NextResponse.json(
@@ -32,12 +41,13 @@ export async function GET(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
   const userId = session?.user?.id ?? (await getUserIdFromToken(request));
 
-  const item = await getRegistryItemByOwnerNameAndVersion(
-    owner,
+  const item = await getRegistryItemByScopedIdentityAndVersion({
+    ownerId: owner,
+    projectKey: project,
     name,
     version,
-    userId,
-  );
+    requestUserId: userId,
+  });
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -80,6 +90,32 @@ export async function GET(request: Request) {
     .limit(1);
 
   if (!artifact) {
+    if (shouldEnqueue && item.type !== "registry:theme") {
+      await enqueuePreviewArtifactJob({
+        itemId: item.id,
+        itemVersionId: itemVersion.id,
+        payload: {
+          owner,
+          name,
+          version: effectiveVersion,
+          mode,
+          storyId,
+          requestUserId: userId ?? null,
+        },
+      });
+      return NextResponse.json(
+        {
+          artifactStatus: "queued",
+          owner,
+          name,
+          version: effectiveVersion,
+          mode,
+          storyId,
+        },
+        { status: 200 },
+      );
+    }
+
     return NextResponse.json(
       {
         artifactStatus: "missing",
@@ -92,6 +128,22 @@ export async function GET(request: Request) {
       { status: 200 },
     );
   }
+
+  const fallbackSkippedMessage =
+    artifact.status === "skipped"
+      ? formatRuntimeOnlyDependencySkipMessage(
+          readDependencyDecisionsFromMeta(item.meta),
+        )
+      : null;
+  const normalizedLastErrorMessage =
+    artifact.status === "skipped"
+      ? artifact.lastErrorMessage &&
+        artifact.lastErrorMessage.includes(
+          "one or more dependencies are runtime-only",
+        )
+        ? fallbackSkippedMessage
+        : (artifact.lastErrorMessage ?? fallbackSkippedMessage)
+      : artifact.lastErrorMessage;
 
   return NextResponse.json({
     artifactStatus: artifact.status,
@@ -107,7 +159,7 @@ export async function GET(request: Request) {
     startedAt: artifact.startedAt,
     finishedAt: artifact.finishedAt,
     lastError:
-      artifact.lastErrorCode || artifact.lastErrorMessage
+      artifact.lastErrorCode || normalizedLastErrorMessage
         ? {
             code:
               artifact.lastErrorCode ??
@@ -115,7 +167,7 @@ export async function GET(request: Request) {
                 ? "SKIPPED_POLICY_NO_PREBUNDLE"
                 : "PREVIEW_ARTIFACT_BUILD_FAILED"),
             message:
-              artifact.lastErrorMessage ??
+              normalizedLastErrorMessage ??
               (artifact.status === "skipped"
                 ? "Preview artifact prebundle was skipped by policy."
                 : "Preview artifact build failed."),

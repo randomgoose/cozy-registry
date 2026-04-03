@@ -36,6 +36,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PREVIEW_MSG_INITIAL_PROPS } from "@/lib/preview-messages";
+import { resolveSelectedPreviewStoryId } from "@/lib/preview-story-selection";
+import type { PreviewStory } from "@/lib/preview-stories";
+import {
+  buildStoryPreviewArtifactStatusQuery,
+  buildStoryPreviewPageUrl,
+} from "@/lib/story-preview-urls";
 import type { DependencyDecision } from "@/lib/third-party-dependency-governance";
 import { filterControllableProps } from "@/lib/preview-prop-controls";
 import { cn } from "@/lib/utils";
@@ -56,6 +62,8 @@ type ExpandedDetailData = {
   dependencies: string[];
   registryDependencies: string[];
   dependencyDiagnostics: DependencyDecision[];
+  previewStories: PreviewStory[];
+  previewDefaultStoryId: string | null;
   files: { path: string; content: string; type: string }[];
 };
 
@@ -110,6 +118,20 @@ function normalizeExpandedDetailData(
             typeof (entry as DependencyDecision).versionPolicyStatus === "string",
         )
       : [],
+    previewStories: Array.isArray(data.previewStories)
+      ? data.previewStories.filter(
+          (entry): entry is PreviewStory =>
+            !!entry &&
+            typeof entry === "object" &&
+            typeof (entry as PreviewStory).id === "string" &&
+            typeof (entry as PreviewStory).title === "string",
+        )
+      : [],
+    previewDefaultStoryId:
+      typeof data.previewDefaultStoryId === "string" &&
+      data.previewDefaultStoryId.trim().length > 0
+        ? data.previewDefaultStoryId.trim()
+        : null,
     files,
   };
 }
@@ -124,16 +146,6 @@ function registryItemJsonUrl(
   version: string | null,
 ) {
   const base = `/api/r/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
-  if (!version) return base;
-  return `${base}?v=${encodeURIComponent(version)}`;
-}
-
-function previewPageUrl(
-  owner: string,
-  name: string,
-  version: string | null,
-) {
-  const base = `/preview/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
   if (!version) return base;
   return `${base}?v=${encodeURIComponent(version)}`;
 }
@@ -207,6 +219,7 @@ export function ComponentCard({
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [artifactStatus, setArtifactStatus] =
     useState<PreviewArtifactStatusPayload | null>(null);
+  const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
 
   const vParam = useMemo(() => {
     if (selectedDetailVersion == null) return null;
@@ -415,6 +428,16 @@ export function ComponentCard({
     }
     return `npx shadcn@latest add ${path}`;
   }, [owner, name, vParam]);
+  const previewSrc = useMemo(
+    () =>
+      buildStoryPreviewPageUrl({
+        owner,
+        name,
+        version: vParam,
+        storyId: selectedStoryId,
+      }),
+    [owner, name, vParam, selectedStoryId],
+  );
 
   async function handleCopy() {
     try {
@@ -617,6 +640,13 @@ export function ComponentCard({
             data.files?.[0]?.path ??
             null;
           setSelectedPath(nextSelectedPath);
+          setSelectedStoryId((current) => {
+            return resolveSelectedPreviewStoryId({
+              currentStoryId: current,
+              stories: data.previewStories,
+              defaultStoryId: data.previewDefaultStoryId,
+            });
+          });
         }
       } catch (error) {
         if (cancelled || controller.signal.aborted) return;
@@ -673,7 +703,7 @@ export function ComponentCard({
 
   useEffect(() => {
     setLivePreviewProps(null);
-  }, [vParam]);
+  }, [vParam, selectedStoryId]);
 
   useEffect(() => {
     if (!expanded || livePreviewProps == null) return;
@@ -687,10 +717,13 @@ export function ComponentCard({
 
     async function loadArtifactStatus() {
       try {
-        const search = new URLSearchParams({ owner, name });
-        if (vParam) {
-          search.set("v", vParam);
-        }
+        const search = buildStoryPreviewArtifactStatusQuery({
+          owner,
+          name,
+          version: vParam,
+          storyId: selectedStoryId,
+          enqueue: true,
+        });
         const res = await fetch(
           `/api/registry/preview-artifacts/status?${search.toString()}`,
           { cache: "no-store" },
@@ -716,7 +749,7 @@ export function ComponentCard({
     return () => {
       cancelled = true;
     };
-  }, [expanded, owner, name, vParam]);
+  }, [expanded, owner, name, vParam, selectedStoryId]);
 
   const artifactStatusTone = (() => {
     switch (artifactStatus?.artifactStatus) {
@@ -756,7 +789,7 @@ export function ComponentCard({
   const artifactStatusMessage =
     artifactStatus?.artifactStatus === "skipped"
       ? artifactStatus.lastError?.message ??
-        "Prebundle was skipped by policy because one or more dependencies are runtime-only."
+        "Preview artifact prebundle was skipped by policy."
       : artifactStatus?.artifactStatus === "failed"
         ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
         : null;
@@ -1124,6 +1157,29 @@ export function ComponentCard({
                       </div>
                     ) : null}
 
+                    {detailData?.previewStories?.length ? (
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                          Story:
+                        </span>
+                        <select
+                          aria-label="Select story"
+                          value={selectedStoryId ?? ""}
+                          onChange={(event) => {
+                            const next = event.target.value.trim();
+                            setSelectedStoryId(next.length > 0 ? next : null);
+                          }}
+                          className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                        >
+                          {detailData.previewStories.map((story) => (
+                            <option key={story.id} value={story.id}>
+                              {story.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
+
                     {detailData?.dependencyDiagnostics?.length ? (
                       <section className="mt-4 space-y-2">
                         <h3 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
@@ -1329,8 +1385,8 @@ export function ComponentCard({
                       ) : null}
                       <PreviewFrame
                         ref={expandedPreviewRef}
-                        key={`expanded-preview-${owner}-${name}-${vParam ?? "latest"}`}
-                        src={previewPageUrl(owner, name, vParam)}
+                        key={`expanded-preview-${owner}-${name}-${vParam ?? "latest"}-${selectedStoryId ?? "default"}`}
+                        src={previewSrc}
                         title={`${title} preview`}
                         className="h-full w-full min-h-[12rem] lg:min-h-0"
                         interactive

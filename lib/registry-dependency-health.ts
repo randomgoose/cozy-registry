@@ -1,7 +1,7 @@
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 import {
   getCurrentVersion,
-  getRegistryItemByOwnerNameAndVersion,
+  getRegistryItemByScopedIdentityAndVersion,
 } from "@/lib/registry";
 
 export type RegistryDependencyHealthStatus =
@@ -52,12 +52,13 @@ export async function computeRegistryDependencyHealth(
       continue;
     }
 
-    const item = await getRegistryItemByOwnerNameAndVersion(
-      parsed.owner,
-      parsed.name,
-      null,
+    const item = await getRegistryItemByScopedIdentityAndVersion({
+      ownerId: parsed.owner,
+      projectKey: parsed.project,
+      name: parsed.name,
+      version: null,
       requestUserId,
-    );
+    });
 
     if (!item) {
       out.push({

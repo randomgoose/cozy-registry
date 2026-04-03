@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import {
-  getRegistryItemVersions,
-  getRegistryItemByOwnerNameAndVersion,
+  getRegistryItemVersionsScoped,
+  getRegistryItemByScopedIdentityAndVersion,
   createRegistryItemVersion,
   getCurrentVersion,
 } from "@/lib/registry";
@@ -28,6 +28,7 @@ import {
 import { getWritableOrganizationTargetForUser } from "@/lib/publish-target";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
 import { publishFailureCategoryForCode } from "@/lib/registry-publish-failure";
+import { resolveCanonicalRegistryProjectForWrite } from "@/lib/registry-project-access";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -43,25 +44,38 @@ type VersionRequestBody = {
   provenancePolicy?: unknown;
   applyStubInference?: unknown;
   dependencies?: unknown;
+  project?: string | null;
 };
 
 /** 获取组件的版本列表 + 当前版本 */
 export async function GET(request: Request, { params }: Params) {
   const { owner, name } = await params;
+  const url = new URL(request.url);
+  const projectParam = url.searchParams.get("project");
+  const project =
+    typeof projectParam === "string" && projectParam.trim().length > 0
+      ? projectParam.trim()
+      : null;
   const session = await auth.api.getSession({ headers: request.headers });
   const userId = session?.user?.id ?? null;
 
-  const item = await getRegistryItemByOwnerNameAndVersion(
-    owner,
+  const item = await getRegistryItemByScopedIdentityAndVersion({
+    ownerId: owner,
+    projectKey: project,
     name,
-    null,
-    userId
-  );
+    version: null,
+    requestUserId: userId,
+  });
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const versions = await getRegistryItemVersions(owner, name, userId);
+  const versions = await getRegistryItemVersionsScoped({
+    ownerId: owner,
+    projectKey: project,
+    name,
+    requestUserId: userId,
+  });
   const currentVersion = getCurrentVersion(item);
 
   return NextResponse.json({
@@ -94,6 +108,17 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
+  if (typeof body.project !== "string" || body.project.trim().length === 0) {
+    return NextResponse.json(
+      {
+        error: "Missing required field: project",
+        code: "PROJECT_REQUIRED",
+        failureCategory: publishFailureCategoryForCode("PROJECT_NOT_FOUND_OR_FORBIDDEN"),
+      },
+      { status: 400 },
+    );
+  }
+
   const { content, files, bump, message } = body;
   const normalizedDeclaredDependencies = normalizeThirdPartyDependenciesInput(
     body.dependencies,
@@ -122,12 +147,13 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  const item = await getRegistryItemByOwnerNameAndVersion(
-    owner,
+  const item = await getRegistryItemByScopedIdentityAndVersion({
+    ownerId: owner,
+    projectKey: typeof body.project === "string" ? body.project : null,
     name,
-    null,
-    userId,
-  );
+    version: null,
+    requestUserId: userId,
+  });
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -142,6 +168,23 @@ export async function POST(request: Request, { params }: Params) {
     }
   } else if (item.userId !== userId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const canonicalProject = await resolveCanonicalRegistryProjectForWrite({
+    userId,
+    projectSlug: typeof body.project === "string" ? body.project : null,
+    ownerUserId: item.organizationId ? null : item.userId,
+    organizationId: item.organizationId ?? null,
+  });
+  if (!canonicalProject.ok) {
+    return NextResponse.json(
+      {
+        error: canonicalProject.error,
+        code: "PROJECT_NOT_FOUND_OR_FORBIDDEN",
+        failureCategory: publishFailureCategoryForCode("PROJECT_NOT_FOUND_OR_FORBIDDEN"),
+      },
+      { status: canonicalProject.status },
+    );
   }
 
   const normalizedType = normalizeRegistryItemType(item.type);
@@ -382,6 +425,10 @@ export async function POST(request: Request, { params }: Params) {
     const result = await createRegistryItemVersion({
       ownerId: item.userId ?? undefined,
       organizationId: item.organizationId ?? undefined,
+      canonicalProjectId:
+        canonicalProject.project?.id ?? item.canonicalProjectId ?? null,
+      canonicalProjectKey:
+        canonicalProject.project?.namespaceKey ?? item.canonicalProjectKey ?? null,
       name,
       content: finalContent,
       files: nextFiles,

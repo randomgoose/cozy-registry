@@ -26,7 +26,9 @@ export function normalizeRegistryDependenciesInput(
     if (!parseRegistryDependencyRef(dep)) {
       return {
         value: [],
-        error: `Invalid registry dependency ref: ${dep}. Expected format @owner/name or @owner/name@version`,
+        error:
+          `Invalid registry dependency ref: ${dep}. Expected format @owner/name, @owner/name@version, ` +
+          `@owner/project/name, or @owner/project/name@version`,
       };
     }
     if (seen.has(dep)) continue;

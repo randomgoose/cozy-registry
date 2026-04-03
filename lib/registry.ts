@@ -7,6 +7,7 @@ import {
   registryFileVersions,
   registryItemMoves,
   registryProjectItems,
+  registryProjects,
   organization,
   user,
 } from "@/lib/db/schema";
@@ -28,7 +29,10 @@ import {
 } from "@/lib/registry-types";
 import { maybeBuildRegistryThumbnail } from "@/lib/thumbnail";
 import { enqueueThumbnailJob } from "@/lib/thumbnail-jobs";
-import { enqueuePreviewArtifactJob } from "@/lib/preview-artifact-jobs";
+import {
+  enqueuePreviewArtifactJob,
+  enqueueWarmPreviewArtifacts,
+} from "@/lib/preview-artifact-jobs";
 import { buildDependencySnapshot } from "@/lib/third-party-dependency-governance";
 
 const INITIAL_VERSION = "0.1.0";
@@ -296,8 +300,10 @@ export async function getRegistryItemByOwnerAndName(
       and(
         eq(registryItems.userId, ownerId),
         eq(registryItems.name, name)
-      )
-    );
+      ),
+    )
+    .orderBy(desc(registryItems.createdAt))
+    .limit(1);
 
   if (!item || !isRegistryItemDirectlyResolvableStatus(item.status)) return null;
 
@@ -326,7 +332,9 @@ export async function getRegistryItemByOrganizationAndName(
         eq(registryItems.organizationId, organizationId),
         eq(registryItems.name, name),
       ),
-    );
+    )
+    .orderBy(desc(registryItems.createdAt))
+    .limit(1);
 
   if (!item || !isRegistryItemDirectlyResolvableStatus(item.status)) return null;
 
@@ -350,6 +358,128 @@ async function getRegistryItemByOrganizationAndNameForViewer(
     if (!(await isUserOrganizationMember(requestUserId, organizationId))) return null;
   }
   return item;
+}
+
+export async function getRegistryProjectByOwnerAndNamespace(
+  ownerId: string,
+  namespaceKey: string,
+  requestUserId?: string | null,
+) {
+  const teamPath = parseTeamOwnerPath(ownerId);
+  if (teamPath) {
+    const organizationId = await resolveOrganizationIdFromLegacyOwnerPath(
+      teamPath.orgSlug,
+      teamPath.teamSegment,
+    );
+    if (!organizationId) return null;
+    const [project] = await db
+      .select()
+      .from(registryProjects)
+      .where(
+        and(
+          eq(registryProjects.organizationId, organizationId),
+          eq(registryProjects.namespaceKey, namespaceKey),
+        ),
+      )
+      .limit(1);
+    return project ?? null;
+  }
+
+  const resolved = await resolveOwner(ownerId);
+  if (resolved) {
+    const [project] = await db
+      .select()
+      .from(registryProjects)
+      .where(
+        and(
+          eq(registryProjects.ownerUserId, resolved.userId),
+          eq(registryProjects.namespaceKey, namespaceKey),
+        ),
+      )
+      .limit(1);
+    return project ?? null;
+  }
+
+  const org = await resolveOrganizationBySlug(ownerId);
+  if (!org) return null;
+  if (requestUserId == null) {
+    const [project] = await db
+      .select()
+      .from(registryProjects)
+      .where(
+        and(
+          eq(registryProjects.organizationId, org.id),
+          eq(registryProjects.namespaceKey, namespaceKey),
+        ),
+      )
+      .limit(1);
+    return project ?? null;
+  }
+  const canSeePrivate = await isUserOrganizationMember(requestUserId, org.id);
+  const [project] = await db
+    .select()
+    .from(registryProjects)
+    .where(
+      and(
+        eq(registryProjects.organizationId, org.id),
+        eq(registryProjects.namespaceKey, namespaceKey),
+        canSeePrivate
+          ? sql`true`
+          : eq(registryProjects.visibility, "public"),
+      ),
+    )
+    .limit(1);
+  return project ?? null;
+}
+
+export async function getRegistryItemByOwnerProjectName(
+  ownerId: string,
+  projectKey: string,
+  name: string,
+  version?: string | null,
+  requestUserId?: string | null,
+) {
+  const project = await getRegistryProjectByOwnerAndNamespace(
+    ownerId,
+    projectKey,
+    requestUserId,
+  );
+  if (!project) return null;
+
+  const [item] = await db
+    .select()
+    .from(registryItems)
+    .where(
+      and(
+        eq(registryItems.name, name),
+        eq(registryItems.canonicalProjectId, project.id),
+      ),
+    )
+    .orderBy(desc(registryItems.createdAt))
+    .limit(1);
+
+  if (!item || !isRegistryItemDirectlyResolvableStatus(item.status)) return null;
+  if (item.visibility === "private") {
+    if (item.userId) {
+      if (!requestUserId || item.userId !== requestUserId) return null;
+    } else if (item.organizationId) {
+      if (!requestUserId) return null;
+      if (!(await isUserOrganizationMember(requestUserId, item.organizationId))) {
+        return null;
+      }
+    }
+  }
+
+  const files = await db
+    .select()
+    .from(registryFiles)
+    .where(eq(registryFiles.itemId, item.id));
+  const base = { ...item, files };
+  const currentVer = getCurrentVersion(base);
+  if (!version || version === currentVer) {
+    return base;
+  }
+  return loadRegistryItemVersionSnapshot(base, version);
 }
 
 /**
@@ -416,6 +546,62 @@ export async function getRegistryDependencyAccessForRef(
   return "not_found";
 }
 
+export async function getRegistryDependencyAccessForScopedRef(params: {
+  ownerHandle: string;
+  projectKey?: string | null;
+  itemName: string;
+  requestUserId?: string | null;
+}): Promise<"not_found" | "denied" | "ok"> {
+  const projectKey = params.projectKey?.trim() ?? "";
+  if (!projectKey) {
+    return getRegistryDependencyAccessForRef(
+      params.ownerHandle,
+      params.itemName,
+      params.requestUserId,
+    );
+  }
+
+  const project = await getRegistryProjectByOwnerAndNamespace(
+    params.ownerHandle,
+    projectKey,
+    params.requestUserId,
+  );
+  if (!project) return "not_found";
+
+  const [item] = await db
+    .select({
+      userId: registryItems.userId,
+      organizationId: registryItems.organizationId,
+      visibility: registryItems.visibility,
+      status: registryItems.status,
+    })
+    .from(registryItems)
+    .where(
+      and(
+        eq(registryItems.name, params.itemName),
+        eq(registryItems.canonicalProjectId, project.id),
+      ),
+    )
+    .orderBy(desc(registryItems.createdAt))
+    .limit(1);
+
+  if (!item || !isRegistryItemDirectlyResolvableStatus(item.status)) {
+    return "not_found";
+  }
+  if (item.visibility === "private") {
+    if (item.userId) {
+      if (!params.requestUserId || item.userId !== params.requestUserId) return "denied";
+    } else if (item.organizationId) {
+      if (!params.requestUserId) return "denied";
+      if (!(await isUserOrganizationMember(params.requestUserId, item.organizationId))) {
+        return "denied";
+      }
+    }
+  }
+
+  return "ok";
+}
+
 export type RegistryItemReferrer = {
   ownerHandle: string;
   itemName: string;
@@ -427,10 +613,12 @@ export type RegistryItemReferrer = {
 export async function findRegistryItemsReferencing(
   ownerHandle: string,
   itemName: string,
-  exclude?: { ownerUserId: string; itemName: string },
+  exclude?: { itemId?: string; ownerUserId?: string; itemName: string },
+  projectKey?: string | null,
 ): Promise<RegistryItemReferrer[]> {
-  const refExact = `@${ownerHandle}/${itemName}`;
-  const versionPrefix = `@${ownerHandle}/${itemName}@`;
+  const scopedPrefix = projectKey ? `@${ownerHandle}/${projectKey}/${itemName}` : `@${ownerHandle}/${itemName}`;
+  const refExact = scopedPrefix;
+  const versionPrefix = `${scopedPrefix}@`;
 
   const depMatchSnapshot = sql`
     EXISTS (
@@ -442,7 +630,9 @@ export async function findRegistryItemsReferencing(
   `;
 
   const excludeCond =
-    exclude != null
+    exclude?.itemId != null
+      ? sql`NOT (${registryItems.id} = ${exclude.itemId})`
+      : exclude != null
       ? sql`NOT (${registryItems.userId} = ${exclude.ownerUserId} AND ${registryItems.name} = ${exclude.itemName})`
       : sql`true`;
 
@@ -571,6 +761,7 @@ async function loadRegistryItemVersionSnapshot<
     description: itemVersion.description,
     dependencies: itemVersion.dependencies,
     registryDependencies: itemVersion.registryDependencies,
+    meta: itemVersion.meta ?? (base as { meta?: unknown }).meta,
     files: fileVersions.map((f) => ({
       path: f.path,
       content: f.content,
@@ -632,6 +823,32 @@ export async function getRegistryItemByOwnerNameAndVersion(
   }
 
   return null;
+}
+
+export async function getRegistryItemByScopedIdentityAndVersion(params: {
+  ownerId: string;
+  projectKey?: string | null;
+  name: string;
+  version: string | null | undefined;
+  requestUserId?: string | null;
+}) {
+  const projectKey = params.projectKey?.trim() ?? "";
+  if (projectKey) {
+    return getRegistryItemByOwnerProjectName(
+      params.ownerId,
+      projectKey,
+      params.name,
+      params.version,
+      params.requestUserId,
+    );
+  }
+
+  return getRegistryItemByOwnerNameAndVersion(
+    params.ownerId,
+    params.name,
+    params.version,
+    params.requestUserId,
+  );
 }
 
 export async function getRegistryItemByOwnerNameAndVersionScoped(
@@ -782,12 +999,38 @@ export async function getRegistryItemVersions(
   return [];
 }
 
+export async function getRegistryItemVersionsScoped(params: {
+  ownerId: string;
+  projectKey?: string | null;
+  name: string;
+  requestUserId?: string | null;
+}): Promise<
+  { version: string; createdAt: Date; createdBy: string | null; message?: string | null }[]
+> {
+  const projectKey = params.projectKey?.trim() ?? "";
+  if (!projectKey) {
+    return getRegistryItemVersions(params.ownerId, params.name, params.requestUserId);
+  }
+
+  const item = await getRegistryItemByOwnerProjectName(
+    params.ownerId,
+    projectKey,
+    params.name,
+    null,
+    params.requestUserId,
+  );
+  if (!item) return [];
+  return getRegistryItemVersionsByItemId(item.id);
+}
+
 /**
  * 发布新版本（Vibe 更新已有组件时调用）。仅组件 owner 可调用。
  */
 export async function createRegistryItemVersion(params: {
   ownerId?: string;
   organizationId?: string;
+  canonicalProjectId?: string | null;
+  canonicalProjectKey?: string | null;
   name: string;
   /**
    * 单文件入口内容（向后兼容）。当提供 files 时会被忽略。
@@ -813,15 +1056,30 @@ export async function createRegistryItemVersion(params: {
   /** 可选：default story id in meta.previewDefaultStoryId */
   previewDefaultStoryId?: string | null;
 }) {
-  const item = params.organizationId
-    ? await getRegistryItemByOrganizationAndName(params.organizationId, params.name)
-    : params.ownerId
-      ? await getRegistryItemByOwnerAndName(
-          params.ownerId,
+  const ownerRefForScopedLookup =
+    params.organizationId != null
+      ? (await getOrganizationCanonicalOwnerRef(params.organizationId)) ?? params.organizationId
+      : params.ownerId != null
+        ? (await resolveOwner(params.ownerId))?.handle ?? params.ownerId
+        : null;
+  const item =
+    params.canonicalProjectKey && ownerRefForScopedLookup
+      ? await getRegistryItemByOwnerProjectName(
+          ownerRefForScopedLookup,
+          params.canonicalProjectKey,
           params.name,
+          null,
           params.userId,
         )
-      : null;
+      : params.organizationId
+        ? await getRegistryItemByOrganizationAndName(params.organizationId, params.name)
+        : params.ownerId
+          ? await getRegistryItemByOwnerAndName(
+              params.ownerId,
+              params.name,
+              params.userId,
+            )
+          : null;
   if (!item) throw new Error("Item not found or no access");
   ensureRegistryItemMutable(item.status);
   if (params.organizationId) {
@@ -987,6 +1245,12 @@ export async function createRegistryItemVersion(params: {
       dependencies: nextDependencies,
       currentVersion: nextVersion,
       registryDependencies: nextRegistryDependencies,
+      ...(params.canonicalProjectId !== undefined
+        ? {
+            canonicalProjectId: params.canonicalProjectId,
+            canonicalProjectKey: params.canonicalProjectKey ?? null,
+          }
+        : {}),
       updatedAt: new Date(),
       ...((params.previewProps !== undefined ||
         params.declaredDependencies !== undefined ||
@@ -1025,9 +1289,9 @@ export async function createRegistryItemVersion(params: {
     .where(eq(registryItems.id, item.id));
 
   await enqueueThumbnailJob({
-      itemId: item.id,
-      itemVersionId: itemVersion.id,
-      payload: {
+    itemId: item.id,
+    itemVersionId: itemVersion.id,
+    payload: {
       ownerId: ownerLabelForThumb,
       ownerHandle: null,
       name: params.name,
@@ -1035,6 +1299,18 @@ export async function createRegistryItemVersion(params: {
       type: normalizedType,
     },
   });
+
+  if (normalizedType !== REGISTRY_THEME_TYPE) {
+    await enqueueWarmPreviewArtifacts({
+      itemId: item.id,
+      itemVersionId: itemVersion.id,
+      owner: ownerLabelForThumb,
+      name: params.name,
+      version: nextVersion,
+      requestUserId: params.userId,
+      meta: itemVersion.meta,
+    });
+  }
 
   return { version: nextVersion, id: itemVersion.id };
 }
@@ -1246,6 +1522,8 @@ export async function createRegistryItem(data: {
   type: string;
   title: string;
   description?: string | null;
+  canonicalProjectId?: string | null;
+  canonicalProjectKey?: string | null;
   /**
    * 单文件入口内容（向后兼容）。当提供 files 时会被忽略；
    * 当 files 为空时，会被包装为一个默认文件。
@@ -1319,6 +1597,8 @@ export async function createRegistryItem(data: {
       description: data.description ?? null,
       userId: data.userId ?? null,
       organizationId: data.organizationId ?? null,
+      canonicalProjectId: data.canonicalProjectId ?? null,
+      canonicalProjectKey: data.canonicalProjectKey ?? null,
       visibility: data.visibility ?? "public",
       status: ACTIVE_REGISTRY_ITEM_STATUS,
       dependencies: data.dependencies ?? [],
@@ -1437,6 +1717,18 @@ export async function createRegistryItem(data: {
         type: normalizedType,
       },
     });
+
+    if (normalizedType !== REGISTRY_THEME_TYPE) {
+      await enqueueWarmPreviewArtifacts({
+        itemId: item.id,
+        itemVersionId: itemVersion.id,
+        owner: thumbOwner,
+        name: data.name,
+        version: INITIAL_VERSION,
+        requestUserId: data.userId ?? null,
+        meta: itemVersion.meta ?? item.meta,
+      });
+    }
   }
 
   return {
@@ -1451,15 +1743,26 @@ export async function createRegistryItem(data: {
  */
 export async function archiveRegistryItem(params: {
   ownerId: string;
+  ownerRef?: string;
+  projectKey?: string | null;
   name: string;
   requestUserId: string;
   lifecycleReason?: string | null;
 }) {
-  const item = await getRegistryItemByOwnerAndName(
-    params.ownerId,
-    params.name,
-    params.requestUserId,
-  );
+  const item =
+    params.projectKey && params.ownerRef
+      ? await getRegistryItemByOwnerProjectName(
+          params.ownerRef,
+          params.projectKey,
+          params.name,
+          null,
+          params.requestUserId,
+        )
+      : await getRegistryItemByOwnerAndName(
+          params.ownerId,
+          params.name,
+          params.requestUserId,
+        );
   if (!item) {
     throw new Error("Item not found or no access");
   }
@@ -1480,12 +1783,7 @@ export async function archiveRegistryItem(params: {
       lifecycleReason: params.lifecycleReason ?? null,
       updatedAt: new Date(),
     })
-    .where(
-      and(
-        eq(registryItems.userId, params.ownerId),
-        eq(registryItems.name, params.name),
-      ),
-    )
+    .where(eq(registryItems.id, item.id))
     .returning();
 
   if (!updated) throw new Error("Failed to archive registry item");
@@ -1494,11 +1792,22 @@ export async function archiveRegistryItem(params: {
 
 export async function archiveOrganizationRegistryItem(params: {
   organizationId: string;
+  ownerRef?: string;
+  projectKey?: string | null;
   name: string;
   requestUserId: string;
   lifecycleReason?: string | null;
 }) {
-  const item = await getRegistryItemByOrganizationAndName(params.organizationId, params.name);
+  const item =
+    params.projectKey && params.ownerRef
+      ? await getRegistryItemByOwnerProjectName(
+          params.ownerRef,
+          params.projectKey,
+          params.name,
+          null,
+          params.requestUserId,
+        )
+      : await getRegistryItemByOrganizationAndName(params.organizationId, params.name);
   if (!item) {
     throw new Error("Item not found or no access");
   }
@@ -1523,12 +1832,7 @@ export async function archiveOrganizationRegistryItem(params: {
       lifecycleReason: params.lifecycleReason ?? null,
       updatedAt: new Date(),
     })
-    .where(
-      and(
-        eq(registryItems.organizationId, params.organizationId),
-        eq(registryItems.name, params.name),
-      ),
-    )
+    .where(eq(registryItems.id, item.id))
     .returning();
 
   if (!updated) throw new Error("Failed to archive registry item");
@@ -1540,13 +1844,23 @@ export async function permanentlyDeleteRegistryItem(params: {
   name: string;
   requestUserId: string;
   ownerRef?: string;
+  projectKey?: string | null;
   lifecycleReason?: string | null;
 }) {
-  const item = await getRegistryItemByOwnerAndName(
-    params.ownerId,
-    params.name,
-    params.requestUserId,
-  );
+  const item =
+    params.projectKey && params.ownerRef
+      ? await getRegistryItemByOwnerProjectName(
+          params.ownerRef,
+          params.projectKey,
+          params.name,
+          null,
+          params.requestUserId,
+        )
+      : await getRegistryItemByOwnerAndName(
+          params.ownerId,
+          params.name,
+          params.requestUserId,
+        );
   if (!item) {
     throw new Error("Item not found or no access");
   }
@@ -1561,7 +1875,8 @@ export async function permanentlyDeleteRegistryItem(params: {
     const referrers = await findRegistryItemsReferencing(
       params.ownerRef,
       params.name,
-      { ownerUserId: params.ownerId, itemName: params.name },
+      { itemId: item.id, ownerUserId: params.ownerId, itemName: params.name },
+      params.projectKey ?? null,
     );
     if (referrers.length > 0) {
       const list = referrers
@@ -1595,9 +1910,19 @@ export async function permanentlyDeleteOrganizationRegistryItem(params: {
   name: string;
   requestUserId: string;
   ownerRef?: string;
+  projectKey?: string | null;
   lifecycleReason?: string | null;
 }) {
-  const item = await getRegistryItemByOrganizationAndName(params.organizationId, params.name);
+  const item =
+    params.projectKey && params.ownerRef
+      ? await getRegistryItemByOwnerProjectName(
+          params.ownerRef,
+          params.projectKey,
+          params.name,
+          null,
+          params.requestUserId,
+        )
+      : await getRegistryItemByOrganizationAndName(params.organizationId, params.name);
   if (!item) {
     throw new Error("Item not found or no access");
   }
@@ -1613,7 +1938,12 @@ export async function permanentlyDeleteOrganizationRegistryItem(params: {
   }
 
   if (params.ownerRef) {
-    const referrers = await findRegistryItemsReferencing(params.ownerRef, params.name);
+    const referrers = await findRegistryItemsReferencing(
+      params.ownerRef,
+      params.name,
+      { itemId: item.id, itemName: params.name },
+      params.projectKey ?? null,
+    );
     const externalReferrers = referrers.filter(
       (r) => !(r.ownerHandle === params.ownerRef && r.itemName === params.name),
     );
@@ -1845,15 +2175,26 @@ export async function copyOrMoveRegistryItemToOrganization(params: {
  */
 export async function updateRegistryItemVisibility(params: {
   ownerId: string;
+  ownerRef?: string;
+  projectKey?: string | null;
   name: string;
   requestUserId: string;
   visibility: "public" | "private";
 }) {
-  const item = await getRegistryItemByOwnerAndName(
-    params.ownerId,
-    params.name,
-    params.requestUserId,
-  );
+  const item =
+    params.projectKey && params.ownerRef
+      ? await getRegistryItemByOwnerProjectName(
+          params.ownerRef,
+          params.projectKey,
+          params.name,
+          null,
+          params.requestUserId,
+        )
+      : await getRegistryItemByOwnerAndName(
+          params.ownerId,
+          params.name,
+          params.requestUserId,
+        );
   if (!item) {
     throw new Error("Item not found or no access");
   }
@@ -1868,12 +2209,7 @@ export async function updateRegistryItemVisibility(params: {
       visibility: params.visibility,
       updatedAt: new Date(),
     })
-    .where(
-      and(
-        eq(registryItems.userId, params.ownerId),
-        eq(registryItems.name, params.name),
-      ),
-    )
+    .where(eq(registryItems.id, item.id))
     .returning();
 
   if (!updated) throw new Error("Failed to update visibility");
@@ -1882,11 +2218,22 @@ export async function updateRegistryItemVisibility(params: {
 
 export async function updateOrganizationRegistryItemVisibility(params: {
   organizationId: string;
+  ownerRef?: string;
+  projectKey?: string | null;
   name: string;
   requestUserId: string;
   visibility: "public" | "private";
 }) {
-  const item = await getRegistryItemByOrganizationAndName(params.organizationId, params.name);
+  const item =
+    params.projectKey && params.ownerRef
+      ? await getRegistryItemByOwnerProjectName(
+          params.ownerRef,
+          params.projectKey,
+          params.name,
+          null,
+          params.requestUserId,
+        )
+      : await getRegistryItemByOrganizationAndName(params.organizationId, params.name);
   if (!item) {
     throw new Error("Item not found or no access");
   }
@@ -1905,12 +2252,7 @@ export async function updateOrganizationRegistryItemVisibility(params: {
       visibility: params.visibility,
       updatedAt: new Date(),
     })
-    .where(
-      and(
-        eq(registryItems.organizationId, params.organizationId),
-        eq(registryItems.name, params.name),
-      ),
-    )
+    .where(eq(registryItems.id, item.id))
     .returning({
       visibility: registryItems.visibility,
       updatedAt: registryItems.updatedAt,

@@ -1,6 +1,6 @@
 import {
-  getRegistryDependencyAccessForRef,
-  getRegistryItemByOwnerNameAndVersion,
+  getRegistryDependencyAccessForScopedRef,
+  getRegistryItemByScopedIdentityAndVersion,
   getThemeEntryCss,
 } from "@/lib/registry";
 import {
@@ -13,13 +13,14 @@ import path from "path";
 
 export type ResolvedRegistryRef = {
   owner: string;
+  projectKey: string | null;
   name: string;
   version: string | null;
-  ref: string; // "@owner/name" or "@owner/name@x.y.z"
+  ref: string; // "@owner/name", "@owner/project/name", or version-pinned variants
 };
 
 export type ResolvedRegistryItem = Awaited<
-  ReturnType<typeof getRegistryItemByOwnerNameAndVersion>
+  ReturnType<typeof getRegistryItemByScopedIdentityAndVersion>
 >;
 
 export type ResolvedRegistryDependencyNode = {
@@ -34,7 +35,7 @@ export {
 };
 
 type RegistryDependencyAccessResult = Awaited<
-  ReturnType<typeof getRegistryDependencyAccessForRef>
+  ReturnType<typeof getRegistryDependencyAccessForScopedRef>
 >;
 
 export type RegistryResolverMemo = {
@@ -49,47 +50,62 @@ export function createRegistryResolverMemo(): RegistryResolverMemo {
   };
 }
 
-function toRef(owner: string, name: string, version: string | null): string {
-  return version ? `@${owner}/${name}@${version}` : `@${owner}/${name}`;
+function toRef(
+  owner: string,
+  projectKey: string | null,
+  name: string,
+  version: string | null,
+): string {
+  const base = projectKey ? `@${owner}/${projectKey}/${name}` : `@${owner}/${name}`;
+  return version ? `${base}@${version}` : base;
 }
 
 function toAccessMemoKey(
   owner: string,
+  projectKey: string | null,
   name: string,
   requestUserId?: string | null,
 ) {
-  return stableMemoKey(owner, name, null, requestUserId);
+  return stableMemoKey(owner, projectKey, name, null, requestUserId);
 }
 
 function toItemMemoKey(
   owner: string,
+  projectKey: string | null,
   name: string,
   version: string | null,
   requestUserId?: string | null,
 ) {
-  return stableMemoKey(owner, name, version, requestUserId);
+  return stableMemoKey(owner, projectKey, name, version, requestUserId);
 }
 
 function stableMemoKey(
   owner: string,
+  projectKey: string | null,
   name: string,
   version: string | null,
   requestUserId?: string | null,
 ) {
-  return [owner, name, version ?? "", requestUserId ?? ""].join("\0");
+  return [owner, projectKey ?? "", name, version ?? "", requestUserId ?? ""].join("\0");
 }
 
 async function memoizedGetDependencyAccess(
   memo: RegistryResolverMemo,
   owner: string,
+  projectKey: string | null,
   name: string,
   requestUserId?: string | null,
 ) {
-  const key = toAccessMemoKey(owner, name, requestUserId);
+  const key = toAccessMemoKey(owner, projectKey, name, requestUserId);
   const existing = memo.access.get(key);
   if (existing) return existing;
 
-  const created = getRegistryDependencyAccessForRef(owner, name, requestUserId);
+  const created = getRegistryDependencyAccessForScopedRef({
+    ownerHandle: owner,
+    projectKey,
+    itemName: name,
+    requestUserId,
+  });
   memo.access.set(key, created);
   return created;
 }
@@ -97,20 +113,22 @@ async function memoizedGetDependencyAccess(
 async function memoizedGetRegistryItem(
   memo: RegistryResolverMemo,
   owner: string,
+  projectKey: string | null,
   name: string,
   version: string | null,
   requestUserId?: string | null,
 ) {
-  const key = toItemMemoKey(owner, name, version, requestUserId);
+  const key = toItemMemoKey(owner, projectKey, name, version, requestUserId);
   const existing = memo.item.get(key);
   if (existing) return existing;
 
-  const created = getRegistryItemByOwnerNameAndVersion(
-    owner,
+  const created = getRegistryItemByScopedIdentityAndVersion({
+    ownerId: owner,
+    projectKey,
     name,
     version,
     requestUserId,
-  );
+  });
   memo.item.set(key, created);
   return created;
 }
@@ -122,6 +140,7 @@ async function memoizedGetRegistryItem(
  */
 export async function resolveRegistryDependencies(params: {
   owner: string;
+  projectKey?: string | null;
   name: string;
   version: string | null;
   requestUserId?: string | null;
@@ -135,8 +154,8 @@ export async function resolveRegistryDependencies(params: {
   const visited = new Set<string>();
   const stack: string[] = [];
 
-  async function dfs(owner: string, name: string, version: string | null) {
-    const ref = toRef(owner, name, version);
+  async function dfs(owner: string, projectKey: string | null, name: string, version: string | null) {
+    const ref = toRef(owner, projectKey, name, version);
     if (visited.has(ref)) return;
     const stackIdx = stack.indexOf(ref);
     if (stackIdx >= 0) {
@@ -148,6 +167,7 @@ export async function resolveRegistryDependencies(params: {
     const access = await memoizedGetDependencyAccess(
       memo,
       owner,
+      projectKey,
       name,
       params.requestUserId,
     );
@@ -163,6 +183,7 @@ export async function resolveRegistryDependencies(params: {
     const item = await memoizedGetRegistryItem(
       memo,
       owner,
+      projectKey,
       name,
       version,
       params.requestUserId,
@@ -176,18 +197,18 @@ export async function resolveRegistryDependencies(params: {
     for (const raw of deps) {
       const parsed = parseRegistryDependencyRef(raw);
       if (!parsed) continue;
-      await dfs(parsed.owner, parsed.name, parsed.version);
+      await dfs(parsed.owner, parsed.project, parsed.name, parsed.version);
     }
 
     stack.pop();
     visited.add(ref);
     ordered.push({
-      ref: { owner, name, version, ref },
+      ref: { owner, projectKey, name, version, ref },
       item,
     });
   }
 
-  await dfs(params.owner, params.name, params.version);
+  await dfs(params.owner, params.projectKey ?? null, params.name, params.version);
   return { ordered };
 }
 
@@ -196,6 +217,7 @@ export async function resolveRegistryDependencies(params: {
  */
 export async function resolveTransitiveThemeCss(params: {
   owner: string;
+  projectKey?: string | null;
   name: string;
   version: string | null;
   requestUserId?: string | null;
@@ -220,6 +242,7 @@ function pickDependencyEntryPath(files: { path: string; content: string }[]): st
  */
 export async function resolveTransitiveComponentSourceFiles(params: {
   owner: string;
+  projectKey?: string | null;
   name: string;
   version: string | null;
   requestUserId?: string | null;
@@ -228,6 +251,7 @@ export async function resolveTransitiveComponentSourceFiles(params: {
   const { ordered } = await resolveRegistryDependencies(params);
   return materializeComponentSourceFilesFromResolvedGraph(ordered, {
     owner: params.owner,
+    projectKey: params.projectKey ?? null,
     name: params.name,
     version: params.version,
   });
@@ -242,7 +266,9 @@ export function collectThemeCssFromResolvedGraph(
 
   for (const { ref, item } of ordered) {
     if (item.type !== "registry:theme") continue;
-    const key = `${ref.owner}/${ref.name}`;
+    const key = ref.projectKey
+      ? `${ref.owner}/${ref.projectKey}/${ref.name}`
+      : `${ref.owner}/${ref.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const css = getThemeEntryCss(item);
@@ -257,7 +283,7 @@ export function collectThemeCssFromResolvedGraph(
 
 export function materializeComponentSourceFilesFromResolvedGraph(
   ordered: ResolvedRegistryDependencyNode[],
-  root: { owner: string; name: string; version: string | null },
+  root: { owner: string; projectKey: string | null; name: string; version: string | null },
 ): { files: Record<string, string>; sources: string[] } {
   const out: Record<string, string> = {};
   const sources: string[] = [];
@@ -268,16 +294,21 @@ export function materializeComponentSourceFilesFromResolvedGraph(
     // Skip root (we only want dependencies)
     if (
       ref.owner === root.owner &&
+      ref.projectKey === root.projectKey &&
       ref.name === root.name &&
       ref.version === root.version
     ) {
       continue;
     }
-    const key = `${ref.owner}/${ref.name}`;
+    const key = ref.projectKey
+      ? `${ref.owner}/${ref.projectKey}/${ref.name}`
+      : `${ref.owner}/${ref.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const depDir = path.posix.join("_deps", ref.owner, ref.name);
+    const depDir = ref.projectKey
+      ? path.posix.join("_deps", ref.owner, ref.projectKey, ref.name)
+      : path.posix.join("_deps", ref.owner, ref.name);
     const fileVersions = (item.files ?? []) as Array<{ path: string; content: string }>;
     const entry = pickDependencyEntryPath(fileVersions);
     if (!entry) continue;

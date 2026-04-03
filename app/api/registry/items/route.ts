@@ -28,6 +28,7 @@ import {
 import { resolvePublishTargetForUser } from "@/lib/publish-target";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
 import { publishFailureCategoryForCode } from "@/lib/registry-publish-failure";
+import { resolveCanonicalRegistryProjectForWrite } from "@/lib/registry-project-access";
 
 export async function POST(request: Request) {
   try {
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
       organizationSlug?: string | null;
       organizationId?: string | null;
       dependencies?: unknown;
+      project?: string | null;
     };
 
     const hasFiles =
@@ -63,6 +65,16 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Missing required fields: name, type, title, and (files or content)" },
         { status: 400 }
+      );
+    }
+    if (typeof body.project !== "string" || body.project.trim().length === 0) {
+      return NextResponse.json(
+        {
+          error: "Missing required field: project",
+          code: "PROJECT_REQUIRED",
+          failureCategory: publishFailureCategoryForCode("PROJECT_NOT_FOUND_OR_FORBIDDEN"),
+        },
+        { status: 400 },
       );
     }
     const normalizedRegistryDeps = normalizeRegistryDependenciesInput(
@@ -141,6 +153,22 @@ export async function POST(request: Request) {
 
     const publishTarget = resolvedPublishTarget.target;
     const orgTarget = publishTarget.kind === "organization" ? publishTarget : null;
+    const canonicalProject = await resolveCanonicalRegistryProjectForWrite({
+      userId,
+      projectSlug: typeof body.project === "string" ? body.project : null,
+      ownerUserId: orgTarget ? null : userId,
+      organizationId: orgTarget?.id ?? null,
+    });
+    if (!canonicalProject.ok) {
+      return NextResponse.json(
+        {
+          error: canonicalProject.error,
+          code: "PROJECT_NOT_FOUND_OR_FORBIDDEN",
+          failureCategory: publishFailureCategoryForCode("PROJECT_NOT_FOUND_OR_FORBIDDEN"),
+        },
+        { status: canonicalProject.status },
+      );
+    }
 
     const isTheme = normalizedType === REGISTRY_THEME_TYPE;
     if (!hasFiles) {
@@ -381,6 +409,8 @@ export async function POST(request: Request) {
       files: filesToWrite,
       userId: orgTarget ? null : userId,
       organizationId: orgTarget?.id ?? null,
+      canonicalProjectId: canonicalProject.project?.id ?? null,
+      canonicalProjectKey: canonicalProject.project?.namespaceKey ?? null,
       visibility: validVisibility,
       dependencies,
       declaredDependencies: normalizedDeclaredDependencies.value,

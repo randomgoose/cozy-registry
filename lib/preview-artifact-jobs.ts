@@ -12,18 +12,22 @@ import {
 import { extractDependencies } from "@/lib/validate-tsx";
 import { buildPreviewBundle } from "@/lib/preview-build";
 import {
+  type DependencyDecision,
   evaluateThirdPartyDependencies,
   excludeExplicitRegistryDependencies,
   getPrebundleDependencies,
   getRejectedDependencyDecisions,
-  hasRuntimeOnlyDependencies,
   readDeclaredThirdPartyDependenciesFromMeta,
 } from "@/lib/third-party-dependency-governance";
 import {
   buildRegistryPreviewArtifactPath,
   uploadPublicAsset,
 } from "@/lib/storage";
-import { pickPreviewStory } from "@/lib/preview-stories";
+import {
+  getPreviewDefaultStoryIdFromMeta,
+  getPreviewStoriesFromMeta,
+  pickPreviewStory,
+} from "@/lib/preview-stories";
 import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
 
 export const BUILD_PREVIEW_ARTIFACT_JOB = "build_preview_artifact" as const;
@@ -48,6 +52,35 @@ export function buildPreviewArtifactKey(input: {
   storyId?: string | null;
 }) {
   return sha256(stableStringify(input));
+}
+
+export function formatRuntimeOnlyDependencySkipMessage(
+  dependencyDecisions: DependencyDecision[],
+) {
+  const runtimeOnlyDependencies = dependencyDecisions
+    .filter(
+      (decision) =>
+        decision.previewCapability === "runtime-only" &&
+        decision.tier !== "runtime-provided",
+    )
+    .map((decision) => decision.packageName)
+    .sort();
+
+  if (runtimeOnlyDependencies.length === 0) {
+    return "Artifact prebundle was skipped by policy because one or more dependencies are runtime-only.";
+  }
+
+  return `Artifact prebundle was skipped by policy because these dependencies are runtime-only: ${runtimeOnlyDependencies.join(", ")}.`;
+}
+
+function hasBlockingRuntimeOnlyDependencies(
+  dependencyDecisions: DependencyDecision[],
+) {
+  return dependencyDecisions.some(
+    (decision) =>
+      decision.previewCapability === "runtime-only" &&
+      decision.tier !== "runtime-provided",
+  );
 }
 
 export async function enqueuePreviewArtifactJob(params: {
@@ -143,6 +176,59 @@ export async function enqueuePreviewArtifactJob(params: {
     .returning();
 
   return { artifact, job, artifactKey };
+}
+
+export function buildWarmPreviewArtifactTargets(meta: unknown): Array<{
+  mode: "default" | "thumbnail";
+  storyId: string | null;
+}> {
+  const stories = getPreviewStoriesFromMeta(meta);
+  const defaultStoryId =
+    getPreviewDefaultStoryIdFromMeta(meta) ?? stories[0]?.id ?? null;
+
+  const targets = new Map<string, { mode: "default" | "thumbnail"; storyId: string | null }>();
+  const addTarget = (mode: "default" | "thumbnail", storyId: string | null) => {
+    const normalizedStoryId = storyId?.trim() || null;
+    const key = `${mode}:${normalizedStoryId ?? ""}`;
+    targets.set(key, { mode, storyId: normalizedStoryId });
+  };
+
+  addTarget("default", defaultStoryId);
+  addTarget("thumbnail", defaultStoryId);
+
+  for (const story of stories) {
+    addTarget("default", story.id);
+  }
+
+  return Array.from(targets.values());
+}
+
+export async function enqueueWarmPreviewArtifacts(params: {
+  itemId: string;
+  itemVersionId: string;
+  owner: string;
+  name: string;
+  version: string;
+  requestUserId: string | null;
+  meta: unknown;
+}) {
+  const targets = buildWarmPreviewArtifactTargets(params.meta);
+  await Promise.all(
+    targets.map((target) =>
+      enqueuePreviewArtifactJob({
+        itemId: params.itemId,
+        itemVersionId: params.itemVersionId,
+        payload: {
+          owner: params.owner,
+          name: params.name,
+          version: params.version,
+          mode: target.mode,
+          storyId: target.storyId,
+          requestUserId: params.requestUserId,
+        },
+      }),
+    ),
+  );
 }
 
 export async function getPreviewArtifactStatus(params: {
@@ -327,10 +413,10 @@ export async function processPreviewArtifactJob(jobId: string) {
         .join("; ");
       throw new Error(`Rejected preview dependencies: ${details}`);
     }
-    if (hasRuntimeOnlyDependencies(dependencyDecisions)) {
+    if (hasBlockingRuntimeOnlyDependencies(dependencyDecisions)) {
       const reasonCode = "SKIPPED_RUNTIME_ONLY_DEPENDENCIES";
       const message =
-        "Artifact prebundle was skipped by policy because one or more dependencies are runtime-only.";
+        formatRuntimeOnlyDependencySkipMessage(dependencyDecisions);
 
       await db
         .update(registryPreviewArtifacts)

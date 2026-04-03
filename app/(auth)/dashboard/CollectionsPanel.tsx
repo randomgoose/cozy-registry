@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  ArtboardToolIcon,
+  ComponentIcon,
+  PaintBoardIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PublishProjectsToShell } from "@/app/(auth)/dashboard/ProjectsShellCache";
@@ -23,20 +29,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { ProjectItemRow } from "@/lib/project-items";
 import type { ProjectListItem } from "@/lib/project-list";
+import {
+  REGISTRY_BLOCK_TYPE,
+  REGISTRY_THEME_TYPE,
+  REGISTRY_UI_TYPE,
+  normalizeRegistryItemType,
+} from "@/lib/registry-types";
 
 type Project = ProjectListItem;
-
-type ProjectItemRow = {
-  itemId: string;
-  name: string;
-  title: string;
-  type: string;
-  visibility: string;
-  description: string | null;
-  meta: Record<string, unknown> | null;
-  addedAt: string;
-};
 
 type CreatedProject = { id: string; slug: string; title: string };
 
@@ -77,6 +79,36 @@ function isCodeFile(path: string): boolean {
   return /\.(tsx?|jsx?|css|json)$/i.test(path);
 }
 
+function getProjectItemTypeIcon(type: string) {
+  const normalizedType = normalizeRegistryItemType(type);
+  if (normalizedType === REGISTRY_UI_TYPE) {
+    return {
+      icon: ComponentIcon,
+      className:
+        "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+    };
+  }
+  if (normalizedType === REGISTRY_THEME_TYPE) {
+    return {
+      icon: PaintBoardIcon,
+      className:
+        "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+    };
+  }
+  if (normalizedType === REGISTRY_BLOCK_TYPE) {
+    return {
+      icon: ArtboardToolIcon,
+      className:
+        "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+    };
+  }
+  return {
+    icon: ArtboardToolIcon,
+    className:
+      "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  };
+}
+
 export function ProjectsPanel(props: {
   /** Registry path segment for item links (`@handle` scope or org slug). */
   registryOwner: string;
@@ -93,6 +125,7 @@ export function ProjectsPanel(props: {
   initialProjectSlug?: string;
   initialProjectVisibility?: "public" | "private";
   initialProjects?: Project[];
+  initialProjectItems?: ProjectItemRow[];
 }) {
   const isProjectDetail = Boolean(props.initialProjectId);
   const [projects, setProjects] = useState<Project[]>(() => props.initialProjects ?? []);
@@ -110,11 +143,14 @@ export function ProjectsPanel(props: {
   const [membersLoading, setMembersLoading] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(() => props.initialProjectId ?? null);
-  const [projectItems, setProjectItems] = useState<ProjectItemRow[]>([]);
-  const [itemsLoading, setItemsLoading] = useState(false);
+  const [projectItems, setProjectItems] = useState<ProjectItemRow[]>(() => props.initialProjectItems ?? []);
+  const [itemsLoading, setItemsLoading] = useState(
+    () => isProjectDetail && props.initialProjectItems == null,
+  );
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [previewKeepAliveItemIds, setPreviewKeepAliveItemIds] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<"preview" | "code">("preview");
   const [detailByItemId, setDetailByItemId] = useState<Record<string, ProjectItemDetailData>>({});
   const [itemDetailLoadingId, setItemDetailLoadingId] = useState<string | null>(null);
   const [itemDetailError, setItemDetailError] = useState<string | null>(null);
@@ -125,18 +161,6 @@ export function ProjectsPanel(props: {
   const [itemActionError, setItemActionError] = useState<string | null>(null);
   const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
 
-  const selectedProject = useMemo(
-    () => projects.find((p) => p.id === selectedId) ?? null,
-    [projects, selectedId],
-  );
-
-  const detailTitle =
-    props.initialProjectTitle ??
-    selectedProject?.title ??
-    (isProjectDetail ? "Project" : "");
-  const detailSlug = props.initialProjectSlug ?? selectedProject?.slug ?? "";
-  const detailVisibility =
-    props.initialProjectVisibility ?? selectedProject?.visibility ?? "private";
   const canEditProject = props.canEditProject ?? false;
   const moveTargetProjects = useMemo(
     () => projects.filter((project) => project.id !== selectedId),
@@ -206,8 +230,13 @@ export function ProjectsPanel(props: {
 
   useEffect(() => {
     if (!isProjectDetail || !selectedId) return;
+    if (props.initialProjectItems != null && props.initialProjectId === selectedId) {
+      setProjectItems(props.initialProjectItems);
+      setItemsLoading(false);
+      return;
+    }
     refreshSelectedItems(selectedId).catch(() => {});
-  }, [selectedId, isProjectDetail]);
+  }, [selectedId, isProjectDetail, props.initialProjectId, props.initialProjectItems]);
 
   useEffect(() => {
     if (!isProjectDetail) return;
@@ -221,6 +250,10 @@ export function ProjectsPanel(props: {
         : projectItems[0]?.itemId ?? null;
     setSelectedItemId(nextId);
   }, [isProjectDetail, projectItems, selectedItemId]);
+
+  useEffect(() => {
+    setDetailTab("preview");
+  }, [selectedItemId]);
 
   useEffect(() => {
     if (!isProjectDetail || !selectedItemId) return;
@@ -287,6 +320,13 @@ export function ProjectsPanel(props: {
       void loadStep2Members(selectedId);
     }
   }, [shareOpen, selectedId]);
+
+  useEffect(() => {
+    if (!props.isOrgScope) return;
+    const handleShareIntent = () => setShareOpen(true);
+    window.addEventListener("project-share-intent", handleShareIntent);
+    return () => window.removeEventListener("project-share-intent", handleShareIntent);
+  }, [props.isOrgScope]);
 
   async function submitStep1(e: React.FormEvent) {
     e.preventDefault();
@@ -472,129 +512,87 @@ export function ProjectsPanel(props: {
   return (
     <section className={props.className ?? ""}>
       <PublishProjectsToShell projects={projects} />
-      {isProjectDetail ? (
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 flex-1">
-            {props.projectsBasePath ? (
-              <Link
-                href={props.projectsBasePath}
-                className="text-sm font-medium text-zinc-600 underline-offset-2 hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
-              >
-                ← All projects
-              </Link>
+      <Dialog
+        open={shareOpen}
+        onOpenChange={(open) => {
+          setShareOpen(open);
+          if (!open) {
+            setInviteInput("");
+            setInviteError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md gap-5 px-5 pt-5 pb-5 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Invite to project</DialogTitle>
+            <DialogDescription>
+              Invite organization members by email or @handle. They must already belong to this
+              organization.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submitShareInvite} className="space-y-2">
+            <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+              Invite member
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+              <input
+                value={inviteInput}
+                onChange={(e) => setInviteInput(e.target.value)}
+                placeholder="email@company.com or @handle"
+                className="min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              />
+              <div className="flex shrink-0 gap-2">
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value as "viewer" | "editor" | "admin")}
+                  className="rounded-xl border border-zinc-300 bg-white px-2 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  aria-label="Member role"
+                >
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button
+                  type="submit"
+                  disabled={inviting || !inviteInput.trim()}
+                  className="rounded-xl bg-zinc-900 px-3 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  {inviting ? "…" : "Invite"}
+                </button>
+              </div>
+            </div>
+            {inviteError ? (
+              <p className="text-xs text-red-600 dark:text-red-400">{inviteError}</p>
             ) : null}
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-              {detailTitle}
-            </h1>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              {detailSlug ? (
-                <>
-                  <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs dark:bg-zinc-800">
-                    {detailSlug}
-                  </code>
-                  <span className="mx-1.5 text-zinc-300 dark:text-zinc-600">·</span>
-                </>
-              ) : null}
-              {detailVisibility === "private" ? "Private" : "Public"}
-              <span className="mx-1.5 text-zinc-300 dark:text-zinc-600">·</span>
-              {props.scopeLabel ?? "Personal"}
-            </p>
+          </form>
+          <div>
+            <div className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+              Members
+            </div>
+            {membersLoading ? (
+              <p className="mt-2 text-sm text-zinc-500">Loading…</p>
+            ) : step2Members.length === 0 ? (
+              <p className="mt-2 text-sm text-zinc-500">No members yet besides you.</p>
+            ) : (
+              <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-sm">
+                {step2Members.map((m) => (
+                  <li
+                    key={m.userId}
+                    className="flex justify-between gap-2 rounded-lg border border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
+                  >
+                    <span className="truncate text-zinc-800 dark:text-zinc-200">
+                      {m.name || m.email}
+                    </span>
+                    <span className="shrink-0 text-xs text-zinc-500">{m.role}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
-          {props.isOrgScope ? (
-            <Dialog
-              open={shareOpen}
-              onOpenChange={(open) => {
-                setShareOpen(open);
-                if (!open) {
-                  setInviteInput("");
-                  setInviteError(null);
-                }
-              }}
-            >
-              <DialogTrigger
-                render={
-                  <button
-                    type="button"
-                    className="shrink-0 rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-                  />
-                }
-              >
-                Share
-              </DialogTrigger>
-              <DialogContent className="max-w-md gap-5 px-5 pt-5 pb-5 sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Invite to project</DialogTitle>
-                  <DialogDescription>
-                    Invite organization members by email or @handle. They must already belong to this
-                    organization.
-                  </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={submitShareInvite} className="space-y-2">
-                  <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                    Invite member
-                  </label>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                    <input
-                      value={inviteInput}
-                      onChange={(e) => setInviteInput(e.target.value)}
-                      placeholder="email@company.com or @handle"
-                      className="min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                    />
-                    <div className="flex shrink-0 gap-2">
-                      <select
-                        value={inviteRole}
-                        onChange={(e) =>
-                          setInviteRole(e.target.value as "viewer" | "editor" | "admin")
-                        }
-                        className="rounded-xl border border-zinc-300 bg-white px-2 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                        aria-label="Member role"
-                      >
-                        <option value="viewer">Viewer</option>
-                        <option value="editor">Editor</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                      <button
-                        type="submit"
-                        disabled={inviting || !inviteInput.trim()}
-                        className="rounded-xl bg-zinc-900 px-3 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-                      >
-                        {inviting ? "…" : "Invite"}
-                      </button>
-                    </div>
-                  </div>
-                  {inviteError ? (
-                    <p className="text-xs text-red-600 dark:text-red-400">{inviteError}</p>
-                  ) : null}
-                </form>
-                <div>
-                  <div className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                    Members
-                  </div>
-                  {membersLoading ? (
-                    <p className="mt-2 text-sm text-zinc-500">Loading…</p>
-                  ) : step2Members.length === 0 ? (
-                    <p className="mt-2 text-sm text-zinc-500">No members yet besides you.</p>
-                  ) : (
-                    <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-sm">
-                      {step2Members.map((m) => (
-                        <li
-                          key={m.userId}
-                          className="flex justify-between gap-2 rounded-lg border border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
-                        >
-                          <span className="truncate text-zinc-800 dark:text-zinc-200">
-                            {m.name || m.email}
-                          </span>
-                          <span className="shrink-0 text-xs text-zinc-500">{m.role}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </DialogContent>
-            </Dialog>
-          ) : null}
-        </div>
-      ) : (
+        </DialogContent>
+      </Dialog>
+
+      {!isProjectDetail ? (
         <div className="mb-8 flex flex-col gap-4 sm:mb-10 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
             Projects
@@ -618,170 +616,180 @@ export function ProjectsPanel(props: {
               Create project
             </DialogTrigger>
             <DialogContent className="max-w-md gap-5 px-5 pt-5 pb-5">
-            <DialogHeader>
-              <DialogTitle>Create project</DialogTitle>
-              <DialogDescription>
-                {createStep === 1
-                  ? "Step 1 of 2 — choose a display name. The URL slug is generated automatically and is unique within this workspace (organization or your personal scope), not globally."
-                  : createdProject
-                    ? props.isOrgScope
-                      ? "Step 2 of 2 — invite organization members by email or username (@handle). They must already belong to this organization."
-                      : "Your project is ready. Member invites are available for organization projects; personal projects are owned by you only."
-                    : null}
-              </DialogDescription>
-            </DialogHeader>
+              <DialogHeader>
+                <DialogTitle>Create project</DialogTitle>
+                <DialogDescription>
+                  {createStep === 1
+                    ? "Step 1 of 2 — choose a display name. The URL slug is generated automatically and is unique within this workspace (organization or your personal scope), not globally."
+                    : createdProject
+                      ? props.isOrgScope
+                        ? "Step 2 of 2 — invite organization members by email or username (@handle). They must already belong to this organization."
+                        : "Your project is ready. Member invites are available for organization projects; personal projects are owned by you only."
+                      : null}
+                </DialogDescription>
+              </DialogHeader>
 
-            {createStep === 1 ? (
-              <form onSubmit={submitStep1} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                    Project name
-                  </label>
-                  <input
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    placeholder="Marketing Blocks"
-                    className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                    autoFocus
-                  />
-                </div>
-
-                <DialogFooter className="flex flex-row flex-wrap justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => closeCreateDialog()}
-                    className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={creating || !newTitle.trim()}
-                    className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                  >
-                    {creating ? "Creating..." : "Continue"}
-                  </button>
-                </DialogFooter>
-              </form>
-            ) : createdProject ? (
-              <div className="space-y-4">
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-950/50">
-                  <div className="font-medium text-zinc-900 dark:text-zinc-100">{createdProject.title}</div>
-                  <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                    Slug <code className="rounded bg-zinc-200/80 px-1 dark:bg-zinc-800">{createdProject.slug}</code>{" "}
-                    · used in URLs and MCP scopes
+              {createStep === 1 ? (
+                <form onSubmit={submitStep1} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                      Project name
+                    </label>
+                    <input
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      placeholder="Marketing Blocks"
+                      className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      autoFocus
+                    />
                   </div>
-                </div>
 
-                {props.isOrgScope ? (
-                  <>
-                    <form onSubmit={submitInvite} className="space-y-2">
-                      <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                        Invite member
-                      </label>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                        <input
-                          value={inviteInput}
-                          onChange={(e) => setInviteInput(e.target.value)}
-                          placeholder="email@company.com or @handle"
-                          className="min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                        />
-                        <div className="flex shrink-0 gap-2">
-                          <select
-                            value={inviteRole}
-                            onChange={(e) =>
-                              setInviteRole(e.target.value as "viewer" | "editor" | "admin")
-                            }
-                            className="rounded-xl border border-zinc-300 bg-white px-2 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                            aria-label="Member role"
-                          >
-                            <option value="viewer">Viewer</option>
-                            <option value="editor">Editor</option>
-                            <option value="admin">Admin</option>
-                          </select>
-                          <button
-                            type="submit"
-                            disabled={inviting || !inviteInput.trim()}
-                            className="rounded-xl bg-zinc-900 px-3 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-                          >
-                            {inviting ? "…" : "Invite"}
-                          </button>
-                        </div>
-                      </div>
-                      {inviteError ? (
-                        <p className="text-xs text-red-600 dark:text-red-400">{inviteError}</p>
-                      ) : null}
-                    </form>
-
-                    <div>
-                      <div className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                        Members
-                      </div>
-                      {membersLoading ? (
-                        <p className="mt-2 text-sm text-zinc-500">Loading…</p>
-                      ) : step2Members.length === 0 ? (
-                        <p className="mt-2 text-sm text-zinc-500">No members yet.</p>
-                      ) : (
-                        <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-sm">
-                          {step2Members.map((m) => (
-                            <li
-                              key={m.userId}
-                              className="flex justify-between gap-2 rounded-lg border border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
-                            >
-                              <span className="truncate text-zinc-800 dark:text-zinc-200">
-                                {m.name || m.email}
-                              </span>
-                              <span className="shrink-0 text-xs text-zinc-500">{m.role}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
+                  <DialogFooter className="flex flex-row flex-wrap justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => closeCreateDialog()}
+                      className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={creating || !newTitle.trim()}
+                      className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                    >
+                      {creating ? "Creating..." : "Continue"}
+                    </button>
+                  </DialogFooter>
+                </form>
+              ) : createdProject ? (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-950/50">
+                    <div className="font-medium text-zinc-900 dark:text-zinc-100">{createdProject.title}</div>
+                    <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                      Slug{" "}
+                      <code className="rounded bg-zinc-200/80 px-1 dark:bg-zinc-800">
+                        {createdProject.slug}
+                      </code>{" "}
+                      · used in URLs and MCP scopes
                     </div>
-                  </>
-                ) : null}
+                  </div>
 
-                <DialogFooter className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => closeCreateDialog()}
-                    className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                  >
-                    Done
-                  </button>
-                </DialogFooter>
-              </div>
-            ) : null}
+                  {props.isOrgScope ? (
+                    <>
+                      <form onSubmit={submitInvite} className="space-y-2">
+                        <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                          Invite member
+                        </label>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                          <input
+                            value={inviteInput}
+                            onChange={(e) => setInviteInput(e.target.value)}
+                            placeholder="email@company.com or @handle"
+                            className="min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                          />
+                          <div className="flex shrink-0 gap-2">
+                            <select
+                              value={inviteRole}
+                              onChange={(e) =>
+                                setInviteRole(e.target.value as "viewer" | "editor" | "admin")
+                              }
+                              className="rounded-xl border border-zinc-300 bg-white px-2 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                              aria-label="Member role"
+                            >
+                              <option value="viewer">Viewer</option>
+                              <option value="editor">Editor</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                            <button
+                              type="submit"
+                              disabled={inviting || !inviteInput.trim()}
+                              className="rounded-xl bg-zinc-900 px-3 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+                            >
+                              {inviting ? "…" : "Invite"}
+                            </button>
+                          </div>
+                        </div>
+                        {inviteError ? (
+                          <p className="text-xs text-red-600 dark:text-red-400">{inviteError}</p>
+                        ) : null}
+                      </form>
+
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                          Members
+                        </div>
+                        {membersLoading ? (
+                          <p className="mt-2 text-sm text-zinc-500">Loading…</p>
+                        ) : step2Members.length === 0 ? (
+                          <p className="mt-2 text-sm text-zinc-500">No members yet.</p>
+                        ) : (
+                          <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-sm">
+                            {step2Members.map((m) => (
+                              <li
+                                key={m.userId}
+                                className="flex justify-between gap-2 rounded-lg border border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
+                              >
+                                <span className="truncate text-zinc-800 dark:text-zinc-200">
+                                  {m.name || m.email}
+                                </span>
+                                <span className="shrink-0 text-xs text-zinc-500">{m.role}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </>
+                  ) : null}
+
+                  <DialogFooter className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => closeCreateDialog()}
+                      className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                    >
+                      Done
+                    </button>
+                  </DialogFooter>
+                </div>
+              ) : null}
             </DialogContent>
           </Dialog>
         </div>
-      )}
+      ) : null}
 
       {isProjectDetail ? (
-        <div className="mt-8">
+        <div className="min-h-[calc(100vh-4.5rem)]">
           {!selectedId ? (
-            <p className="text-sm text-zinc-500">Loading project…</p>
+            <div className="flex min-h-[calc(100vh-4.5rem)] items-center justify-center text-sm text-zinc-500">
+              Loading project…
+            </div>
           ) : itemsLoading ? (
-            <p className="text-sm text-zinc-500">Loading resources…</p>
+            <div className="flex min-h-[calc(100vh-4.5rem)] items-center justify-center text-sm text-zinc-500">
+              Loading resources…
+            </div>
           ) : projectItems.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50/80 px-6 py-14 text-center dark:border-zinc-600 dark:bg-zinc-950/40">
-              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+            <div className="flex min-h-[calc(100vh-4.5rem)] items-center justify-center px-6 text-center">
+              <div>
+                <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
                 No resources in this project yet
-              </p>
-              <p className="mx-auto mt-2 max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
-                Add items to this project from your registry workflow or API when publishing.
-              </p>
+                </p>
+                <p className="mx-auto mt-2 max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
+                  Add items to this project from your registry workflow or API when publishing.
+                </p>
+              </div>
             </div>
           ) : (
-            <div className="grid gap-4 lg:grid-cols-[minmax(240px,320px)_minmax(0,1fr)]">
-              <section className="min-h-[420px] rounded-2xl border border-zinc-200/80 bg-white/90 dark:border-zinc-800 dark:bg-zinc-900/80">
+            <div className="grid min-h-[calc(100vh-4.5rem)] lg:grid-cols-[320px_minmax(0,1fr)]">
+              <section className="min-h-0 border-b border-zinc-200/80 lg:border-r lg:border-b-0 dark:border-zinc-800">
                 <div className="border-b border-zinc-200/80 px-4 py-3 dark:border-zinc-800">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
                     Resources
                   </p>
                 </div>
-                <div className="max-h-[70vh] space-y-1 overflow-auto p-2">
+                <div className="space-y-1 overflow-auto p-2 lg:h-[calc(100vh-7.5rem)]">
                   {projectItems.map((it) => {
                     const active = it.itemId === selectedItemId;
+                    const typeIcon = getProjectItemTypeIcon(it.type);
                     return (
                       <button
                         key={it.itemId}
@@ -791,21 +799,31 @@ export function ProjectsPanel(props: {
                           setSelectedPath(null);
                           setItemDetailError(null);
                         }}
-                        className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+                        className={`w-full rounded-lg px-3 py-2.5 text-left transition ${
                           active
-                            ? "border-zinc-900 bg-zinc-100 dark:border-zinc-100 dark:bg-zinc-800"
-                            : "border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/70"
+                            ? "bg-zinc-100 text-zinc-950 dark:bg-zinc-800 dark:text-zinc-50"
+                            : "text-zinc-700 hover:bg-zinc-100/80 dark:text-zinc-300 dark:hover:bg-zinc-900"
                         }`}
                       >
-                        <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{it.title}</p>
-                        <p className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">{it.name}</p>
+                        <div className="flex items-start gap-3">
+                          <span
+                            className={`mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg ${typeIcon.className}`}
+                            aria-hidden="true"
+                          >
+                            <HugeiconsIcon icon={typeIcon.icon} size={18} strokeWidth={1.8} />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{it.title}</p>
+                            <p className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">{it.name}</p>
+                          </div>
+                        </div>
                       </button>
                     );
                   })}
                 </div>
               </section>
 
-              <section className="min-h-[420px] overflow-hidden rounded-2xl border border-zinc-200/80 bg-white/90 dark:border-zinc-800 dark:bg-zinc-900/80">
+              <section className="min-h-0 overflow-hidden">
                 {(() => {
                   const selectedItem = projectItems.find((it) => it.itemId === selectedItemId) ?? null;
                   const selectedDetail = selectedItemId ? detailByItemId[selectedItemId] : null;
@@ -832,8 +850,10 @@ export function ProjectsPanel(props: {
                               </p>
                             ) : null}
                           </div>
-                          {selectedItem && canEditProject ? (
+                          {selectedItem ? (
                             <div className="flex shrink-0 items-center gap-2">
+                              {canEditProject ? (
+                                <>
                               <Dialog
                                 open={moveOpen}
                                 onOpenChange={(open) => {
@@ -961,114 +981,138 @@ export function ProjectsPanel(props: {
                                   </DialogFooter>
                                 </DialogContent>
                               </Dialog>
+                                </>
+                              ) : null}
                             </div>
                           ) : null}
                         </div>
                       </div>
-                      {!selectedItem ? (
-                        <div className="flex h-[520px] items-center justify-center text-sm text-zinc-500">
-                          Select a resource to preview.
-                        </div>
-                      ) : (
-                        <div className="grid h-[70vh] grid-rows-[minmax(280px,44%)_minmax(0,1fr)]">
-                          <div className="relative border-b border-zinc-200/80 dark:border-zinc-800">
-                            {previewKeepAliveItemIds.map((itemId) => {
-                              const previewItem = projectItems.find((it) => it.itemId === itemId);
-                              if (!previewItem) return null;
-                              const active = selectedItemId === itemId;
+                      {selectedItem ? (
+                        <div className="border-b border-zinc-200/80 px-4 py-2 dark:border-zinc-800">
+                          <div className="inline-flex items-center gap-1 rounded-lg bg-zinc-100/80 p-1 dark:bg-zinc-900">
+                            {(["preview", "code"] as const).map((tab) => {
+                              const active = detailTab === tab;
                               return (
-                                <div
-                                  key={itemId}
-                                  className={`absolute inset-0 transition-opacity duration-150 ${
-                                    active ? "z-10 opacity-100" : "pointer-events-none z-0 opacity-0"
+                                <button
+                                  key={tab}
+                                  type="button"
+                                  onClick={() => setDetailTab(tab)}
+                                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                                    active
+                                      ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
+                                      : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                                   }`}
                                 >
-                                  <PreviewFrame
-                                    src={`/preview/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(previewItem.name)}`}
-                                    title={`${previewItem.title} preview`}
-                                    className="h-full w-full"
-                                    interactive={active}
-                                    alignX="left"
-                                    alignY="top"
-                                    fitMode="actual"
-                                    loadImmediately
-                                  />
-                                </div>
+                                  {tab === "preview" ? "Preview" : "Code"}
+                                </button>
                               );
                             })}
                           </div>
-                          <div className="grid min-h-0 grid-cols-[220px_minmax(0,1fr)]">
-                            <div className="min-h-0 overflow-auto border-r border-zinc-200/80 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/30">
-                              {itemDetailLoadingId === selectedItem.itemId && !selectedDetail ? (
-                                <p className="text-xs text-zinc-500">Loading…</p>
-                              ) : selectedDetail?.files.length ? (
-                                <div className="space-y-1">
-                                  {selectedDetail.files.map((file) => (
-                                    <button
-                                      key={file.path}
-                                      type="button"
-                                      onClick={() => setSelectedPath(file.path)}
-                                      className={`block w-full rounded-md px-2 py-1 text-left text-xs ${
-                                        (selectedPath ? selectedPath === file.path : preferredFile?.path === file.path)
-                                          ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                                          : "text-zinc-700 hover:bg-zinc-200/70 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                                      }`}
-                                    >
-                                      {file.path}
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-xs text-zinc-500">{itemDetailError ?? "No files to show"}</p>
-                              )}
-                            </div>
-                            <div className="min-h-0 overflow-auto">
-                              {itemDetailError && !selectedDetail ? (
-                                <div className="flex min-h-[220px] items-center justify-center px-4 text-sm text-amber-600 dark:text-amber-400">
-                                  {itemDetailError}
-                                </div>
-                              ) : (
-                                <CodeBlock
-                                  code={code || "// source unavailable"}
-                                  language={
-                                    preferredFile?.path?.endsWith(".css")
-                                      ? "css"
-                                      : preferredFile?.path?.endsWith(".json")
-                                        ? "json"
-                                        : "tsx"
-                                  }
-                                  variant="flush"
-                                  overflowMode="narrow"
+                        </div>
+                      ) : null}
+                      {!selectedItem ? (
+                        <div className="flex h-[calc(100vh-7.5rem)] items-center justify-center text-sm text-zinc-500">
+                          Select a resource to preview.
+                        </div>
+                      ) : detailTab === "preview" ? (
+                        <div className="relative h-[calc(100vh-10.5rem)]">
+                          {previewKeepAliveItemIds.map((itemId) => {
+                            const previewItem = projectItems.find((it) => it.itemId === itemId);
+                            if (!previewItem) return null;
+                            const active = selectedItemId === itemId;
+                            return (
+                              <div
+                                key={itemId}
+                                className={`absolute inset-0 transition-opacity duration-150 ${
+                                  active ? "z-10 opacity-100" : "pointer-events-none z-0 opacity-0"
+                                }`}
+                              >
+                                <PreviewFrame
+                                  src={`/preview/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(previewItem.name)}`}
+                                  title={`${previewItem.title} preview`}
+                                  className="h-full w-full"
+                                  interactive={active}
+                                  alignX="left"
+                                  alignY="top"
+                                  fitMode="actual"
+                                  loadImmediately
                                 />
-                              )}
-                              {propsFromCode.length > 0 ? (
-                                <div className="border-t border-zinc-200/80 p-3 dark:border-zinc-800">
-                                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                                    Props
-                                  </p>
-                                  <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
-                                    <Table>
-                                      <TableHeader>
-                                        <TableRow>
-                                          <TableHead>Name</TableHead>
-                                          <TableHead>Type</TableHead>
-                                          <TableHead>Optional</TableHead>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="grid h-[calc(100vh-10.5rem)] min-h-0 grid-cols-[220px_minmax(0,1fr)]">
+                          <div className="min-h-0 overflow-auto border-r border-zinc-200/80 p-2 dark:border-zinc-800">
+                            {itemDetailLoadingId === selectedItem.itemId && !selectedDetail ? (
+                              <p className="text-xs text-zinc-500">Loading…</p>
+                            ) : selectedDetail?.files.length ? (
+                              <div className="space-y-1">
+                                {selectedDetail.files.map((file) => (
+                                  <button
+                                    key={file.path}
+                                    type="button"
+                                    onClick={() => setSelectedPath(file.path)}
+                                    className={`block w-full rounded-md px-2 py-1 text-left text-xs ${
+                                      (selectedPath ? selectedPath === file.path : preferredFile?.path === file.path)
+                                        ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                                        : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                                    }`}
+                                  >
+                                    {file.path}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-zinc-500">{itemDetailError ?? "No files to show"}</p>
+                            )}
+                          </div>
+                          <div className="min-h-0 overflow-auto">
+                            {itemDetailError && !selectedDetail ? (
+                              <div className="flex min-h-[220px] items-center justify-center px-4 text-sm text-amber-600 dark:text-amber-400">
+                                {itemDetailError}
+                              </div>
+                            ) : (
+                              <CodeBlock
+                                code={code || "// source unavailable"}
+                                language={
+                                  preferredFile?.path?.endsWith(".css")
+                                    ? "css"
+                                    : preferredFile?.path?.endsWith(".json")
+                                      ? "json"
+                                      : "tsx"
+                                }
+                                variant="flush"
+                                overflowMode="narrow"
+                              />
+                            )}
+                            {propsFromCode.length > 0 ? (
+                              <div className="border-t border-zinc-200/80 p-3 dark:border-zinc-800">
+                                <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                                  Props
+                                </p>
+                                <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead>Name</TableHead>
+                                        <TableHead>Type</TableHead>
+                                        <TableHead>Optional</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {propsFromCode.map((prop) => (
+                                        <TableRow key={prop.name}>
+                                          <TableCell className="font-mono">{prop.name}</TableCell>
+                                          <TableCell className="font-mono">{prop.type}</TableCell>
+                                          <TableCell>{prop.optional ? "Yes" : "—"}</TableCell>
                                         </TableRow>
-                                      </TableHeader>
-                                      <TableBody>
-                                        {propsFromCode.map((prop) => (
-                                          <TableRow key={prop.name}>
-                                            <TableCell className="font-mono">{prop.name}</TableCell>
-                                            <TableCell className="font-mono">{prop.type}</TableCell>
-                                            <TableCell>{prop.optional ? "Yes" : "—"}</TableCell>
-                                          </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
-                                  </div>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
                                 </div>
-                              ) : null}
-                            </div>
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       )}

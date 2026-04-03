@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
+import { listProjectItems } from "@/lib/project-items";
 import { listProjectsForScope } from "@/lib/project-list";
 import { getProjectIfAccessible, getUserProjectRole, roleCanEditProject } from "@/lib/project-permissions";
 import { ProjectsPanel } from "../../../dashboard/CollectionsPanel";
@@ -48,6 +49,7 @@ export default async function PersonalProjectDetailPage({
     userId: session.user.id,
     activeOrganizationId: null,
   });
+  const initialProjectItems = await listProjectItems(projectId);
   const canEdit = roleCanEditProject(
     await getUserProjectRole(session.user.id, projectId, project.ownerUserId),
   );
@@ -65,6 +67,7 @@ export default async function PersonalProjectDetailPage({
       initialProjectSlug={project.slug}
       initialProjectVisibility={visibility}
       initialProjects={initialProjects}
+      initialProjectItems={initialProjectItems}
       canEditProject={canEdit}
     />
   );

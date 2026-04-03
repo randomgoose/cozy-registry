@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import {
-  getRegistryItemByOwnerNameAndVersion,
-  getRegistryItemVersions,
+  getRegistryItemByScopedIdentityAndVersion,
+  getRegistryItemVersionsScoped,
   getCurrentVersion,
   toShadcnRegistryItem,
   getThemeEntryCss,
@@ -38,13 +38,17 @@ import {
 } from "@/lib/registry-dependency-errors";
 import { db } from "@/lib/db";
 import { registryItemVersions, registryPreviewArtifacts } from "@/lib/db/schema";
-import { enqueuePreviewArtifactJob } from "@/lib/preview-artifact-jobs";
+import {
+  enqueuePreviewArtifactJob,
+  formatRuntimeOnlyDependencySkipMessage,
+} from "@/lib/preview-artifact-jobs";
 import { pickPreviewStory } from "@/lib/preview-stories";
 import {
   evaluateThirdPartyDependencies,
   excludeExplicitRegistryDependencies,
   getRejectedDependencyDecisions,
   getRuntimePreviewDependencies,
+  readDependencyDecisionsFromMeta,
   readDeclaredThirdPartyDependenciesFromMeta,
 } from "@/lib/third-party-dependency-governance";
 
@@ -148,6 +152,68 @@ function themeSwatchSection(color: string, varName: string) {
   return `<section style="position:relative;min-height:0;min-width:0;background:${escapeHtml(color)};">
       <div style="position:absolute;top:0;left:0;padding:10px 12px;font:600 11px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:rgba(255,255,255,0.96);text-shadow:0 1px 2px rgba(0,0,0,0.55),0 0 10px rgba(0,0,0,0.2);max-width:calc(100% - 16px);word-break:break-word;">${escapeHtml(varName)}</div>
     </section>`;
+}
+
+function buildPreviewStatePageHtml(input: {
+  title: string;
+  heading: string;
+  body: string;
+  tone: "neutral" | "warning" | "danger";
+  versionToolbarHtml: string;
+  toolbarBodyPadding: string;
+  refreshAfterSeconds?: number;
+  inlineFallbackHref?: string | null;
+}) {
+  const palette =
+    input.tone === "danger"
+      ? {
+          background: "#fef2f2",
+          border: "#fecaca",
+          text: "#991b1b",
+          heading: "#b91c1c",
+        }
+      : input.tone === "warning"
+        ? {
+            background: "#fffbeb",
+            border: "#fde68a",
+            text: "#92400e",
+            heading: "#b45309",
+          }
+        : {
+            background: "#fafaf9",
+            border: "#e4e4e7",
+            text: "#3f3f46",
+            heading: "#18181b",
+          };
+
+  const refreshMeta =
+    input.refreshAfterSeconds && input.refreshAfterSeconds > 0
+      ? `<meta http-equiv="refresh" content="${input.refreshAfterSeconds}" />`
+      : "";
+  const fallbackLink = input.inlineFallbackHref
+    ? `<a href="${escapeHtml(input.inlineFallbackHref)}" style="display:inline-flex;margin-top:14px;font-size:13px;font-weight:600;color:${palette.heading};text-decoration:underline;text-underline-offset:3px;">Open runtime fallback</a>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>${escapeHtml(input.title)}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    ${refreshMeta}
+  </head>
+  <body style="min-height:100vh;margin:0;background:${palette.background};font-family:system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif;${input.toolbarBodyPadding}">
+    ${input.versionToolbarHtml}
+    <main style="min-height:${input.versionToolbarHtml ? "calc(100vh - 48px)" : "100vh"};display:flex;align-items:center;justify-content:center;padding:24px;">
+      <section style="max-width:560px;width:100%;background:#fff;border:1px solid ${palette.border};border-radius:18px;padding:24px;box-shadow:0 10px 30px rgba(0,0,0,0.05);">
+        <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${palette.heading};">Story Preview</p>
+        <h1 style="margin:0 0 10px;font-size:18px;line-height:1.35;color:${palette.heading};">${escapeHtml(input.heading)}</h1>
+        <p style="margin:0;white-space:pre-wrap;font-size:14px;line-height:1.6;color:${palette.text};">${escapeHtml(input.body)}</p>
+        ${fallbackLink}
+      </section>
+    </main>
+  </body>
+</html>`;
 }
 
 const DEMO_PROPS: Record<string, unknown> = {
@@ -257,10 +323,17 @@ export async function GET(
       ? storyParam.trim()
       : null;
   const debug = url.searchParams.get("debug") === "1";
+  const allowInlineFallback =
+    debug || url.searchParams.get("fallback") === "inline";
   const debugTheme = debug || url.searchParams.get("debugTheme") === "1";
   const debugDeps = debug || url.searchParams.get("debugDeps") === "1";
   const previewMode: PreviewMode =
     url.searchParams.get("thumbnail") === "1" ? "thumbnail" : "default";
+  const projectParam = url.searchParams.get("project");
+  const project =
+    typeof projectParam === "string" && projectParam.trim().length > 0
+      ? projectParam.trim()
+      : null;
 
   let stepStartedAt = performance.now();
   const session = await auth.api.getSession({ headers: request.headers });
@@ -268,12 +341,13 @@ export async function GET(
   timings.mark("session", stepStartedAt);
 
   stepStartedAt = performance.now();
-  const item = await getRegistryItemByOwnerNameAndVersion(
-    owner,
+  const item = await getRegistryItemByScopedIdentityAndVersion({
+    ownerId: owner,
+    projectKey: project,
     name,
     version,
-    userId,
-  );
+    requestUserId: userId,
+  });
   timings.mark("rootItemLoad", stepStartedAt);
 
   if (!item) {
@@ -283,7 +357,12 @@ export async function GET(
   stepStartedAt = performance.now();
   let versionOptions: string[] = [];
   try {
-    const rows = await getRegistryItemVersions(owner, name, userId);
+    const rows = await getRegistryItemVersionsScoped({
+      ownerId: owner,
+      projectKey: project,
+      name,
+      requestUserId: userId,
+    });
     versionOptions = rows.map((r) => r.version);
   } catch {
     versionOptions = [];
@@ -316,8 +395,11 @@ export async function GET(
   const normalizedStoryId = resolvedStoryId ?? "";
 
   let artifactHit = false;
+  let artifactStatus: "missing" | "queued" | "running" | "ready" | "failed" | "skipped" =
+    "missing";
   let artifactJsUrl: string | null = null;
   let artifactCssUrl: string | null = null;
+  let artifactErrorMessage: string | null = null;
   stepStartedAt = performance.now();
   try {
     const [itemVersion] = await db
@@ -336,6 +418,7 @@ export async function GET(
           status: registryPreviewArtifacts.status,
           jsUrl: registryPreviewArtifacts.jsUrl,
           cssUrl: registryPreviewArtifacts.cssUrl,
+          lastErrorMessage: registryPreviewArtifacts.lastErrorMessage,
         })
         .from(registryPreviewArtifacts)
         .where(
@@ -347,9 +430,32 @@ export async function GET(
         )
         .limit(1);
       if (artifact?.status === "ready" && artifact.jsUrl) {
+        artifactStatus = "ready";
         artifactHit = true;
         artifactJsUrl = artifact.jsUrl;
         artifactCssUrl = artifact.cssUrl ?? null;
+      } else if (artifact) {
+        artifactStatus =
+          artifact.status === "queued" ||
+          artifact.status === "running" ||
+          artifact.status === "failed" ||
+          artifact.status === "skipped"
+            ? artifact.status
+            : "missing";
+        artifactErrorMessage =
+          artifact.status === "skipped"
+            ? artifact.lastErrorMessage &&
+              artifact.lastErrorMessage.includes(
+                "one or more dependencies are runtime-only",
+              )
+              ? formatRuntimeOnlyDependencySkipMessage(
+                  readDependencyDecisionsFromMeta(item.meta),
+                )
+              : (artifact.lastErrorMessage ??
+                formatRuntimeOnlyDependencySkipMessage(
+                  readDependencyDecisionsFromMeta(item.meta),
+                ))
+            : (artifact.lastErrorMessage ?? null);
       } else if (item.type !== "registry:theme") {
         await enqueuePreviewArtifactJob({
           itemId: item.id,
@@ -363,12 +469,73 @@ export async function GET(
             requestUserId: userId ?? null,
           },
         });
+        artifactStatus = "queued";
       }
     }
   } catch {
     // non-blocking; fallback to inline build path
   }
   timings.mark("previewArtifactLookup", stepStartedAt);
+
+  if (!artifactHit && item.type !== "registry:theme" && !allowInlineFallback) {
+    const fallbackUrl = new URL(request.url);
+    fallbackUrl.searchParams.set("fallback", "inline");
+    const inlineFallbackHref = `${fallbackUrl.pathname}${fallbackUrl.search}`;
+
+    if (artifactStatus === "queued" || artifactStatus === "running" || artifactStatus === "missing") {
+      const html = buildPreviewStatePageHtml({
+        title: "Preparing story preview",
+        heading: artifactStatus === "missing" ? "Preparing preview artifact" : "Preparing preview",
+        body:
+          artifactStatus === "missing"
+            ? "This published story is being queued for artifact generation. Preview will appear automatically once the build completes."
+            : "This story artifact is currently building. Refresh will happen automatically when it is ready.",
+        tone: "neutral",
+        versionToolbarHtml,
+        toolbarBodyPadding,
+        refreshAfterSeconds: 2,
+        inlineFallbackHref,
+      });
+      return new NextResponse(html, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    if (artifactStatus === "failed") {
+      const html = buildPreviewStatePageHtml({
+        title: "Story preview failed",
+        heading: "Preview artifact failed",
+        body:
+          artifactErrorMessage ??
+          "The stable story artifact could not be prepared. You can retry later or open the runtime fallback.",
+        tone: "danger",
+        versionToolbarHtml,
+        toolbarBodyPadding,
+        inlineFallbackHref,
+      });
+      return new NextResponse(html, {
+        status: 500,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    if (artifactStatus === "skipped") {
+      const html = buildPreviewStatePageHtml({
+        title: "Runtime preview only",
+        heading: "Prebundle skipped by policy",
+        body:
+          artifactErrorMessage ??
+          "This story can still be previewed, but it is currently using the runtime-only compatibility path instead of a stable prebuilt artifact.",
+        tone: "warning",
+        versionToolbarHtml,
+        toolbarBodyPadding,
+        inlineFallbackHref,
+      });
+      return new NextResponse(html, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+  }
 
   if (artifactHit && artifactJsUrl && item.type !== "registry:theme") {
     const isDev =

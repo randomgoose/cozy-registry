@@ -121,6 +121,7 @@ export async function createRegistryProject(
       .values({
         organizationId: activeOrganizationId,
         ownerUserId,
+        namespaceKey: slug,
         slug,
         title,
         description: params.description ?? null,
@@ -145,8 +146,10 @@ export async function createRegistryProject(
     if (isUnique) {
       return { ok: false, status: 409, error: "Project slug already exists in this scope" };
     }
-    const isMissingTable = /\brelation\b.*\bdoes not exist\b/i.test(msg);
-    if (isMissingTable) {
+    const isMissingSchema =
+      /\brelation\b.*\bdoes not exist\b/i.test(msg) ||
+      /\bcolumn\b.*\bdoes not exist\b/i.test(msg);
+    if (isMissingSchema) {
       return {
         ok: false,
         status: 500,

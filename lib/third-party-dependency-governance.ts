@@ -50,7 +50,9 @@ const DEPENDENCY_CATALOG_VERSION = 1 as const;
 export function toRegistryDependencySpecifier(ref: string): string | null {
   const parsed = parseRegistryDependencyRef(ref);
   if (!parsed) return null;
-  return `@${parsed.owner}/${parsed.name}`;
+  return parsed.project
+    ? `@${parsed.owner}/${parsed.project}/${parsed.name}`
+    : `@${parsed.owner}/${parsed.name}`;
 }
 
 export function excludeExplicitRegistryDependencies(
