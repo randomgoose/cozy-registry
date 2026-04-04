@@ -1,12 +1,14 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  registryFileVersions,
+  registryItems,
+  registryItemVersions,
   registryAssetJobs,
   registryPreviewArtifacts,
 } from "@/lib/db/schema";
 import { sha256, stableStringify } from "@/lib/preview-build-cache";
 import {
-  getRegistryItemByScopedIdentityAndVersion,
   toShadcnRegistryItem,
 } from "@/lib/registry";
 import { extractDependencies } from "@/lib/validate-tsx";
@@ -355,13 +357,10 @@ export async function processPreviewArtifactJob(jobId: string) {
     .where(eq(registryPreviewArtifacts.artifactKey, artifactKey));
 
   try {
-    const item = await getRegistryItemByScopedIdentityAndVersion({
-      ownerId: payload.owner,
-      projectKey: normalizedProjectKey,
-      name: payload.name,
-      version: payload.version,
-      requestUserId: payload.requestUserId,
-    });
+    const item = await loadPreviewArtifactJobItemSnapshot(
+      job.itemId,
+      job.itemVersionId ?? null,
+    );
     if (!item) {
       throw new Error(
         `Registry item not found: @${
@@ -588,4 +587,49 @@ export async function processPreviewArtifactJob(jobId: string) {
     await failPreviewArtifactJob(jobId, message);
     throw error;
   }
+}
+
+async function loadPreviewArtifactJobItemSnapshot(
+  itemId: string,
+  itemVersionId: string | null,
+) {
+  if (!itemVersionId) return null;
+
+  const [base] = await db
+    .select()
+    .from(registryItems)
+    .where(eq(registryItems.id, itemId))
+    .limit(1);
+  if (!base) return null;
+
+  const [itemVersion] = await db
+    .select()
+    .from(registryItemVersions)
+    .where(
+      and(
+        eq(registryItemVersions.id, itemVersionId),
+        eq(registryItemVersions.itemId, itemId),
+      ),
+    )
+    .limit(1);
+  if (!itemVersion) return null;
+
+  const fileVersions = await db
+    .select()
+    .from(registryFileVersions)
+    .where(eq(registryFileVersions.itemVersionId, itemVersionId));
+
+  return {
+    ...base,
+    title: itemVersion.title,
+    description: itemVersion.description,
+    dependencies: itemVersion.dependencies,
+    registryDependencies: itemVersion.registryDependencies,
+    meta: itemVersion.meta ?? base.meta,
+    files: fileVersions.map((f) => ({
+      path: f.path,
+      content: f.content,
+      type: f.type,
+    })),
+  };
 }
