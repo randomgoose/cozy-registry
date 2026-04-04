@@ -243,6 +243,7 @@ export default async function Home({ searchParams }: HomePageProps) {
               id: item.id,
               itemId: item.id,
               owner: item.ownerHandle ?? item.userId ?? "legacy",
+              project: item.canonicalProjectKey ?? null,
               name: item.name,
               title: item.title,
               description: item.description,

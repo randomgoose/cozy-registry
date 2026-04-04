@@ -52,6 +52,7 @@ import { extractPropsFromTsx, type PropField } from "@/lib/validate-tsx";
 interface ComponentCardProps {
   itemId: string;
   owner: string;
+  project?: string | null;
   name: string;
   title: string;
   description: string | null;
@@ -171,11 +172,20 @@ function isCodeFile(path: string): boolean {
 function registryItemJsonUrl(
   owner: string,
   name: string,
+  project: string | null | undefined,
   version: string | null,
 ) {
   const base = `/api/r/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
-  if (!version) return base;
-  return `${base}?v=${encodeURIComponent(version)}`;
+  const search = new URLSearchParams();
+  const normalizedProject = project?.trim();
+  if (normalizedProject) {
+    search.set("project", normalizedProject);
+  }
+  if (version) {
+    search.set("v", version);
+  }
+  const query = search.toString();
+  return query ? `${base}?${query}` : base;
 }
 
 /** Semver-ish descending order for version labels */
@@ -196,6 +206,7 @@ function sortVersionsDesc(versions: string[]): string[] {
 export function ComponentCard({
   itemId,
   owner,
+  project,
   name,
   title,
   description,
@@ -450,21 +461,22 @@ export function ComponentCard({
     [propsFromCode],
   );
   const installCommand = useMemo(() => {
-    const path = registryItemJsonUrl(owner, name, vParam);
+    const path = registryItemJsonUrl(owner, name, project, vParam);
     if (typeof window !== "undefined") {
       return `npx shadcn@latest add ${window.location.origin}${path}`;
     }
     return `npx shadcn@latest add ${path}`;
-  }, [owner, name, vParam]);
+  }, [owner, project, name, vParam]);
   const previewSrc = useMemo(
     () =>
       buildStoryPreviewPageUrl({
         owner,
+        project,
         name,
         version: vParam,
         storyId: selectedStoryId,
       }),
-    [owner, name, vParam, selectedStoryId],
+    [owner, project, name, vParam, selectedStoryId],
   );
 
   async function handleCopy() {
@@ -480,7 +492,7 @@ export function ComponentCard({
 
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(registryItemJsonUrl(owner, name, vParam), {
+      const res = await fetch(registryItemJsonUrl(owner, name, project, vParam), {
         signal: controller.signal,
       });
       window.clearTimeout(timeout);
@@ -587,8 +599,15 @@ export function ComponentCard({
     setVersionsLoading(true);
     void (async () => {
       try {
+        const versionSearch = new URLSearchParams();
+        const normalizedProject = project?.trim();
+        if (normalizedProject) {
+          versionSearch.set("project", normalizedProject);
+        }
         const res = await fetch(
-          `/api/registry/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/versions`,
+          `/api/registry/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/versions${
+            versionSearch.size > 0 ? `?${versionSearch.toString()}` : ""
+          }`,
           { signal: controller.signal, cache: "no-store" },
         );
         if (!res.ok) {
@@ -617,7 +636,7 @@ export function ComponentCard({
       cancelled = true;
       controller.abort();
     };
-  }, [expanded, owner, name]);
+  }, [expanded, owner, project, name]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -636,7 +655,7 @@ export function ComponentCard({
       setDetailError(null);
       setDetailData(null);
       try {
-        const res = await fetch(registryItemJsonUrl(owner, name, vParam), {
+        const res = await fetch(registryItemJsonUrl(owner, name, project, vParam), {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -699,7 +718,7 @@ export function ComponentCard({
       window.clearTimeout(timeoutId);
       setDetailLoading(false);
     };
-  }, [expanded, name, owner, vParam]);
+  }, [expanded, name, owner, project, vParam]);
 
   useEffect(() => {
     if (expanded) return;
@@ -738,15 +757,22 @@ export function ComponentCard({
     expandedPreviewRef.current?.sendPreviewProps(livePreviewProps);
   }, [expanded, livePreviewProps, vParam]);
 
+  const [expandedPreviewReady, setExpandedPreviewReady] = useState(false);
+
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded) {
+      setExpandedPreviewReady(false);
+      return;
+    }
 
     let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
     async function loadArtifactStatus() {
       try {
         const search = buildStoryPreviewArtifactStatusQuery({
           owner,
+          project,
           name,
           version: vParam,
           storyId: selectedStoryId,
@@ -759,25 +785,41 @@ export function ComponentCard({
         if (!res.ok || cancelled) {
           if (!cancelled) {
             setArtifactStatus(null);
+            setExpandedPreviewReady(true);
           }
           return;
         }
         const data = (await res.json()) as PreviewArtifactStatusPayload;
-        if (!cancelled) {
-          setArtifactStatus(data);
+        if (cancelled) return;
+        setArtifactStatus(data);
+
+        const st = data.artifactStatus;
+        if (st === "queued" || st === "running") {
+          setExpandedPreviewReady(false);
+          pollTimer = setTimeout(loadArtifactStatus, 3000);
+        } else {
+          setExpandedPreviewReady(true);
         }
       } catch {
         if (!cancelled) {
           setArtifactStatus(null);
+          setExpandedPreviewReady(true);
         }
       }
     }
 
-    void loadArtifactStatus();
+    const itemType = detailData?.type;
+    if (itemType === "registry:theme") {
+      setExpandedPreviewReady(true);
+    } else {
+      loadArtifactStatus();
+    }
+
     return () => {
       cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
     };
-  }, [expanded, owner, name, vParam, selectedStoryId]);
+  }, [expanded, owner, project, name, vParam, selectedStoryId, detailData?.type]);
 
   const artifactStatusTone = (() => {
     switch (artifactStatus?.artifactStatus) {
@@ -1420,17 +1462,33 @@ export function ComponentCard({
                           ) : null}
                         </div>
                       ) : null}
-                      <PreviewFrame
-                        ref={expandedPreviewRef}
-                        key={`expanded-preview-${owner}-${name}-${vParam ?? "latest"}-${selectedStoryId ?? "default"}`}
-                        src={previewSrc}
-                        title={`${title} preview`}
-                        className="h-full w-full min-h-[12rem] lg:min-h-0"
-                        interactive
-                        alignX="left"
-                        alignY="top"
-                        fitMode="actual"
-                      />
+                      {expandedPreviewReady ? (
+                        <PreviewFrame
+                          ref={expandedPreviewRef}
+                          src={previewSrc}
+                          title={`${title} preview`}
+                          className="h-full w-full min-h-[12rem] lg:min-h-0"
+                          interactive
+                          loadImmediately
+                          alignX="left"
+                          alignY="top"
+                          fitMode="actual"
+                        />
+                      ) : (
+                        <div
+                          className="flex h-full min-h-[12rem] w-full flex-col items-center justify-center gap-3 lg:min-h-0"
+                          aria-busy="true"
+                          aria-live="polite"
+                        >
+                          <div
+                            className="h-9 w-9 animate-spin rounded-full border-2 border-zinc-300/80 border-t-zinc-800 dark:border-zinc-600 dark:border-t-zinc-100"
+                            aria-hidden
+                          />
+                          <p className="text-xs font-medium tracking-wide text-zinc-500 dark:text-zinc-400">
+                            Building preview…
+                          </p>
+                        </div>
+                      )}
                       {controllablePreviewFields.length > 0 ? (
                         <PreviewPropsDebugPanel
                           fields={controllablePreviewFields}

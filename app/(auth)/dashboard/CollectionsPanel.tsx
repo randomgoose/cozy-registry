@@ -7,7 +7,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PublishProjectsToShell } from "@/app/(auth)/dashboard/ProjectsShellCache";
 import { CodeBlock } from "@/app/registry/[owner]/[name]/CodeBlock";
 import { PreviewFrame } from "@/app/components/PreviewFrame";
@@ -127,6 +127,16 @@ function isCodeFile(path: string): boolean {
   return /\.(tsx?|jsx?|css|json)$/i.test(path);
 }
 
+/** Keep several preview iframes mounted so switching resources reuses loaded documents (no full remount / white flash). */
+const PREVIEW_WARM_SLOTS_MAX = 6;
+
+type WarmPreviewSlot = {
+  itemId: string;
+  projectKey: string | null;
+  name: string;
+  title: string;
+};
+
 function getProjectItemTypeIcon(type: string) {
   const normalizedType = normalizeRegistryItemType(type);
   if (normalizedType === REGISTRY_UI_TYPE) {
@@ -196,13 +206,13 @@ export function ProjectsPanel(props: {
     () => isProjectDetail && props.initialProjectItems == null,
   );
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [previewKeepAliveItemIds, setPreviewKeepAliveItemIds] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<"preview" | "code">("preview");
   const [detailByItemId, setDetailByItemId] = useState<Record<string, ProjectItemDetailData>>({});
   const [artifactStatusByItemId, setArtifactStatusByItemId] = useState<
     Record<string, PreviewArtifactStatusPayload | null>
   >({});
+  const detailByItemIdRef = useRef<Record<string, ProjectItemDetailData>>({});
   const [itemDetailLoadingId, setItemDetailLoadingId] = useState<string | null>(null);
   const [itemDetailError, setItemDetailError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -211,17 +221,56 @@ export function ProjectsPanel(props: {
   const [itemActionPending, setItemActionPending] = useState<"remove" | "move" | null>(null);
   const [itemActionError, setItemActionError] = useState<string | null>(null);
   const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
+  const [warmPreviewSlots, setWarmPreviewSlots] = useState<WarmPreviewSlot[]>([]);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedId) ?? null,
     [projects, selectedId],
   );
+  const selectedProjectItem = useMemo(
+    () => projectItems.find((it) => it.itemId === selectedItemId) ?? null,
+    [projectItems, selectedItemId],
+  );
+  const selectedProjectDetail = useMemo(
+    () => (selectedItemId ? detailByItemId[selectedItemId] ?? null : null),
+    [detailByItemId, selectedItemId],
+  );
   const canEditProject = props.canEditProject ?? false;
   const currentProjectNamespaceKey = selectedProject?.namespaceKey ?? null;
+  const selectedProjectStoryId =
+    selectedProjectDetail?.previewDefaultStoryId ??
+    selectedProjectDetail?.previewStories[0]?.id ??
+    null;
   const moveTargetProjects = useMemo(
     () => projects.filter((project) => project.id !== selectedId),
     [projects, selectedId],
   );
+
+  /**
+   * `warmPreviewSlots` updates in useLayoutEffect — one frame behind `selectedProjectItem`.
+   * Without merging the current selection here, no slot matches `isActive` and the preview area is blank.
+   */
+  const previewSlotsToRender = useMemo(() => {
+    if (!selectedProjectItem) return warmPreviewSlots;
+    const head: WarmPreviewSlot = {
+      itemId: selectedProjectItem.itemId,
+      projectKey: currentProjectNamespaceKey,
+      name: selectedProjectItem.name,
+      title: selectedProjectItem.title,
+    };
+    const rest = warmPreviewSlots.filter(
+      (s) => !(s.itemId === head.itemId && s.projectKey === head.projectKey),
+    );
+    const merged = [head, ...rest].slice(0, PREVIEW_WARM_SLOTS_MAX);
+    const seenItemIds = new Set<string>();
+    const deduped: WarmPreviewSlot[] = [];
+    for (const slot of merged) {
+      if (seenItemIds.has(slot.itemId)) continue;
+      seenItemIds.add(slot.itemId);
+      deduped.push(slot);
+    }
+    return deduped;
+  }, [currentProjectNamespaceKey, selectedProjectItem, warmPreviewSlots]);
 
   async function refreshProjects() {
     const res = await fetch("/api/projects", { cache: "no-store" });
@@ -241,8 +290,12 @@ export function ProjectsPanel(props: {
     }
   }
 
+  useEffect(() => {
+    detailByItemIdRef.current = detailByItemId;
+  }, [detailByItemId]);
+
   const ensureItemDetail = useCallback(async (item: ProjectItemRow) => {
-    if (detailByItemId[item.itemId]) return;
+    if (detailByItemIdRef.current[item.itemId]) return;
     setItemDetailLoadingId(item.itemId);
     setItemDetailError(null);
     try {
@@ -270,7 +323,7 @@ export function ProjectsPanel(props: {
     } finally {
       setItemDetailLoadingId((current) => (current === item.itemId ? null : current));
     }
-  }, [currentProjectNamespaceKey, detailByItemId, props.registryOwner]);
+  }, [currentProjectNamespaceKey, props.registryOwner]);
 
   useEffect(() => {
     if (props.initialProjects != null) {
@@ -299,15 +352,10 @@ export function ProjectsPanel(props: {
   }, [selectedId, isProjectDetail, props.initialProjectId, props.initialProjectItems]);
 
   useEffect(() => {
-    const selectedItem = projectItems.find((it) => it.itemId === selectedItemId);
-    const selectedDetail = selectedItemId ? detailByItemId[selectedItemId] : null;
-    if (!selectedItem || !selectedDetail) return;
-
-    const selectedStoryId =
-      selectedDetail.previewDefaultStoryId ?? selectedDetail.previewStories[0]?.id ?? null;
+    if (!selectedProjectItem || !selectedProjectDetail) return;
     const controller = new AbortController();
-    const selectedItemIdValue = selectedItem.itemId;
-    const selectedItemName = selectedItem.name;
+    const selectedItemIdValue = selectedProjectItem.itemId;
+    const selectedItemName = selectedProjectItem.name;
 
     async function loadArtifactStatus() {
       try {
@@ -315,7 +363,7 @@ export function ProjectsPanel(props: {
           owner: props.registryOwner,
           name: selectedItemName,
           project: currentProjectNamespaceKey,
-          storyId: selectedStoryId,
+          storyId: selectedProjectStoryId,
           enqueue: true,
         });
         const res = await fetch(`/api/registry/preview-artifacts/status?${search.toString()}`, {
@@ -339,10 +387,10 @@ export function ProjectsPanel(props: {
     };
   }, [
     currentProjectNamespaceKey,
-    detailByItemId,
-    projectItems,
     props.registryOwner,
-    selectedItemId,
+    selectedProjectDetail,
+    selectedProjectItem,
+    selectedProjectStoryId,
   ]);
 
   useEffect(() => {
@@ -363,6 +411,27 @@ export function ProjectsPanel(props: {
   }, [selectedItemId]);
 
   useEffect(() => {
+    setWarmPreviewSlots([]);
+  }, [selectedId, props.registryOwner]);
+
+  useLayoutEffect(() => {
+    if (!selectedProjectItem) return;
+    const projectKey = currentProjectNamespaceKey;
+    setWarmPreviewSlots((prev) => {
+      const nextEntry: WarmPreviewSlot = {
+        itemId: selectedProjectItem.itemId,
+        projectKey,
+        name: selectedProjectItem.name,
+        title: selectedProjectItem.title,
+      };
+      // Drop every prior slot for this item (not only same projectKey) so we never keep
+      // { A, null } and { A, "ds" } — duplicate React keys when key=itemId caused white previews.
+      const filtered = prev.filter((s) => s.itemId !== nextEntry.itemId);
+      return [nextEntry, ...filtered].slice(0, PREVIEW_WARM_SLOTS_MAX);
+    });
+  }, [selectedProjectItem, currentProjectNamespaceKey]);
+
+  useEffect(() => {
     if (!isProjectDetail || !selectedItemId) return;
     const selectedItem = projectItems.find((it) => it.itemId === selectedItemId);
     if (!selectedItem) return;
@@ -373,26 +442,6 @@ export function ProjectsPanel(props: {
       void ensureItemDetail(item);
     });
   }, [ensureItemDetail, isProjectDetail, selectedItemId, projectItems]);
-
-  useEffect(() => {
-    if (!isProjectDetail || !selectedItemId) {
-      setPreviewKeepAliveItemIds([]);
-      return;
-    }
-    const selectedIndex = projectItems.findIndex((it) => it.itemId === selectedItemId);
-    const neighborIds = [
-      projectItems[selectedIndex + 1]?.itemId,
-      projectItems[selectedIndex + 2]?.itemId,
-    ].filter((id): id is string => Boolean(id));
-    const MAX_PREVIEW_KEEPALIVE = 12;
-    setPreviewKeepAliveItemIds((prev) => {
-      const head = [selectedItemId, ...neighborIds];
-      const rest = prev.filter(
-        (id) => projectItems.some((it) => it.itemId === id) && !head.includes(id),
-      );
-      return [...head, ...rest].slice(0, MAX_PREVIEW_KEEPALIVE);
-    });
-  }, [isProjectDetail, selectedItemId, projectItems]);
 
   useEffect(() => {
     if (props.initialProjectId) {
@@ -566,7 +615,6 @@ export function ProjectsPanel(props: {
       setProjectItems(remainingItems);
       setSelectedItemId(nextSelectedItem?.itemId ?? null);
       setSelectedPath(null);
-      setPreviewKeepAliveItemIds((current) => current.filter((itemId) => itemId !== removedItemId));
       setDetailByItemId((current) => {
         const next = { ...current };
         delete next[removedItemId];
@@ -1182,28 +1230,38 @@ export function ProjectsPanel(props: {
                         <div className="flex h-[calc(100vh-7.5rem)] items-center justify-center text-sm text-zinc-500">
                           Select a resource to preview.
                         </div>
-                      ) : detailTab === "preview" ? (
-                        <div className="relative h-[calc(100vh-10.5rem)]">
-                          {previewKeepAliveItemIds.map((itemId) => {
-                            const previewItem = projectItems.find((it) => it.itemId === itemId);
-                            if (!previewItem) return null;
-                            const active = selectedItemId === itemId;
+                      ) : (
+                        <>
+                        <div
+                          className={`relative isolate h-[calc(100vh-10.5rem)] ${detailTab !== "preview" ? "hidden" : ""}`}
+                          aria-hidden={detailTab !== "preview"}
+                        >
+                          {previewSlotsToRender.map((slot) => {
+                            const isActive =
+                              selectedItem.itemId === slot.itemId &&
+                              currentProjectNamespaceKey === slot.projectKey;
+                            const src = `/preview/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(slot.name)}${
+                              slot.projectKey
+                                ? `?project=${encodeURIComponent(slot.projectKey)}`
+                                : ""
+                            }`;
                             return (
                               <div
-                                key={itemId}
-                                className={`absolute inset-0 transition-opacity duration-150 ${
-                                  active ? "z-10 opacity-100" : "pointer-events-none z-0 opacity-0"
-                                }`}
+                                key={`${slot.itemId}:${slot.projectKey ?? ""}`}
+                                className="absolute inset-0 overflow-hidden"
+                                style={{
+                                  opacity: isActive ? 1 : 0,
+                                  pointerEvents: isActive ? "auto" : "none",
+                                  zIndex: isActive ? 2 : 0,
+                                  visibility: "visible",
+                                }}
+                                aria-hidden={!isActive}
                               >
                                 <PreviewFrame
-                                  src={`/preview/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(previewItem.name)}${
-                                    currentProjectNamespaceKey
-                                      ? `?project=${encodeURIComponent(currentProjectNamespaceKey)}`
-                                      : ""
-                                  }`}
-                                  title={`${previewItem.title} preview`}
+                                  src={src}
+                                  title={`${slot.title} preview`}
                                   className="h-full w-full"
-                                  interactive={active}
+                                  interactive={isActive && detailTab === "preview"}
                                   alignX="left"
                                   alignY="top"
                                   fitMode="actual"
@@ -1213,8 +1271,10 @@ export function ProjectsPanel(props: {
                             );
                           })}
                         </div>
-                      ) : (
-                        <div className="grid h-[calc(100vh-10.5rem)] min-h-0 grid-cols-[220px_minmax(0,1fr)]">
+                        <div
+                          className={`grid h-[calc(100vh-10.5rem)] min-h-0 grid-cols-[220px_minmax(0,1fr)] ${detailTab !== "code" ? "hidden" : ""}`}
+                          aria-hidden={detailTab !== "code"}
+                        >
                           <div className="min-h-0 overflow-auto border-r border-zinc-200/80 p-2 dark:border-zinc-800">
                             {itemDetailLoadingId === selectedItem.itemId && !selectedDetail ? (
                               <p className="text-xs text-zinc-500">Loading…</p>
@@ -1287,6 +1347,7 @@ export function ProjectsPanel(props: {
                             ) : null}
                           </div>
                         </div>
+                        </>
                       )}
                     </>
                   );

@@ -125,6 +125,7 @@ export default async function PersonalItemsPage() {
               <ComponentCard
                 itemId={item.id}
                 owner={item.ownerHandle ?? item.userId ?? "legacy"}
+                project={(item as { canonicalProjectKey?: string | null }).canonicalProjectKey ?? null}
                 name={item.name}
                 title={item.title}
                 description={item.description}

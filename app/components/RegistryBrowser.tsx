@@ -9,6 +9,7 @@ type RegistryBrowserItem = {
   id: string;
   itemId: string;
   owner: string;
+  project?: string | null;
   name: string;
   title: string;
   description: string | null;
@@ -164,6 +165,7 @@ export function RegistryBrowser({
                   key={item.id}
                   itemId={item.itemId}
                   owner={item.owner}
+                  project={item.project}
                   name={item.name}
                   title={item.title}
                   description={item.description}

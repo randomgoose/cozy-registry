@@ -2,8 +2,11 @@
 
 import {
   forwardRef,
+  memo,
+  useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -23,11 +26,6 @@ export type PreviewFrameHandle = {
 export type PreviewFrameProps = {
   src: string;
   title: string;
-  /**
-   * Container size should be controlled by parent (e.g. fixed height).
-   * With `fitMode="actual"` the stage keeps 1:1 size and is centered (clipped);
-   * other modes scale the stage to fit.
-   */
   className?: string;
   /** Default: true. */
   allowUpscale?: boolean;
@@ -35,28 +33,13 @@ export type PreviewFrameProps = {
   alignX?: "left" | "center";
   /** Default: center. */
   alignY?: "top" | "center";
-  /**
-   * How the stage (iframe layout size) maps into the container.
-   * `actual`: scale always 1 — preview keeps true pixel size; container clips and centers.
-   */
   fitMode?: "contain" | "fill-width" | "fill-height" | "cover" | "actual";
-  /**
-   * Optional minimum fraction of the container height the rendered content
-   * should occupy. Useful for gallery cards where a strict "fit" can leave
-   * too much vertical empty space for short, wide resources.
-   */
   minFillHeight?: number;
-  /**
-   * Caps how far we can zoom beyond the normal fit scale when minFillHeight
-   * is applied. Default: 1 (no extra zoom).
-   */
   maxFitScaleMultiplier?: number;
   stageSize?: Size;
   interactive?: boolean;
   /**
    * When true, skip the intersection gate and load the iframe immediately.
-   * Use when multiple previews are stacked (e.g. keep-alive); hidden layers
-   * can otherwise stay below lazy + IO thresholds and never finish loading.
    */
   loadImmediately?: boolean;
 };
@@ -69,36 +52,87 @@ type PreviewRuntimeErrorPayload = {
   debugEnabled: boolean;
 };
 
-export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
+/**
+ * Two-slot iframe swap: we keep two iframe DOM elements so the user never sees
+ * a blank flash when `src` changes. The "front" slot stays visible with the
+ * previously loaded content while the "back" slot silently loads the new URL.
+ * Once the back slot fires `onLoad`, the slots swap roles.
+ */
+const PreviewFrameInner = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
   function PreviewFrame(props, ref) {
-    const { src, title, className, interactive = false, loadImmediately = false } = props;
+    const {
+      src,
+      title,
+      className,
+      interactive = false,
+      loadImmediately = false,
+    } = props;
     const containerRef = useRef<HTMLDivElement | null>(null);
-    const iframeRef = useRef<HTMLIFrameElement | null>(null);
+    const srcRef = useRef(src);
+    useLayoutEffect(() => { srcRef.current = src; });
+
     const [intersectionReady, setIntersectionReady] = useState(false);
     const shouldSetSrc = loadImmediately || intersectionReady;
+
+    const iframe0Ref = useRef<HTMLIFrameElement | null>(null);
+    const iframe1Ref = useRef<HTMLIFrameElement | null>(null);
+
+    const [front, setFront] = useState(0);
+    const frontRef = useRef(0);
+    useLayoutEffect(() => { frontRef.current = front; }, [front]);
+
     const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
-    const [runtimeError, setRuntimeError] = useState<PreviewRuntimeErrorPayload | null>(null);
-    const loaded = loadedSrc === src;
+    const hasEverLoaded = loadedSrc !== null;
+    const isFullyLoaded = loadedSrc === src;
+
+    const [runtimeError, setRuntimeError] = useState<
+      PreviewRuntimeErrorPayload | null
+    >(null);
+
+    const back = 1 - front;
+
+    const slotSrcs: [string | undefined, string | undefined] = useMemo(() => {
+      const srcs: [string | undefined, string | undefined] = [undefined, undefined];
+      if (!hasEverLoaded) {
+        srcs[front] = shouldSetSrc ? src : undefined;
+      } else if (isFullyLoaded) {
+        srcs[front] = src;
+      } else {
+        srcs[front] = loadedSrc!;
+        srcs[back] = shouldSetSrc ? src : undefined;
+      }
+      return srcs;
+    }, [hasEverLoaded, isFullyLoaded, front, back, shouldSetSrc, src, loadedSrc]);
+
+    const expectedSrcsRef = useRef(slotSrcs);
+    useLayoutEffect(() => { expectedSrcsRef.current = slotSrcs; }, [slotSrcs]);
 
     useImperativeHandle(
       ref,
       () => ({
         sendPreviewProps: (nextProps) => {
-          const w = iframeRef.current?.contentWindow;
+          const w = (
+            frontRef.current === 0 ? iframe0Ref : iframe1Ref
+          ).current?.contentWindow;
           if (!w) return;
           w.postMessage(
             { type: PREVIEW_MSG_SET_PROPS, props: nextProps },
             window.location.origin,
           );
         },
-        getContentWindow: () => iframeRef.current?.contentWindow ?? null,
+        getContentWindow: () =>
+          (frontRef.current === 0 ? iframe0Ref : iframe1Ref).current
+            ?.contentWindow ?? null,
       }),
       [],
     );
 
     useEffect(() => {
       function onPreviewMessage(ev: MessageEvent) {
-        const iframeWin = iframeRef.current?.contentWindow;
+        const frontIframe = (
+          frontRef.current === 0 ? iframe0Ref : iframe1Ref
+        ).current;
+        const iframeWin = frontIframe?.contentWindow;
         if (!iframeWin || ev.source !== iframeWin) return;
         const originOk =
           ev.origin === window.location.origin || ev.origin === "null";
@@ -109,7 +143,6 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
         if (data?.type !== PREVIEW_MSG_RUNTIME_ERROR || !data.payload) return;
         setRuntimeError(data.payload);
       }
-
       window.addEventListener("message", onPreviewMessage);
       return () => window.removeEventListener("message", onPreviewMessage);
     }, []);
@@ -132,6 +165,30 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
       return () => observer.disconnect();
     }, [intersectionReady, loadImmediately]);
 
+    const handleSlotLoad = useCallback((slot: number) => {
+      const currentDesiredSrc = srcRef.current;
+      const expectedSrc = expectedSrcsRef.current[slot];
+
+      if (expectedSrc !== currentDesiredSrc) return;
+
+      setLoadedSrc(currentDesiredSrc);
+      setRuntimeError(null);
+
+      if (slot !== frontRef.current) {
+        frontRef.current = slot;
+        setFront(slot);
+      }
+    }, []);
+
+    const handleLoad0 = useCallback(
+      () => handleSlotLoad(0),
+      [handleSlotLoad],
+    );
+    const handleLoad1 = useCallback(
+      () => handleSlotLoad(1),
+      [handleSlotLoad],
+    );
+
     const debugSrc = useMemo(() => {
       try {
         const url = new URL(src, window.location.origin);
@@ -144,31 +201,54 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
       }
     }, [src]);
 
+    const iframeBaseStyle: React.CSSProperties = {
+      position: "absolute",
+      inset: 0,
+      width: "100%",
+      height: "100%",
+      border: 0,
+      background: "transparent",
+    };
+
     return (
       <div
         ref={containerRef}
         className={className}
         style={{ position: "relative", overflow: "hidden" }}
       >
+        {/* Slot 0 */}
         <iframe
-          ref={iframeRef}
-          src={shouldSetSrc ? src : undefined}
-          title={title}
+          ref={iframe0Ref}
+          src={slotSrcs[0]}
+          title={front === 0 ? title : `${title} (loading)`}
           sandbox="allow-scripts allow-same-origin"
           loading={loadImmediately ? "eager" : "lazy"}
-          onLoad={() => {
-            setLoadedSrc(src);
-            setRuntimeError(null);
-          }}
+          onLoad={handleLoad0}
           style={{
-            width: "100%",
-            height: "100%",
-            border: 0,
-            background: "transparent",
-            pointerEvents: interactive ? "auto" : "none",
+            ...iframeBaseStyle,
+            zIndex: front === 0 ? 1 : 0,
+            visibility: front === 0 ? "visible" : "hidden",
+            pointerEvents: front === 0 && interactive ? "auto" : "none",
           }}
         />
-        {loaded && runtimeError ? (
+        {/* Slot 1 */}
+        <iframe
+          ref={iframe1Ref}
+          src={slotSrcs[1]}
+          title={front === 1 ? title : `${title} (loading)`}
+          sandbox="allow-scripts allow-same-origin"
+          loading={loadImmediately ? "eager" : "lazy"}
+          onLoad={handleLoad1}
+          style={{
+            ...iframeBaseStyle,
+            zIndex: front === 1 ? 1 : 0,
+            visibility: front === 1 ? "visible" : "hidden",
+            pointerEvents: front === 1 && interactive ? "auto" : "none",
+          }}
+        />
+
+        {/* Runtime error banner (only when fully loaded) */}
+        {isFullyLoaded && runtimeError ? (
           <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 rounded-2xl border border-red-500/35 bg-red-950/88 p-3 text-left text-white shadow-[0_18px_40px_rgba(0,0,0,0.35)] backdrop-blur">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-red-200">
               Preview Error
@@ -191,7 +271,9 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
             ) : null}
           </div>
         ) : null}
-        {!loaded ? (
+
+        {/* First-load overlay */}
+        {!hasEverLoaded ? (
           <div
             className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[linear-gradient(180deg,rgba(250,250,249,0.96),rgba(244,244,245,0.98))] dark:bg-[linear-gradient(180deg,rgba(24,24,27,0.96),rgba(9,9,11,0.98))]"
             aria-busy="true"
@@ -210,9 +292,18 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
             </div>
           </div>
         ) : null}
+
+        {/* Subtle transition indicator for subsequent loads */}
+        {hasEverLoaded && !isFullyLoaded ? (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
+            <div className="h-0.5 animate-pulse bg-zinc-300 dark:bg-zinc-600" />
+          </div>
+        ) : null}
       </div>
     );
   },
 );
 
-PreviewFrame.displayName = "PreviewFrame";
+PreviewFrameInner.displayName = "PreviewFrame";
+
+export const PreviewFrame = memo(PreviewFrameInner);

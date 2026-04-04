@@ -85,6 +85,15 @@ describe("preview artifact status route", () => {
   });
 
   it("enqueues and returns queued when artifact is missing and enqueue=1", async () => {
+    getRegistryItemByScopedIdentityAndVersionMock.mockResolvedValue({
+      id: "item-1",
+      type: "registry:ui",
+      currentVersion: "1.2.3",
+      meta: {
+        previewStories: [{ id: "default", title: "Default" }],
+        previewDefaultStoryId: "default",
+      },
+    });
     createSelectChain([[{ id: "version-1" }], []]);
 
     const { GET } = await import("@/app/api/registry/preview-artifacts/status/route");

@@ -112,6 +112,7 @@ export async function getRegistryItems(
       id: registryItems.id,
       userId: registryItems.userId,
       ownerHandle: user.handle,
+      canonicalProjectKey: registryItems.canonicalProjectKey,
       name: registryItems.name,
       type: registryItems.type,
       title: registryItems.title,
@@ -217,6 +218,7 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
       id: registryItems.id,
       userId: registryItems.userId,
       organizationId: registryItems.organizationId,
+      canonicalProjectKey: registryItems.canonicalProjectKey,
       ownerHandle: user.handle,
       orgSlug: organization.slug,
       name: registryItems.name,
@@ -944,7 +946,8 @@ export async function getRegistryItemByOwnerNameAndVersionScoped(
   return membership ? item : null;
 }
 
-async function getRegistryItemVersionsByItemId(itemId: string): Promise<
+/** Version rows for an item already loaded (avoids re-resolving owner/project/name in preview hot paths). */
+export async function getRegistryItemVersionsByItemId(itemId: string): Promise<
   { version: string; createdAt: Date; createdBy: string | null; message?: string | null }[]
 > {
   const versions = await db
@@ -1431,6 +1434,7 @@ export async function getRegistryItemsByUserId(userId: string) {
     .select({
       id: registryItems.id,
       userId: registryItems.userId,
+      canonicalProjectKey: registryItems.canonicalProjectKey,
       ownerHandle: user.handle,
       name: registryItems.name,
       type: registryItems.type,
@@ -1462,6 +1466,7 @@ export async function getRegistryItemsByOrganizationId(organizationId: string) {
       id: registryItems.id,
       userId: registryItems.userId,
       organizationId: registryItems.organizationId,
+      canonicalProjectKey: registryItems.canonicalProjectKey,
       ownerHandle: user.handle,
       organizationName: organization.name,
       orgSlug: organization.slug,
@@ -1510,6 +1515,7 @@ export async function getRegistryItemsForOrganization(
       id: registryItems.id,
       userId: registryItems.userId,
       organizationId: registryItems.organizationId,
+      canonicalProjectKey: registryItems.canonicalProjectKey,
       ownerHandle: user.handle,
       orgSlug: organization.slug,
       name: registryItems.name,

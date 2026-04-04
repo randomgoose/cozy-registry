@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getSessionMock = vi.fn();
 const getUserIdFromTokenMock = vi.fn();
 const getRegistryItemByScopedIdentityAndVersionMock = vi.fn();
-const getRegistryItemVersionsScopedMock = vi.fn();
+const getRegistryItemVersionsByItemIdMock = vi.fn();
 const enqueuePreviewArtifactJobMock = vi.fn();
 const selectMock = vi.fn();
 const fetchMock = vi.fn();
@@ -24,7 +24,7 @@ vi.mock("@/lib/auth-api", () => ({
 
 vi.mock("@/lib/registry", () => ({
   getRegistryItemByScopedIdentityAndVersion: getRegistryItemByScopedIdentityAndVersionMock,
-  getRegistryItemVersionsScoped: getRegistryItemVersionsScopedMock,
+  getRegistryItemVersionsByItemId: getRegistryItemVersionsByItemIdMock,
   getCurrentVersion: (item: { currentVersion?: string | null }) =>
     item.currentVersion ?? "0.1.0",
   toShadcnRegistryItem: vi.fn(),
@@ -119,7 +119,7 @@ describe("preview route state pages", () => {
     fetchMock.mockReset();
     getSessionMock.mockResolvedValue(null);
     getUserIdFromTokenMock.mockResolvedValue(null);
-    getRegistryItemVersionsScopedMock.mockResolvedValue([]);
+    getRegistryItemVersionsByItemIdMock.mockResolvedValue([]);
     getRegistryItemByScopedIdentityAndVersionMock.mockResolvedValue({
       id: "item-1",
       name: "button",
@@ -233,11 +233,12 @@ describe("preview route state pages", () => {
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://cdn.example.com/manifest.json",
-      { cache: "no-store" },
+      { next: { revalidate: 120 } },
     );
     const html = await response.text();
     expect(html).toContain("https://esm.sh/recharts?dev&external=react,react-dom,react-dom/client");
     expect(html).not.toContain("https://esm.sh/react?dev&external=react,react-dom,react-dom/client");
     expect(html).toContain("https://cdn.example.com/preview.js");
+    expect(html).not.toContain("https://cdn.tailwindcss.com");
   });
 });

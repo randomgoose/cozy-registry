@@ -174,6 +174,7 @@ export default async function WorkspaceItemsPage({ params }: { params: Promise<{
                 owner={
                   (item as { orgSlug?: string | null }).orgSlug ?? org.slug ?? "legacy"
                 }
+                project={(item as { canonicalProjectKey?: string | null }).canonicalProjectKey ?? null}
                 name={item.name}
                 title={item.title}
                 description={item.description}

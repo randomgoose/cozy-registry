@@ -16,6 +16,7 @@ import {
   getCurrentVersion,
   getRegistryItemByScopedIdentityAndVersion,
 } from "@/lib/registry";
+import { pickPreviewStory } from "@/lib/preview-stories";
 import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-governance";
 import { getCompatibleArtifactDependencyDisplayNames } from "@/lib/third-party-dependency-governance";
 
@@ -29,9 +30,11 @@ export async function GET(request: Request) {
     typeof projectParam === "string" && projectParam.trim().length > 0
       ? projectParam.trim()
       : null;
-  const storyIdRaw = url.searchParams.get("story");
-  const storyId = storyIdRaw && storyIdRaw.trim().length > 0 ? storyIdRaw.trim() : null;
-  const normalizedStoryId = storyId ?? "";
+  const storyParam = url.searchParams.get("story");
+  const requestedStoryId =
+    typeof storyParam === "string" && storyParam.trim().length > 0
+      ? storyParam.trim()
+      : null;
   const mode = url.searchParams.get("mode") === "thumbnail" ? "thumbnail" : "default";
   const shouldEnqueue = url.searchParams.get("enqueue") === "1";
 
@@ -55,6 +58,15 @@ export async function GET(request: Request) {
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+
+  const itemMetaForStory =
+    item.meta && typeof item.meta === "object"
+      ? (item.meta as Record<string, unknown>)
+      : undefined;
+  const { selectedStory } = pickPreviewStory(itemMetaForStory, requestedStoryId);
+  const resolvedStoryId = selectedStory?.id ?? null;
+  /** Must match `GET /preview/...` artifact row key (`pickPreviewStory` + same URL story param). */
+  const normalizedStoryId = resolvedStoryId ?? "";
 
   const effectiveVersion = version?.trim() ? version.trim() : getCurrentVersion(item);
   const [itemVersion] = await db
@@ -104,7 +116,7 @@ export async function GET(request: Request) {
           name,
           version: effectiveVersion,
           mode,
-          storyId,
+          storyId: normalizedStoryId,
           requestUserId: userId ?? null,
         },
       });
@@ -115,7 +127,7 @@ export async function GET(request: Request) {
           name,
           version: effectiveVersion,
           mode,
-          storyId,
+          storyId: resolvedStoryId,
         },
         { status: 200 },
       );
@@ -128,7 +140,7 @@ export async function GET(request: Request) {
         name,
         version: effectiveVersion,
         mode,
-        storyId,
+        storyId: resolvedStoryId,
       },
       { status: 200 },
     );
@@ -163,7 +175,7 @@ export async function GET(request: Request) {
     name,
     version: effectiveVersion,
     mode,
-    storyId,
+    storyId: resolvedStoryId,
     compatibleExternalDependencies,
     artifactKey: artifact.artifactKey,
     artifactUrl: artifact.jsUrl,
