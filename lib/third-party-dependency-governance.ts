@@ -3,6 +3,7 @@ import type { DependencyDecision } from "@/lib/dependency-diagnostics";
 import {
   getDependencyDisplayName,
   type DependencyTier,
+  type ProviderMode,
   type PreviewCapability,
   type VersionPolicyStatus,
 } from "@/lib/dependency-diagnostics";
@@ -18,6 +19,7 @@ import {
 export type {
   DependencyDecision,
   DependencyTier,
+  ProviderMode,
   PreviewCapability,
   VersionPolicyStatus,
 } from "@/lib/dependency-diagnostics";
@@ -152,11 +154,29 @@ export function getRuntimePreviewDependencies(decisions: DependencyDecision[]) {
     .sort();
 }
 
+export function getDependencyProviderMode(
+  decision: DependencyDecision,
+): ProviderMode {
+  if (decision.providerMode) return decision.providerMode;
+  if (decision.tier === "runtime-provided") return "runtime-provided";
+  if (decision.tier === "rejected" || decision.previewCapability === "blocked") {
+    return "blocked";
+  }
+  if (decision.tier === "trusted-built-in") {
+    return getTrustedBuiltInProviderMode(decision.packageName);
+  }
+  return "compatible-external";
+}
+
 export function getPrebundleDependencies(decisions: DependencyDecision[]) {
   return Array.from(
     new Set(
       decisions
-        .filter((decision) => decision.previewCapability === "prebundle-supported")
+        .filter(
+          (decision) =>
+            decision.previewCapability === "prebundle-supported" &&
+            getDependencyProviderMode(decision) === "managed-provider",
+        )
         .map((decision) => decision.packageName),
     ),
   ).sort();
@@ -192,6 +212,7 @@ function evaluateDependency(input: {
       packageName,
       requestedVersion,
       tier: "runtime-provided",
+      providerMode: "runtime-provided",
       previewCapability: "runtime-only",
       versionPolicyStatus: "accepted",
       message: "Provided by the platform runtime; prebundle is not needed.",
@@ -204,6 +225,7 @@ function evaluateDependency(input: {
       packageName,
       requestedVersion,
       tier: "rejected",
+      providerMode: "blocked",
       previewCapability: "blocked",
       versionPolicyStatus: "rejected",
       message:
@@ -213,15 +235,20 @@ function evaluateDependency(input: {
   }
 
   if (isTrustedBuiltInPackage(packageName)) {
+    const providerMode = getTrustedBuiltInProviderMode(packageName);
     if (requestedVersion) {
       return {
         importSpecifier,
         packageName,
         requestedVersion,
         tier: "trusted-built-in",
+        providerMode,
         previewCapability: "prebundle-supported",
         versionPolicyStatus: "accepted",
-        message: "Allowed and eligible for preview artifact prebundle.",
+        message:
+          providerMode === "managed-provider"
+            ? "Allowed and eligible for preview artifact prebundle."
+            : "Allowed in compatibility mode; preview artifacts may keep this dependency external at runtime.",
       };
     }
     return {
@@ -229,6 +256,7 @@ function evaluateDependency(input: {
       packageName,
       requestedVersion: null,
       tier: "trusted-built-in",
+      providerMode,
       previewCapability: "runtime-only",
       versionPolicyStatus: "unknown",
       message:
@@ -242,6 +270,7 @@ function evaluateDependency(input: {
     packageName,
     requestedVersion,
     tier: "soft-allowed",
+    providerMode: "compatible-external",
     previewCapability: "runtime-only",
     versionPolicyStatus: requestedVersion ? "accepted" : "unknown",
     message: requestedVersion
@@ -256,6 +285,12 @@ function evaluateDependency(input: {
 function isTrustedBuiltInPackage(packageName: string) {
   if (TRUSTED_BUILT_INS.has(packageName)) return true;
   return TRUSTED_BUILT_IN_PREFIXES.some((prefix) => packageName.startsWith(prefix));
+}
+
+function getTrustedBuiltInProviderMode(packageName: string): ProviderMode {
+  return TRUSTED_BUILT_INS.has(packageName)
+    ? "managed-provider"
+    : "compatible-external";
 }
 
 function isRejectedPackage(packageName: string) {
@@ -298,6 +333,13 @@ function normalizeDependencyDecisions(raw: unknown): DependencyDecision[] {
     const importSpecifier =
       typeof rec.importSpecifier === "string" ? rec.importSpecifier.trim() : "";
     const tier = rec.tier;
+    const providerMode =
+      rec.providerMode === "runtime-provided" ||
+      rec.providerMode === "managed-provider" ||
+      rec.providerMode === "compatible-external" ||
+      rec.providerMode === "blocked"
+        ? rec.providerMode
+        : undefined;
     const previewCapability = rec.previewCapability;
     const versionPolicyStatus = rec.versionPolicyStatus;
     if (!packageName) continue;
@@ -323,7 +365,7 @@ function normalizeDependencyDecisions(raw: unknown): DependencyDecision[] {
     ) {
       continue;
     }
-    out.push({
+    const normalizedDecision: DependencyDecision = {
       importSpecifier: importSpecifier || packageName,
       packageName,
       requestedVersion:
@@ -331,10 +373,15 @@ function normalizeDependencyDecisions(raw: unknown): DependencyDecision[] {
           ? rec.requestedVersion.trim()
           : null,
       tier,
+      providerMode,
       previewCapability,
       versionPolicyStatus,
       message: typeof rec.message === "string" ? rec.message : "",
       reasonCode: typeof rec.reasonCode === "string" ? rec.reasonCode : undefined,
+    };
+    out.push({
+      ...normalizedDecision,
+      providerMode: getDependencyProviderMode(normalizedDecision),
     });
   }
   return out;

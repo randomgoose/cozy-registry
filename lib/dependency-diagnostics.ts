@@ -9,6 +9,12 @@ export type PreviewCapability =
   | "prebundle-supported"
   | "blocked";
 
+export type ProviderMode =
+  | "runtime-provided"
+  | "managed-provider"
+  | "compatible-external"
+  | "blocked";
+
 export type VersionPolicyStatus =
   | "accepted"
   | "unknown"
@@ -19,6 +25,7 @@ export type DependencyDecision = {
   packageName: string;
   requestedVersion: string | null;
   tier: DependencyTier;
+  providerMode?: ProviderMode;
   previewCapability: PreviewCapability;
   versionPolicyStatus: VersionPolicyStatus;
   message: string;

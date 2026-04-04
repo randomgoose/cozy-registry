@@ -10,6 +10,9 @@ export const TRUSTED_BUILT_IN_DEPENDENCIES = [
   "clsx",
   "class-variance-authority",
   "tailwind-merge",
+  "@base-ui/react",
+  "@hugeicons/react",
+  "@hugeicons/core-free-icons",
 ] as const;
 
 export const TRUSTED_BUILT_IN_NAMESPACE_PREFIXES = [

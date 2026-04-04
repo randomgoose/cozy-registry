@@ -1,6 +1,6 @@
 Status: proposed
 Owner: engineering
-Last updated: 2026-04-02
+Last updated: 2026-04-04
 Source of truth: yes
 
 # Preview Third-Party Dependency Governance Spec
@@ -53,6 +53,8 @@ Source of truth: yes
 - 让第三方依赖从“宿主环境事实”升级为“平台受控输入”
 - 统一 runtime preview 与 artifact preview 的依赖决策来源
 - 为安全、可复现、可观测的 preview 构建提供明确边界
+- 让依赖治理显式回答“平台以哪种模式提供该依赖”
+- 为 `managed-artifact` 与 `compatible-artifact` 建立长期稳定的依赖来源 contract
 
 ## 3. Non-Goals (v1)
 
@@ -81,6 +83,17 @@ runtime preview 与 artifact prebuild 可以采用不同输出策略，但必须
 ### 4.4 Host-installed packages are a compatibility fallback, not the platform contract
 
 宿主仓库 `node_modules` 可以作为短期兼容和开发 fallback，但不能继续作为长期生产 contract。
+
+### 4.5 Provider mode should drive artifact capability
+
+长期来看，第三方依赖不能只靠 `tier + previewCapability` 推断实际构建能力。
+
+平台必须显式定义依赖的 **provider mode**，并由它驱动：
+
+- 是否需要物理包副本
+- 是否进入 `managed-artifact`
+- 是否进入 `compatible-artifact`
+- runtime import map / CDN 由谁负责
 
 ## 5. Core Contracts
 
@@ -251,6 +264,73 @@ runtime preview 与 artifact prebuild 可以采用不同输出策略，但必须
 - publish 直接失败
 - 不进入 preview build 流程
 
+### 6.5 Provider Modes (long-term target)
+
+依赖 tier 负责表达治理层分类，但长期实现还必须补一层 **provider mode**，用于说明平台到底如何提供该依赖。
+
+#### 6.5.1 `runtime-provided`
+
+语义：
+
+- 由平台 runtime 内建提供
+- 不需要物理安装到 provider cache
+- preview runtime 通过固定 import map / runtime shim 提供
+
+典型例子：
+
+- `react`
+- `react-dom`
+- `react/jsx-runtime`
+
+#### 6.5.2 `managed-provider`
+
+语义：
+
+- 平台维护受控、可复现的依赖副本
+- smoke、artifact build、thumbnail worker 都从平台 provider cache 读取
+- 不再依赖主应用自身的 `node_modules`
+
+这类依赖的“安装”方式不是：
+
+- 每次构建时临时在线安装
+
+而是：
+
+- 平台提前准备一个 `package + exact version` 的受控副本
+- 构建时从 provider cache / internal mirror 读取
+
+主要目的：
+
+- 支撑稳定、可复现的 `managed-artifact`
+- 降低高频依赖的运行时 external 负担
+- 让平台真正拥有高置信的构建权，而不是继续依赖宿主环境事实
+
+#### 6.5.3 `compatible-external`
+
+语义：
+
+- 平台允许该依赖进入 preview
+- 但不会要求服务端在构建时物理安装或 bundle 它
+- artifact 可保留 external import
+- 浏览器通过平台 import map / CDN plan 在 runtime 加载
+
+这类依赖的“安装”方式更准确地说是：
+
+- 不进行本地安装
+- 由平台生成一份 runtime loading plan
+
+主要目的：
+
+- 让长尾 UI 依赖先快速可预览
+- 避免因为 provider 尚未托管该包就直接退回纯 runtime-only
+- 为 `compatible-artifact` 提供长期依赖来源
+
+#### 6.5.4 `blocked`
+
+语义：
+
+- 平台不提供，不允许 external，也不允许 publish 通过
+
 ## 7. Dependency Catalog
 
 平台应维护一份 dependency catalog，作为受控输入源。
@@ -259,6 +339,7 @@ runtime preview 与 artifact prebuild 可以采用不同输出策略，但必须
 
 - `packageName`
 - `tier`
+- `providerMode`
 - `allowedVersionPolicy`
 - `previewCapability`
 - `notes`
@@ -268,6 +349,7 @@ runtime preview 与 artifact prebuild 可以采用不同输出策略，但必须
 其中：
 
 - `tier` ∈ `runtime-provided | trusted-built-in | soft-allowed | rejected`
+- `providerMode` ∈ `runtime-provided | managed-provider | compatible-external | blocked`
 - `previewCapability` ∈ `runtime-only | prebundle-supported | blocked`
 
 ### 7.0 Matching Model
@@ -306,7 +388,7 @@ catalog 不应只支持 exact package name，还应支持 namespace-level policy
 - namespace rule 用于定义该生态下包的 **默认 tier / capability / version policy**
 - 高置信、高频使用的具体包仍然可通过 exact rule 单独覆盖
 
-### 7.0.2 Recommended Default for Namespace Rules
+### 7.0.2 Recommended Default for Namespace Rules (current implementation)
 
 当前实现对一小组高频 UI namespace 采用更积极的默认策略：
 
@@ -329,6 +411,38 @@ catalog 不应只支持 exact package name，还应支持 namespace-level policy
 
 - namespace rule = `soft-allowed + runtime-only`
 - 高频具体包再由 exact rule 提升
+
+### 7.0.2A Long-term target for namespace rules
+
+长期目标不应继续让整个 namespace 直接等价于：
+
+- `trusted-built-in + prebundle-supported`
+
+更合理的长期默认是：
+
+- namespace rule 默认产出 `compatible-external`
+- 高频、验证过的具体子包再通过 exact rule 提升为 `managed-provider`
+
+推荐长期目标：
+
+- `@base-ui/*` → 默认 `compatible-external`
+- `@radix-ui/*` → 默认 `compatible-external`
+- `@hugeicons/*` → 默认 `compatible-external`
+
+而像下面这些高频子包，未来才值得逐步提升为：
+
+- `managed-provider`
+
+例如：
+
+- `@radix-ui/react-dialog`
+- `@radix-ui/react-popover`
+
+这样做的原因是：
+
+- namespace 内不同子包的稳定性、体积与 provider 成本并不一致
+- 平台不应因为“认可某个 UI 生态”就默认承诺整套 fully managed 支持
+- `compatible-external` 已足够支撑 `compatible-artifact`
 
 ### 7.0.3 Exact Overrides Beat Namespace Defaults
 
@@ -495,6 +609,30 @@ publish 校验必须区分“发现包名”和“拿到可信版本”：
 
 - `trusted-built-in`
 
+### 9.2.1 Long-term mapping to provider modes
+
+长期实现中，preview capability 不应单独承担“依赖从哪里来”的语义。
+
+推荐映射关系：
+
+- `runtime-provided`
+  - 由平台 runtime 提供
+  - 不要求物理 provider 副本
+- `managed-provider`
+  - 进入 `managed-artifact`
+  - 允许深度 prebundle
+- `compatible-external`
+  - 进入 `compatible-artifact`
+  - 允许 artifact shell 生成，但保留 external imports
+- `blocked`
+  - 直接拒绝或进入失败路径
+
+关键结论：
+
+- 不是“不是 fully managed 就必须 runtime-only”
+- `compatible-external` 的长期归宿应是 `compatible-artifact`
+- `runtime-only` 只应保留给最后降级场景
+
 ### 9.3 `blocked`
 
 语义：
@@ -564,6 +702,12 @@ artifact prebuild 是受控构建路径，应更严格。
 - 不再默认依赖宿主仓库的 `node_modules`
 - 依赖来源必须可解释、可复现、可收口
 
+更完整地说，长期模型应演进为：
+
+- `managed-provider` -> `managed-artifact`
+- `compatible-external` -> `compatible-artifact`
+- `runtime-only` -> 最后降级，而不是默认结果
+
 ## 11.4 Dependency Provider Repair Strategy (normative)
 
 为修复 “治理已通过但 smoke / prebuild 仍依赖宿主 `node_modules`” 的问题，平台必须引入统一的 **dependency provider** 层。
@@ -587,6 +731,16 @@ artifact prebuild 是受控构建路径，应更严格。
 - publish preview smoke
 - runtime preview import-map 生成
 - preview artifact prebuild
+
+这层 provider 必须回答的不只是：
+
+- “这个包能不能解析”
+
+还包括：
+
+- “这个包由哪种 provider mode 提供”
+- “需要物理副本，还是只需要 runtime loading plan”
+- “它最终应该进入 `managed-artifact` 还是 `compatible-artifact`”
 
 ### 11.4.2 What must change
 
@@ -614,6 +768,12 @@ artifact prebuild 是受控构建路径，应更严格。
 - 任意 npm 包在线安装
 - 面向未知包的通用包管理器
 
+长期目标也不是：
+
+- 把所有第三方包都装进平台
+
+而是只让少量高频高价值依赖进入 `managed-provider`，其他允许的长尾依赖默认走 `compatible-external`。
+
 ### 11.4.4 Short-term compatibility rule
 
 宿主 `node_modules` 可以作为短期 fallback 保留，但必须满足：
@@ -631,6 +791,12 @@ artifact prebuild 是受控构建路径，应更严格。
   - 可以临时回退到 host fallback
   - 但 diagnostics 必须明确标注这是过渡路径
   - 不得把这种状态误描述成“平台已完全受控支持”
+
+长期补充：
+
+- namespace 级 trusted/compatible 规则不应自动等价于 `managed-provider`
+- 只有 exact package rule 或显式 provider registry entry，才能承诺 `managed-provider`
+- 其他被平台允许的 UI 生态依赖，默认应收敛到 `compatible-external`
 
 ### 11.4.6 Example
 

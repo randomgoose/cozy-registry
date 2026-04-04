@@ -101,12 +101,13 @@ describe("preview-artifact-jobs", () => {
     );
   });
 
-  it("classifies runtime-only third-party dependencies as compatible artifacts", () => {
+  it("classifies compatible-external dependencies as compatible artifacts", () => {
     const capability = classifyPreviewArtifactCapability([
       {
         packageName: "react",
         requestedVersion: "19.2.0",
         tier: "runtime-provided",
+        providerMode: "runtime-provided",
         previewCapability: "runtime-only",
         versionPolicyStatus: "accepted",
         message: "Provided by the platform runtime.",
@@ -114,11 +115,12 @@ describe("preview-artifact-jobs", () => {
       {
         importSpecifier: "@base-ui/react/dialog",
         packageName: "@base-ui/react",
-        requestedVersion: null,
+        requestedVersion: "1.3.0",
         tier: "trusted-built-in",
-        previewCapability: "runtime-only",
-        versionPolicyStatus: "unknown",
-        message: "Known package without an explicit version.",
+        providerMode: "compatible-external",
+        previewCapability: "prebundle-supported",
+        versionPolicyStatus: "accepted",
+        message: "Allowed in compatibility mode.",
       },
     ]);
 

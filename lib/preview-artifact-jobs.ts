@@ -17,6 +17,7 @@ import {
   type DependencyDecision,
   evaluateThirdPartyDependencies,
   excludeExplicitRegistryDependencies,
+  getDependencyProviderMode,
   getDependencyDisplayName,
   getRejectedDependencyDecisions,
   getRuntimePreviewDependencies,
@@ -104,6 +105,17 @@ function hasNonPlatformRuntimeOnlyDependencies(
   );
 }
 
+function hasCompatibleExternalDependencies(
+  dependencyDecisions: DependencyDecision[],
+) {
+  return dependencyDecisions.some(
+    (decision) =>
+      getDependencyProviderMode(decision) === "compatible-external" &&
+      decision.previewCapability === "prebundle-supported" &&
+      isBarePackageSpecifier(decision.packageName),
+  );
+}
+
 export function normalizePreviewArtifactCapability(
   value: unknown,
 ): PreviewArtifactCapability | null {
@@ -118,6 +130,9 @@ export function classifyPreviewArtifactCapability(
   dependencyDecisions: DependencyDecision[],
 ): PreviewArtifactCapability {
   if (hasNonPlatformRuntimeOnlyDependencies(dependencyDecisions)) {
+    return "runtime-only";
+  }
+  if (hasCompatibleExternalDependencies(dependencyDecisions)) {
     return "compatible-artifact";
   }
   return "managed-artifact";

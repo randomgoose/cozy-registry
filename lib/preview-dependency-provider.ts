@@ -3,6 +3,7 @@ import Module from "node:module";
 import os from "node:os";
 import path from "node:path";
 import {
+  getDependencyProviderMode,
   getPrebundleDependencies,
   type DependencyDecision,
 } from "@/lib/third-party-dependency-governance";
@@ -23,6 +24,7 @@ export type PreviewDependencyResolutionDiagnostic = {
   requestedVersion: string;
   resolutionSource: PreviewDependencyResolutionSource;
   message: string;
+  providerMode?: "managed-provider" | "compatible-external";
 };
 
 const DEFAULT_PROVIDER_ROOT = path.join(
@@ -74,6 +76,20 @@ export async function resolvePreviewDependencies(params: {
     const decision = byName.get(packageName);
     const requestedVersion = decision?.requestedVersion?.trim();
     if (!requestedVersion) continue;
+    if (
+      decision &&
+      getDependencyProviderMode(decision) !== "managed-provider"
+    ) {
+      diagnostics.push({
+        packageName,
+        requestedVersion,
+        resolutionSource: "provider",
+        providerMode: "compatible-external",
+        message:
+          "Compatible-external dependency does not require a physical provider package; artifact/runtime will keep it external.",
+      });
+      continue;
+    }
 
     const providerResolution = await ensureProviderResolution({
       appRequire,
@@ -100,6 +116,7 @@ export async function resolvePreviewDependencies(params: {
       packageName,
       requestedVersion,
       resolutionSource: "host-fallback",
+      providerMode: "managed-provider",
       message:
         "Resolved via host node_modules fallback because the controlled preview dependency provider does not yet supply this package version.",
     });
