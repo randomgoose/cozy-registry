@@ -14,6 +14,7 @@ import {
   type DependencyDecision,
 } from "@/lib/third-party-dependency-governance";
 import {
+  getPreviewDependencyHostNodePaths,
   resolvePreviewDependencies,
   type PreviewDependencyResolutionDiagnostic,
 } from "@/lib/preview-dependency-provider";
@@ -265,7 +266,10 @@ export const __previewProps = PREVIEW_PROPS;
       passThroughBareImports,
       path.join(tmpDir, bundleAliasRoot),
     );
-    const previewNodePaths = resolvePreviewNodePaths();
+    const appRequire = Module.createRequire(
+      path.join(process.cwd(), "package.json"),
+    );
+    const previewNodePaths = getPreviewDependencyHostNodePaths(appRequire);
 
     const result = await esbuild.build({
       entryPoints: [entryPath],
@@ -926,18 +930,6 @@ function isNodeBuiltinImport(spec: string, builtinModules: Set<string>) {
   const idx = spec.indexOf("/");
   const root = idx === -1 ? spec : spec.slice(0, idx);
   return builtinModules.has(root);
-}
-
-function resolvePreviewNodePaths() {
-  const appRequire = Module.createRequire(
-    path.join(process.cwd(), "package.json"),
-  );
-  const candidates = [
-    path.join(process.cwd(), "node_modules"),
-    path.dirname(appRequire.resolve("react/package.json")),
-  ];
-
-  return Array.from(new Set(candidates));
 }
 
 async function collectPassThroughBareImports(

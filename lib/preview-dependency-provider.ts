@@ -30,6 +30,27 @@ const DEFAULT_PROVIDER_ROOT = path.join(
   "cozy-preview-dependency-provider",
 );
 
+/**
+ * Directories used as `paths` hints for resolving preview dependencies on the host.
+ * Matches the same host hints as registry preview smoke / esbuild (`react` package dir + cwd `node_modules`).
+ * sees the same layout as the esbuild `nodePaths` merge (pnpm / traced bundles often need the
+ * react package directory, not only `cwd/node_modules`).
+ */
+export function getPreviewDependencyHostNodePaths(
+  appRequire: NodeJS.Require = Module.createRequire(
+    path.join(process.cwd(), "package.json"),
+  ),
+): string[] {
+  const candidates = [path.join(process.cwd(), "node_modules")];
+  try {
+    const reactPkgJson = appRequire.resolve("react/package.json");
+    candidates.push(path.dirname(reactPkgJson));
+  } catch {
+    /* react may be absent in exotic test harnesses */
+  }
+  return Array.from(new Set(candidates));
+}
+
 export async function resolvePreviewDependencies(params: {
   decisions: DependencyDecision[];
 }): Promise<{
@@ -40,11 +61,12 @@ export async function resolvePreviewDependencies(params: {
   const appRequire = Module.createRequire(
     path.join(process.cwd(), "package.json"),
   );
+  const hostNodePaths = getPreviewDependencyHostNodePaths(appRequire);
   const byName = new Map(
     params.decisions.map((decision) => [decision.packageName, decision]),
   );
   const packageNames = getPrebundleDependencies(params.decisions);
-  const nodePathSet = new Set<string>([path.join(process.cwd(), "node_modules")]);
+  const nodePathSet = new Set<string>(hostNodePaths);
   const resolutions: PreviewDependencyResolution[] = [];
   const diagnostics: PreviewDependencyResolutionDiagnostic[] = [];
 
@@ -57,6 +79,7 @@ export async function resolvePreviewDependencies(params: {
       appRequire,
       packageName,
       requestedVersion,
+      hostNodePaths,
     });
 
     if (providerResolution) {
@@ -69,6 +92,7 @@ export async function resolvePreviewDependencies(params: {
       appRequire,
       packageName,
       requestedVersion,
+      hostNodePaths,
     });
     resolutions.push(hostResolution);
     nodePathSet.add(hostResolution.moduleSearchPath);
@@ -123,6 +147,7 @@ async function ensureProviderResolution(input: {
   appRequire: NodeJS.Require;
   packageName: string;
   requestedVersion: string;
+  hostNodePaths: string[];
 }): Promise<PreviewDependencyResolution | null> {
   const providerRoot = getPreviewDependencyProviderRoot();
   const existing = await tryResolveFromProvider({
@@ -137,6 +162,7 @@ async function ensureProviderResolution(input: {
     packageName: input.packageName,
     requestedVersion: input.requestedVersion,
     providerRoot,
+    hostNodePaths: input.hostNodePaths,
   });
   if (!seeded) return null;
 
@@ -151,8 +177,20 @@ async function resolveFromHost(input: {
   appRequire: NodeJS.Require;
   packageName: string;
   requestedVersion: string;
+  hostNodePaths: string[];
 }): Promise<PreviewDependencyResolution> {
-  const entryPath = input.appRequire.resolve(input.packageName);
+  let entryPath: string;
+  try {
+    entryPath = input.appRequire.resolve(input.packageName);
+  } catch (primary) {
+    try {
+      entryPath = input.appRequire.resolve(input.packageName, {
+        paths: input.hostNodePaths,
+      });
+    } catch {
+      throw primary;
+    }
+  }
   const packageJsonPath = await findNearestPackageJson(entryPath);
   if (!packageJsonPath) {
     throw new Error(
@@ -184,6 +222,7 @@ async function seedProviderFromHost(input: {
   packageName: string;
   requestedVersion: string;
   providerRoot: string;
+  hostNodePaths: string[];
 }): Promise<boolean> {
   if (!isExactVersion(input.requestedVersion)) {
     return false;
@@ -193,6 +232,7 @@ async function seedProviderFromHost(input: {
     appRequire: input.appRequire,
     packageName: input.packageName,
     requestedVersion: input.requestedVersion,
+    hostNodePaths: input.hostNodePaths,
   });
   const hostManifest = await readPackageManifest(hostResolution.packageJsonPath);
   if (hostManifest.version !== input.requestedVersion) {
