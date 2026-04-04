@@ -1,8 +1,10 @@
-import type { PreviewStory } from "@/lib/preview-stories";
+type PreviewStoryLike = {
+  id: string;
+};
 
 export function resolveSelectedPreviewStoryId(input: {
   currentStoryId: string | null;
-  stories: PreviewStory[];
+  stories: PreviewStoryLike[];
   defaultStoryId: string | null;
 }) {
   const normalizedCurrent = input.currentStoryId?.trim() || null;
