@@ -446,7 +446,7 @@ export async function getRegistryItemByOwnerProjectName(
   );
   if (!project) return null;
 
-  const [item] = await db
+  let [item] = await db
     .select()
     .from(registryItems)
     .where(
@@ -457,6 +457,31 @@ export async function getRegistryItemByOwnerProjectName(
     )
     .orderBy(desc(registryItems.createdAt))
     .limit(1);
+
+  // Transitional fallback for items that are still attached to a project via
+  // registry_project_items but have not yet been rewritten to canonicalProjectId.
+  if (!item) {
+    const [linked] = await db
+      .select({ itemId: registryItems.id })
+      .from(registryProjectItems)
+      .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
+      .where(
+        and(
+          eq(registryProjectItems.projectId, project.id),
+          eq(registryItems.name, name),
+        ),
+      )
+      .orderBy(desc(registryItems.createdAt))
+      .limit(1);
+
+    if (linked) {
+      [item] = await db
+        .select()
+        .from(registryItems)
+        .where(eq(registryItems.id, linked.itemId))
+        .limit(1);
+    }
+  }
 
   if (!item || !isRegistryItemDirectlyResolvableStatus(item.status)) return null;
   if (item.visibility === "private") {
