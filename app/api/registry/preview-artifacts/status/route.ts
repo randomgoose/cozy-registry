@@ -96,6 +96,7 @@ export async function GET(request: Request) {
         itemVersionId: itemVersion.id,
         payload: {
           owner,
+          project,
           name,
           version: effectiveVersion,
           mode,

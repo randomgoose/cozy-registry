@@ -162,6 +162,7 @@ export function buildRegistryAssetPath(params: {
 
 export function buildRegistryPreviewArtifactPath(params: {
   owner: string;
+  project?: string | null;
   itemName: string;
   version: string;
   mode: "default" | "thumbnail";
@@ -171,6 +172,7 @@ export function buildRegistryPreviewArtifactPath(params: {
   return [
     "registry-preview-artifacts",
     params.owner,
+    params.project?.trim() || "_",
     params.itemName,
     "versions",
     params.version,

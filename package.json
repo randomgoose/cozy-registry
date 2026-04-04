@@ -13,6 +13,7 @@
     "cozy-thumbnail-debug": "tsx bin/cozy-thumbnail-debug.ts",
     "cozy-thumbnail-requeue-all": "tsx bin/cozy-thumbnail-requeue-all.ts",
     "cozy-thumbnail-worker": "tsx bin/cozy-thumbnail-worker.ts",
+    "cozy-preview-artifact-requeue-problematic": "tsx bin/cozy-preview-artifact-requeue-problematic.ts",
     "cozy-preview-artifact-worker": "tsx bin/cozy-preview-artifact-worker.ts",
     "dev": "next dev",
     "build": "next build",
@@ -43,6 +44,8 @@
     "cozy-thumbnail-worker:prod": "tsx bin/run-with-env.ts prod tsx bin/cozy-thumbnail-worker.ts",
     "cozy-preview-artifact-worker:dev": "tsx bin/run-with-env.ts dev tsx bin/cozy-preview-artifact-worker.ts",
     "cozy-preview-artifact-worker:prod": "tsx bin/run-with-env.ts prod tsx bin/cozy-preview-artifact-worker.ts",
+    "cozy-preview-artifact-requeue-problematic:dev": "tsx bin/run-with-env.ts dev tsx bin/cozy-preview-artifact-requeue-problematic.ts",
+    "cozy-preview-artifact-requeue-problematic:prod": "tsx bin/run-with-env.ts prod tsx bin/cozy-preview-artifact-requeue-problematic.ts",
     "cozy-thumbnail-requeue-all:dev": "tsx bin/run-with-env.ts dev tsx bin/cozy-thumbnail-requeue-all.ts",
     "cozy-thumbnail-requeue-all:prod": "tsx bin/run-with-env.ts prod tsx bin/cozy-thumbnail-requeue-all.ts",
     "prepare": "husky"

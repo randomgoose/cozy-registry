@@ -459,6 +459,7 @@ export async function GET(
           itemVersionId: itemVersion.id,
           payload: {
             owner,
+            project,
             name,
             version: effectiveVersion,
             mode: previewMode,

@@ -82,6 +82,7 @@ describe("preview artifact status route", () => {
       itemVersionId: "version-1",
       payload: {
         owner: "indeed-cozy",
+        project: null,
         name: "button",
         version: "1.2.3",
         mode: "default",

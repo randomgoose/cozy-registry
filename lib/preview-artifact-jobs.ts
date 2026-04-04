@@ -6,7 +6,7 @@ import {
 } from "@/lib/db/schema";
 import { sha256, stableStringify } from "@/lib/preview-build-cache";
 import {
-  getRegistryItemByOwnerNameAndVersion,
+  getRegistryItemByScopedIdentityAndVersion,
   toShadcnRegistryItem,
 } from "@/lib/registry";
 import { extractDependencies } from "@/lib/validate-tsx";
@@ -35,6 +35,7 @@ export const BUILD_PREVIEW_ARTIFACT_JOB = "build_preview_artifact" as const;
 
 type PreviewArtifactJobPayload = {
   owner: string;
+  project?: string | null;
   name: string;
   version: string;
   mode: "default" | "thumbnail";
@@ -47,6 +48,7 @@ export function buildPreviewArtifactKey(input: {
   itemId: string;
   itemVersionId: string;
   owner: string;
+  project?: string | null;
   name: string;
   version: string;
   mode: "default" | "thumbnail";
@@ -95,9 +97,10 @@ export async function enqueuePreviewArtifactJob(params: {
   const artifactKey = buildPreviewArtifactKey({
     itemId: params.itemId,
     itemVersionId: params.itemVersionId,
-    owner: params.payload.owner,
-    name: params.payload.name,
-    version: params.payload.version,
+      owner: params.payload.owner,
+      project: params.payload.project?.trim() || null,
+      name: params.payload.name,
+      version: params.payload.version,
     mode: params.payload.mode,
     storyId: normalizedStoryId,
   });
@@ -210,6 +213,7 @@ export async function enqueueWarmPreviewArtifacts(params: {
   itemId: string;
   itemVersionId: string;
   owner: string;
+  project?: string | null;
   name: string;
   version: string;
   requestUserId: string | null;
@@ -223,6 +227,7 @@ export async function enqueueWarmPreviewArtifacts(params: {
         itemVersionId: params.itemVersionId,
         payload: {
           owner: params.owner,
+          project: params.project ?? null,
           name: params.name,
           version: params.version,
           mode: target.mode,
@@ -322,6 +327,7 @@ export async function processPreviewArtifactJob(jobId: string) {
 
   const payload = (job.payload ?? {}) as PreviewArtifactJobPayload;
   const normalizedStoryId = payload.storyId?.trim() || "";
+  const normalizedProjectKey = payload.project?.trim() || null;
   const mode = payload.mode === "thumbnail" ? "thumbnail" : "default";
   const artifactKey =
     typeof payload.artifactKey === "string" && payload.artifactKey.trim().length > 0
@@ -330,6 +336,7 @@ export async function processPreviewArtifactJob(jobId: string) {
           itemId: job.itemId,
           itemVersionId: job.itemVersionId ?? "",
           owner: payload.owner,
+          project: normalizedProjectKey,
           name: payload.name,
           version: payload.version,
           mode,
@@ -348,15 +355,20 @@ export async function processPreviewArtifactJob(jobId: string) {
     .where(eq(registryPreviewArtifacts.artifactKey, artifactKey));
 
   try {
-    const item = await getRegistryItemByOwnerNameAndVersion(
-      payload.owner,
-      payload.name,
-      payload.version,
-      payload.requestUserId,
-    );
+    const item = await getRegistryItemByScopedIdentityAndVersion({
+      ownerId: payload.owner,
+      projectKey: normalizedProjectKey,
+      name: payload.name,
+      version: payload.version,
+      requestUserId: payload.requestUserId,
+    });
     if (!item) {
       throw new Error(
-        `Registry item not found: @${payload.owner}/${payload.name}@${payload.version}`,
+        `Registry item not found: @${
+          normalizedProjectKey
+            ? `${payload.owner}/${normalizedProjectKey}/${payload.name}`
+            : `${payload.owner}/${payload.name}`
+        }@${payload.version}`,
       );
     }
 
@@ -472,6 +484,7 @@ export async function processPreviewArtifactJob(jobId: string) {
 
     const jsPath = buildRegistryPreviewArtifactPath({
       owner: payload.owner,
+      project: normalizedProjectKey,
       itemName: payload.name,
       version: payload.version,
       mode,
@@ -490,6 +503,7 @@ export async function processPreviewArtifactJob(jobId: string) {
     if (buildResult.css && buildResult.css.trim().length > 0) {
       const cssPath = buildRegistryPreviewArtifactPath({
         owner: payload.owner,
+        project: normalizedProjectKey,
         itemName: payload.name,
         version: payload.version,
         mode,
@@ -521,6 +535,7 @@ export async function processPreviewArtifactJob(jobId: string) {
     };
     const manifestPath = buildRegistryPreviewArtifactPath({
       owner: payload.owner,
+      project: normalizedProjectKey,
       itemName: payload.name,
       version: payload.version,
       mode,

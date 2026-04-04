@@ -3113,6 +3113,7 @@ ${fileContent}
           itemVersionId: result.id,
           payload: {
             owner: orgRef ?? ((await resolveOwner(existing.userId ?? userId))?.handle ?? "legacy"),
+            project: existing.canonicalProjectKey ?? canonicalProjectForLink.project?.namespaceKey ?? null,
             name: existing.name,
             version: result.version,
             mode: "default",
@@ -3326,6 +3327,7 @@ ${fileContent}
           itemVersionId: initialVersionId,
           payload: {
             owner: createOwner,
+            project: item.canonicalProjectKey ?? canonicalProjectForLink.project?.namespaceKey ?? null,
             name: item.name,
             version: item.currentVersion ?? "0.1.0",
             mode: "default",

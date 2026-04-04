@@ -1330,6 +1330,7 @@ export async function createRegistryItemVersion(params: {
       itemId: item.id,
       itemVersionId: itemVersion.id,
       owner: ownerLabelForThumb,
+      project: item.canonicalProjectKey ?? null,
       name: params.name,
       version: nextVersion,
       requestUserId: params.userId,
@@ -1750,6 +1751,7 @@ export async function createRegistryItem(data: {
         itemId: item.id,
         itemVersionId: itemVersion.id,
         owner: thumbOwner,
+        project: item.canonicalProjectKey ?? null,
         name: data.name,
         version: INITIAL_VERSION,
         requestUserId: data.requestUserId ?? data.userId ?? null,
@@ -2168,6 +2170,7 @@ export async function copyOrMoveRegistryItemToOrganization(params: {
     itemVersionId: targetVersion.id,
     payload: {
       owner: targetOwnerRef,
+      project: targetItem.canonicalProjectKey ?? null,
       name: targetItem.name,
       version: currentVersion,
       mode: "default",

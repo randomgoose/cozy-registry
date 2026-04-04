@@ -1,10 +1,36 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildPreviewArtifactKey,
   buildWarmPreviewArtifactTargets,
   formatRuntimeOnlyDependencySkipMessage,
 } from "@/lib/preview-artifact-jobs";
 
 describe("preview-artifact-jobs", () => {
+  it("includes project scope in the artifact key", () => {
+    const designSystemKey = buildPreviewArtifactKey({
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      owner: "indeed-cozy",
+      project: "design-system",
+      name: "button",
+      version: "0.1.1",
+      mode: "default",
+      storyId: null,
+    });
+    const dashboardKey = buildPreviewArtifactKey({
+      itemId: "item-2",
+      itemVersionId: "version-2",
+      owner: "indeed-cozy",
+      project: "dashboard",
+      name: "button",
+      version: "0.1.1",
+      mode: "default",
+      storyId: null,
+    });
+
+    expect(designSystemKey).not.toBe(dashboardKey);
+  });
+
   it("builds warm targets for default and declared stories", () => {
     const targets = buildWarmPreviewArtifactTargets({
       previewDefaultStoryId: "destructive",
