@@ -645,6 +645,11 @@ root.render(
       outfile: "preview.js",
       target: ["es2018"],
       sourcemap: debugEnabled ? "inline" : false,
+      define: {
+        "process.env.NODE_ENV": JSON.stringify(
+          debugEnabled ? "development" : "production",
+        ),
+      },
       plugins: [bundleAliasPlugin, cssPlugin, figmaAssetPlugin],
       nodePaths: previewNodePaths,
       // React 相关始终由 runtime import map 提供

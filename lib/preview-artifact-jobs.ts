@@ -34,6 +34,12 @@ import {
 import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
 import { isBarePackageSpecifier } from "@/lib/module-specifiers";
 
+/** 公开存储路径按 artifactKey 固定为 preview.js，长期 Cache-Control 会留下陈旧内容；用内容哈希 bust 浏览器/CDN。 */
+function publicAssetUrlWithContentBust(url: string, body: string): string {
+  const id = sha256(body).replace(/^sha256:/, "").slice(0, 16);
+  return `${url}${url.includes("?") ? "&" : "?"}v=${id}`;
+}
+
 export const BUILD_PREVIEW_ARTIFACT_JOB = "build_preview_artifact" as const;
 
 type PreviewArtifactJobPayload = {
@@ -497,6 +503,10 @@ export async function processPreviewArtifactJob(jobId: string) {
       cacheControl: "31536000",
       assetType: "preview-artifact",
     });
+    const jsUrlForClients = publicAssetUrlWithContentBust(
+      uploadedJs.url,
+      buildResult.code,
+    );
 
     let uploadedCssUrl: string | null = null;
     if (buildResult.css && buildResult.css.trim().length > 0) {
@@ -516,7 +526,10 @@ export async function processPreviewArtifactJob(jobId: string) {
         cacheControl: "31536000",
         assetType: "preview-artifact",
       });
-      uploadedCssUrl = uploadedCss.url;
+      uploadedCssUrl = publicAssetUrlWithContentBust(
+        uploadedCss.url,
+        buildResult.css,
+      );
     }
 
     const manifest = {
@@ -527,7 +540,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       storyId: normalizedStoryId,
       artifactKey,
       generatedAt: new Date().toISOString(),
-      jsUrl: uploadedJs.url,
+      jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
       dependencyResolutionDiagnostics:
         buildResult.dependencyResolutionDiagnostics ?? [],
@@ -553,7 +566,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       .update(registryPreviewArtifacts)
       .set({
         status: "ready",
-        jsUrl: uploadedJs.url,
+        jsUrl: jsUrlForClients,
         cssUrl: uploadedCssUrl,
         manifestUrl: uploadedManifest.url,
         finishedAt: new Date(),
@@ -566,7 +579,7 @@ export async function processPreviewArtifactJob(jobId: string) {
     return {
       ok: true as const,
       artifactKey,
-      jsUrl: uploadedJs.url,
+      jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
       manifestUrl: uploadedManifest.url,
     };
