@@ -18,8 +18,8 @@ import {
   evaluateThirdPartyDependencies,
   excludeExplicitRegistryDependencies,
   getDependencyDisplayName,
-  getPrebundleDependencies,
   getRejectedDependencyDecisions,
+  getRuntimePreviewDependencies,
   readDeclaredThirdPartyDependenciesFromMeta,
 } from "@/lib/third-party-dependency-governance";
 import {
@@ -459,14 +459,13 @@ export async function processPreviewArtifactJob(jobId: string) {
         name: payload.name,
         version: payload.version,
         files,
-        dependencies: getPrebundleDependencies(dependencyDecisions),
+        dependencies: getRuntimePreviewDependencies(dependencyDecisions),
         previewExport,
       },
       previewProps,
       {
         mode,
         debug: false,
-        externalizeDependencies: false,
         dependencyNodePaths: resolvedPreviewDependencies.nodePaths,
         dependencyResolutionDiagnostics:
           resolvedPreviewDependencies.diagnostics,

@@ -653,7 +653,7 @@ root.render(
         "react-dom",
         "react-dom/client",
         "react/jsx-runtime",
-        // 默认将依赖 external 给 import map；artifact 预构建可关闭以固化依赖
+        // 默认将依赖 external 给 import map（与浏览器 ESM + import map 一致；勿内联 CJS 子依赖）
         ...(externalizeDependencies ? (bundle.dependencies ?? []) : []),
       ],
       logLevel: "silent",
