@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   registryFileVersions,
@@ -34,6 +34,7 @@ import {
 } from "@/lib/preview-stories";
 import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
 import { isBarePackageSpecifier } from "@/lib/module-specifiers";
+import { buildArtifactPreviewHtml } from "@/lib/preview-artifact-html";
 
 /** 公开存储路径按 artifactKey 固定为 preview.js，长期 Cache-Control 会留下陈旧内容；用内容哈希 bust 浏览器/CDN。 */
 function publicAssetUrlWithContentBust(url: string, body: string): string {
@@ -325,6 +326,67 @@ export async function getPreviewArtifactStatus(params: {
   return row ?? null;
 }
 
+/**
+ * Single joined query for the fast path: items → versions → artifacts.
+ * Bypasses the multi-query item loader when we only need the artifact HTML.
+ * Returns null if no matching artifact exists or the item isn't accessible.
+ */
+export async function lookupPreviewArtifactFast(params: {
+  ownerUserId?: string | null;
+  organizationId?: string | null;
+  name: string;
+  projectKey?: string | null;
+  version: string;
+  mode: "default" | "thumbnail";
+  storyId: string;
+}) {
+  const ownerConditions = [];
+  if (params.ownerUserId) {
+    ownerConditions.push(eq(registryItems.userId, params.ownerUserId));
+  }
+  if (params.organizationId) {
+    ownerConditions.push(eq(registryItems.organizationId, params.organizationId));
+  }
+  if (ownerConditions.length === 0) return null;
+
+  const ownerFilter =
+    ownerConditions.length === 1 ? ownerConditions[0] : or(...ownerConditions);
+
+  const projectFilter = params.projectKey
+    ? eq(registryItems.canonicalProjectKey, params.projectKey)
+    : undefined;
+
+  const [row] = await db
+    .select({
+      htmlUrl: registryPreviewArtifacts.htmlUrl,
+      status: registryPreviewArtifacts.status,
+      artifactCapability: registryPreviewArtifacts.artifactCapability,
+      itemType: registryItems.type,
+    })
+    .from(registryPreviewArtifacts)
+    .innerJoin(
+      registryItemVersions,
+      eq(registryPreviewArtifacts.itemVersionId, registryItemVersions.id),
+    )
+    .innerJoin(
+      registryItems,
+      eq(registryItemVersions.itemId, registryItems.id),
+    )
+    .where(
+      and(
+        ownerFilter,
+        eq(registryItems.name, params.name),
+        projectFilter,
+        eq(registryItemVersions.version, params.version),
+        eq(registryPreviewArtifacts.mode, params.mode),
+        eq(registryPreviewArtifacts.storyId, params.storyId),
+      ),
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
 export async function claimPendingPreviewArtifactJob() {
   const [pending] = await db
     .select()
@@ -545,6 +607,7 @@ export async function processPreviewArtifactJob(jobId: string) {
         dependencyNodePaths: resolvedPreviewDependencies.nodePaths,
         dependencyResolutionDiagnostics:
           resolvedPreviewDependencies.diagnostics,
+        useInjectedRuntime: true,
       },
     );
 
@@ -634,6 +697,33 @@ export async function processPreviewArtifactJob(jobId: string) {
       assetType: "preview-artifact",
     });
 
+    const previewHtml = buildArtifactPreviewHtml({
+      jsUrl: jsUrlForClients,
+      cssUrl: uploadedCssUrl,
+      compatibleExternals: resolvedPreviewDependencies.plan.compatibleExternals,
+      mode,
+    });
+    const htmlPath = buildRegistryPreviewArtifactPath({
+      owner: payload.owner,
+      project: normalizedProjectKey,
+      itemName: payload.name,
+      version: payload.version,
+      mode,
+      artifactKey,
+      filename: "preview.html",
+    });
+    const uploadedHtml = await uploadPublicAsset({
+      path: htmlPath,
+      body: previewHtml,
+      contentType: "text/html; charset=utf-8",
+      cacheControl: "31536000",
+      assetType: "preview-artifact",
+    });
+    const htmlUrlForClients = publicAssetUrlWithContentBust(
+      uploadedHtml.url,
+      previewHtml,
+    );
+
     await db
       .update(registryPreviewArtifacts)
       .set({
@@ -642,6 +732,7 @@ export async function processPreviewArtifactJob(jobId: string) {
         jsUrl: jsUrlForClients,
         cssUrl: uploadedCssUrl,
         manifestUrl: uploadedManifest.url,
+        htmlUrl: htmlUrlForClients,
         finishedAt: new Date(),
         lastErrorCode: null,
         lastErrorMessage: null,
@@ -655,6 +746,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
       manifestUrl: uploadedManifest.url,
+      htmlUrl: htmlUrlForClients,
     };
   } catch (error) {
     const message =

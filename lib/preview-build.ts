@@ -170,6 +170,7 @@ export async function buildPreviewBundle(
     externalizeDependencies?: boolean;
     dependencyNodePaths?: string[];
     dependencyResolutionDiagnostics?: PreviewDependencyResolutionDiagnostic[];
+    useInjectedRuntime?: boolean;
   },
 ): Promise<PreviewBuildResult> {
   // 注意：为了避免 Next.js 在服务器 bundle 时把 esbuild 的可执行文件等一起打包，
@@ -241,6 +242,7 @@ export async function buildPreviewBundle(
     const mode = options?.mode === "thumbnail" ? "thumbnail" : "default";
     const debugEnabled = options?.debug === true;
     const externalizeDependencies = options?.externalizeDependencies !== false;
+    const useInjectedRuntime = options?.useInjectedRuntime === true;
     const previewHints = JSON.stringify({
       previewExport:
         typeof bundle.previewExport === "string" && bundle.previewExport.trim()
@@ -249,7 +251,12 @@ export async function buildPreviewBundle(
       pascal: slugToPascalExportName(bundle.name),
       camel: slugToCamelExportName(bundle.name),
     });
-    const previewEntryContent = `import React from "react";
+
+    const previewEntryContent = useInjectedRuntime
+      ? `import * as Mod from "./index";
+window.__cozy_render(Mod, ${previewHints}, ${serializedProps}, { mode: ${JSON.stringify(mode)}, debug: ${JSON.stringify(debugEnabled)} });
+`
+      : `import React from "react";
 import { createRoot } from "react-dom/client";
 import * as Mod from "./index";
 

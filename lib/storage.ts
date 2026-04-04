@@ -167,7 +167,7 @@ export function buildRegistryPreviewArtifactPath(params: {
   version: string;
   mode: "default" | "thumbnail";
   artifactKey: string;
-  filename: "preview.js" | "preview.css" | "manifest.json";
+  filename: "preview.js" | "preview.css" | "manifest.json" | "preview.html";
 }) {
   return [
     "registry-preview-artifacts",

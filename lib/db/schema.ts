@@ -480,6 +480,7 @@ export const registryPreviewArtifacts = pgTable(
     jsUrl: text("js_url"),
     cssUrl: text("css_url"),
     manifestUrl: text("manifest_url"),
+    htmlUrl: text("html_url"),
     lastErrorCode: text("last_error_code"),
     lastErrorMessage: text("last_error_message"),
     startedAt: timestamp("started_at"),

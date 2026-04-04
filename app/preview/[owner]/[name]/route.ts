@@ -43,8 +43,11 @@ import {
   enqueuePreviewArtifactJob,
   formatRuntimeOnlyDependencySkipMessage,
   inferPreviewArtifactCapability,
+  lookupPreviewArtifactFast,
   type PreviewArtifactCapability,
 } from "@/lib/preview-artifact-jobs";
+import { resolveOwner } from "@/lib/owner";
+import { resolveOrganizationBySlug } from "@/lib/registry-organization";
 import { pickPreviewStory } from "@/lib/preview-stories";
 import {
   evaluateThirdPartyDependencies,
@@ -359,6 +362,54 @@ export async function GET(
   const userId = session?.user?.id ?? (await getUserIdFromToken(request));
   timings.mark("session", stepStartedAt);
 
+  if (version && !debug && !allowInlineFallback) {
+    stepStartedAt = performance.now();
+    try {
+      let ownerUserId: string | null = null;
+      let organizationId: string | null = null;
+      const resolved = await resolveOwner(owner);
+      if (resolved) {
+        ownerUserId = resolved.userId;
+      } else {
+        const org = await resolveOrganizationBySlug(owner);
+        if (org) organizationId = org.id;
+      }
+
+      if (ownerUserId || organizationId) {
+        const normalizedStoryId = requestedStoryId ?? "";
+        const fastResult = await lookupPreviewArtifactFast({
+          ownerUserId,
+          organizationId,
+          name,
+          projectKey: project,
+          version,
+          mode: previewMode,
+          storyId: normalizedStoryId,
+        });
+
+        if (
+          fastResult?.htmlUrl &&
+          fastResult.status === "ready" &&
+          fastResult.itemType !== "registry:theme"
+        ) {
+          const htmlRes = await fetch(fastResult.htmlUrl, { next: { revalidate: 600 } });
+          if (htmlRes.ok) {
+            timings.mark("fastPathHtmlServe", stepStartedAt);
+            return new NextResponse(await htmlRes.text(), {
+              headers: {
+                "Content-Type": "text/html; charset=utf-8",
+                "Cache-Control": CACHE_IMMUTABLE,
+              },
+            });
+          }
+        }
+      }
+    } catch {
+      // Fall through to legacy path
+    }
+    timings.mark("fastPathAttempt", stepStartedAt);
+  }
+
   stepStartedAt = performance.now();
   const item = await getRegistryItemByScopedIdentityAndVersion({
     ownerId: owner,
@@ -419,6 +470,7 @@ export async function GET(
   let artifactJsUrl: string | null = null;
   let artifactCssUrl: string | null = null;
   let artifactManifestUrl: string | null = null;
+  let artifactHtmlUrl: string | null = null;
   let artifactErrorMessage: string | null = null;
   stepStartedAt = performance.now();
   try {
@@ -440,6 +492,7 @@ export async function GET(
           jsUrl: registryPreviewArtifacts.jsUrl,
           cssUrl: registryPreviewArtifacts.cssUrl,
           manifestUrl: registryPreviewArtifacts.manifestUrl,
+          htmlUrl: registryPreviewArtifacts.htmlUrl,
           lastErrorMessage: registryPreviewArtifacts.lastErrorMessage,
         })
         .from(registryPreviewArtifacts)
@@ -462,6 +515,7 @@ export async function GET(
         artifactJsUrl = artifact.jsUrl;
         artifactCssUrl = artifact.cssUrl ?? null;
         artifactManifestUrl = artifact.manifestUrl ?? null;
+        artifactHtmlUrl = artifact.htmlUrl ?? null;
       } else if (artifact) {
         artifactCapability = inferPreviewArtifactCapability({
           storedCapability: artifact.artifactCapability,
@@ -576,6 +630,23 @@ export async function GET(
       return new NextResponse(html, {
         headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": CACHE_NONE },
       });
+    }
+  }
+
+  if (artifactHit && artifactHtmlUrl && item.type !== "registry:theme") {
+    try {
+      const htmlRes = await fetch(artifactHtmlUrl, { next: { revalidate: 600 } });
+      if (htmlRes.ok) {
+        const html = await htmlRes.text();
+        return new NextResponse(html, {
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": CACHE_IMMUTABLE,
+          },
+        });
+      }
+    } catch {
+      // Fall through to legacy dynamic assembly path
     }
   }
 
