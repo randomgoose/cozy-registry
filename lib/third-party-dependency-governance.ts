@@ -1,4 +1,11 @@
 import type { DeclaredThirdPartyDependency } from "@/lib/third-party-dependency-input";
+import type { DependencyDecision } from "@/lib/dependency-diagnostics";
+import {
+  getDependencyDisplayName,
+  type DependencyTier,
+  type PreviewCapability,
+  type VersionPolicyStatus,
+} from "@/lib/dependency-diagnostics";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 import {
   BLOCKED_THIRD_PARTY_DEPENDENCIES,
@@ -8,32 +15,13 @@ import {
   TRUSTED_BUILT_IN_NAMESPACE_PREFIXES,
 } from "@/lib/third-party-dependency-catalog";
 
-export type DependencyTier =
-  | "runtime-provided"
-  | "trusted-built-in"
-  | "soft-allowed"
-  | "rejected";
-
-export type PreviewCapability =
-  | "runtime-only"
-  | "prebundle-supported"
-  | "blocked";
-
-export type VersionPolicyStatus =
-  | "accepted"
-  | "unknown"
-  | "rejected";
-
-export type DependencyDecision = {
-  importSpecifier?: string;
-  packageName: string;
-  requestedVersion: string | null;
-  tier: DependencyTier;
-  previewCapability: PreviewCapability;
-  versionPolicyStatus: VersionPolicyStatus;
-  message: string;
-  reasonCode?: string;
-};
+export type {
+  DependencyDecision,
+  DependencyTier,
+  PreviewCapability,
+  VersionPolicyStatus,
+} from "@/lib/dependency-diagnostics";
+export { getDependencyDisplayName } from "@/lib/dependency-diagnostics";
 
 export type DependencySnapshot = {
   version: 1;
@@ -180,12 +168,6 @@ export function hasRuntimeOnlyDependencies(decisions: DependencyDecision[]) {
 
 export function getRejectedDependencyDecisions(decisions: DependencyDecision[]) {
   return decisions.filter((decision) => decision.previewCapability === "blocked");
-}
-
-export function getDependencyDisplayName(
-  decision: Pick<DependencyDecision, "packageName" | "importSpecifier">,
-) {
-  return decision.importSpecifier?.trim() || decision.packageName;
 }
 
 export function canonicalizeThirdPartyPackageSpecifier(specifier: string) {

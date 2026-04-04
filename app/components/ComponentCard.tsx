@@ -44,7 +44,7 @@ import {
 import {
   getDependencyDisplayName,
   type DependencyDecision,
-} from "@/lib/third-party-dependency-governance";
+} from "@/lib/dependency-diagnostics";
 import { filterControllableProps } from "@/lib/preview-prop-controls";
 import { cn } from "@/lib/utils";
 import { extractPropsFromTsx, type PropField } from "@/lib/validate-tsx";

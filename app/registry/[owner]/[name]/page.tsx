@@ -14,6 +14,7 @@ import {
   getPreviewDefaultStoryIdFromMeta,
   getPreviewStoriesFromMeta,
 } from "@/lib/preview-stories";
+import type { DependencyDecision } from "@/lib/dependency-diagnostics";
 import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-governance";
 import { extractPropsFromTsx } from "@/lib/validate-tsx";
 import { isBarePackageSpecifier } from "@/lib/module-specifiers";
@@ -98,6 +99,10 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
     process.env.NEXT_PUBLIC_APP_URL ??
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
 
+  const dependencyDiagnostics: DependencyDecision[] = readDependencyDecisionsFromMeta(
+    item.meta,
+  );
+
   return (
     <ComponentDetail
       owner={canonicalOwner}
@@ -118,7 +123,7 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
       versions={versions}
       isOwner={item.userId === requestUserId}
       dependencies={dependencies}
-      dependencyDiagnostics={readDependencyDecisionsFromMeta(item.meta)}
+      dependencyDiagnostics={dependencyDiagnostics}
       registryDependencies={registryDependencies}
       propsFromCode={propsFromCode}
       previewStories={getPreviewStoriesFromMeta(item.meta)}

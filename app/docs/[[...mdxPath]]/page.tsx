@@ -10,13 +10,13 @@ type PageProps = {
 
 export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const params = await props.params;
-  const result = await importPage(["docs", ...(params.mdxPath ?? [])]);
+  const result = await importPage(params.mdxPath ?? []);
   return result.metadata;
 }
 
 export default async function DocsCatchAllPage(props: PageProps) {
   const params = await props.params;
-  const result = await importPage(["docs", ...(params.mdxPath ?? [])]);
+  const result = await importPage(params.mdxPath ?? []);
   const { default: MDXContent, toc, metadata, sourceCode } = result;
   const Wrapper = getMDXComponents({}).wrapper;
 

@@ -25,7 +25,7 @@ import type { PropField } from "@/lib/validate-tsx";
 import {
   getDependencyDisplayName,
   type DependencyDecision,
-} from "@/lib/third-party-dependency-governance";
+} from "@/lib/dependency-diagnostics";
 import { ThemeTokensTable } from "./ThemeTokensTable";
 
 interface VersionInfo {
