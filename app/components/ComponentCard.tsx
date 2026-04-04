@@ -36,7 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PREVIEW_MSG_INITIAL_PROPS } from "@/lib/preview-messages";
-import { resolveSelectedPreviewStoryId } from "@/lib/preview-story-selection";
+import { resolveSelectedPreviewStoryId } from "@/app/components/preview-story-selection";
 import type { PreviewStory } from "@/lib/preview-stories";
 import {
   buildStoryPreviewArtifactStatusQuery,

@@ -17,7 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { PreviewStory } from "@/lib/preview-stories";
-import { resolveSelectedPreviewStoryId } from "@/lib/preview-story-selection";
+import { resolveSelectedPreviewStoryId } from "@/app/components/preview-story-selection";
 import {
   buildStoryPreviewArtifactStatusQuery,
   buildStoryPreviewPageUrl,

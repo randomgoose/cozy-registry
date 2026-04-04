@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveSelectedPreviewStoryId } from "@/lib/preview-story-selection";
+import { resolveSelectedPreviewStoryId } from "@/app/components/preview-story-selection";
 
 describe("preview story selection", () => {
   const stories = [
