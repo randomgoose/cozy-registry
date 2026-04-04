@@ -1,4 +1,6 @@
 import nextra from "nextra";
+import fs from "node:fs";
+import path from "node:path";
 import {
   TRUSTED_BUILT_IN_DEPENDENCIES,
   TRUSTED_BUILT_IN_NAMESPACE_PREFIXES,
@@ -8,14 +10,62 @@ const withNextra = nextra({
   contentDirBasePath: "/docs",
 });
 
-function toTracingGlob(packageName: string) {
-  return `./node_modules/${packageName}/**/*`;
+function readInstalledTrustedPackages() {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
+  ) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+
+  const declaredPackages = new Set([
+    ...Object.keys(packageJson.dependencies ?? {}),
+    ...Object.keys(packageJson.devDependencies ?? {}),
+  ]);
+
+  return Array.from(declaredPackages).filter((packageName) => {
+    if (TRUSTED_BUILT_IN_DEPENDENCIES.includes(packageName as never)) return true;
+    return TRUSTED_BUILT_IN_NAMESPACE_PREFIXES.some((prefix) =>
+      packageName.startsWith(prefix),
+    );
+  });
 }
 
-function toNamespaceTracingGlob(prefix: string) {
-  const trimmed = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
-  return `./node_modules/${trimmed}/**/*`;
+function findPackageRootFromResolvedEntry(entryPath: string) {
+  let current = path.dirname(fs.realpathSync(entryPath));
+  const root = path.parse(current).root;
+
+  while (true) {
+    const candidate = path.join(current, "package.json");
+    if (fs.existsSync(candidate)) {
+      return current;
+    }
+    if (current === root) {
+      throw new Error(`Unable to locate package root for resolved entry: ${entryPath}`);
+    }
+    current = path.dirname(current);
+  }
 }
+
+function resolveTracingGlob(packageName: string) {
+  const tryPackageJson = () => {
+    try {
+      return require.resolve(`${packageName}/package.json`);
+    } catch {
+      return null;
+    }
+  };
+
+  const packageJsonPath = tryPackageJson();
+  const resolvedEntryPath = packageJsonPath ?? require.resolve(packageName);
+  const packageRoot = packageJsonPath
+    ? path.dirname(fs.realpathSync(packageJsonPath))
+    : findPackageRootFromResolvedEntry(resolvedEntryPath);
+  const relativeRoot = path.relative(process.cwd(), packageRoot).replaceAll("\\", "/");
+  return `./${relativeRoot}/**/*`;
+}
+
+const TRUSTED_TRACING_GLOBS = readInstalledTrustedPackages().map(resolveTracingGlob);
 
 const nextConfig = {
   async rewrites() {
@@ -26,10 +76,7 @@ const nextConfig = {
   },
   serverExternalPackages: ["esbuild"],
   outputFileTracingIncludes: {
-    "/*": [
-      ...TRUSTED_BUILT_IN_DEPENDENCIES.map(toTracingGlob),
-      ...TRUSTED_BUILT_IN_NAMESPACE_PREFIXES.map(toNamespaceTracingGlob),
-    ],
+    "/*": TRUSTED_TRACING_GLOBS,
   },
 };
 
