@@ -159,6 +159,20 @@ function themeSwatchSection(color: string, varName: string) {
     </section>`;
 }
 
+function buildEsmPreloadHints(devSuffix: string): string {
+  const react = `https://esm.sh/react@${PREVIEW_REACT_VERSION}${devSuffix}`;
+  const reactDom = `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}${devSuffix}`;
+  const reactDomClient = `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}/client${devSuffix}`;
+  const reactJsx = `https://esm.sh/react@${PREVIEW_REACT_VERSION}/jsx-runtime${devSuffix}`;
+  return [
+    `<link rel="preconnect" href="https://esm.sh" crossorigin />`,
+    `<link rel="modulepreload" href="${react}" />`,
+    `<link rel="modulepreload" href="${reactDom}" />`,
+    `<link rel="modulepreload" href="${reactDomClient}" />`,
+    `<link rel="modulepreload" href="${reactJsx}" />`,
+  ].join("\n    ");
+}
+
 function buildPreviewStatePageHtml(input: {
   title: string;
   heading: string;
@@ -262,6 +276,10 @@ function isBareModuleSpecifier(spec: string): boolean {
 
 type PreviewMode = "default" | "thumbnail";
 const PREVIEW_REACT_VERSION = "19.2.3";
+
+const CACHE_IMMUTABLE = "public, max-age=600, stale-while-revalidate=86400";
+const CACHE_SHORT = "public, max-age=120, stale-while-revalidate=3600";
+const CACHE_NONE = "no-store";
 
 function createTimingTracker() {
   const startedAt = performance.now();
@@ -513,7 +531,7 @@ export async function GET(
         inlineFallbackHref,
       });
       return new NextResponse(html, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": CACHE_NONE },
       });
     }
 
@@ -531,7 +549,7 @@ export async function GET(
       });
       return new NextResponse(html, {
         status: 500,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": CACHE_NONE },
       });
     }
 
@@ -556,7 +574,7 @@ export async function GET(
         inlineFallbackHref,
       });
       return new NextResponse(html, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": CACHE_NONE },
       });
     }
   }
@@ -635,12 +653,14 @@ export async function GET(
       artifactCssUrl != null && artifactCssUrl !== ""
         ? `\n    <link rel="stylesheet" href="${escapeHtml(artifactCssUrl)}" />`
         : "";
+    const preloadHints = buildEsmPreloadHints(devSuffix);
     const html = `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <title>Component Preview</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    ${preloadHints}
     ${bundleStyles}
     <script type="importmap">
 ${importMapJson}
@@ -657,6 +677,7 @@ import ${JSON.stringify(artifactJsUrl)};
     return new NextResponse(html, {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": CACHE_IMMUTABLE,
       },
     });
   }
@@ -712,7 +733,10 @@ ${versionToolbarHtml}
   </body>
 </html>`;
     return new NextResponse(html, {
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": CACHE_IMMUTABLE,
+      },
     });
   }
 
@@ -906,7 +930,7 @@ ${versionToolbarHtml}
 </html>`;
     return new NextResponse(html, {
       status: 500,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": CACHE_NONE },
     });
   }
   // 仅对已允许的裸模块依赖构建 import map / external；相对路径交给 esbuild 走本地文件
@@ -1007,6 +1031,7 @@ ${versionToolbarHtml}
         status: 500,
         headers: {
           "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": CACHE_NONE,
         },
       });
     }
@@ -1169,12 +1194,15 @@ ${versionToolbarHtml}
     }),
   );
 
+  const inlinePreloadHints = buildEsmPreloadHints(devSuffix);
   const html = `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <title>Component Preview</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin />
+    ${inlinePreloadHints}
     <script src="https://cdn.tailwindcss.com"></script>${themeStyles}${bundleStyles}
     <script type="importmap">
 ${importMapJson}
@@ -1193,6 +1221,7 @@ ${buildCode}
   return new NextResponse(html, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": CACHE_SHORT,
     },
   });
 }
