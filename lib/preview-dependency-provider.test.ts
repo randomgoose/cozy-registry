@@ -152,4 +152,31 @@ describe("preview-dependency-provider", () => {
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
+
+  it("resolves @base-ui subpath imports through the canonical root package", async () => {
+    const tmpRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "cozy-preview-provider-base-ui-test-"),
+    );
+    process.env[providerRootEnv] = tmpRoot;
+
+    const decisions = evaluateThirdPartyDependencies({
+      discovered: ["@base-ui/react/dialog"],
+      declared: [{ name: "@base-ui/react", version: "1.3.0" }],
+    });
+
+    const result = await resolvePreviewDependencies({ decisions });
+
+    expect(result.resolutions).toHaveLength(1);
+    expect(result.resolutions[0]).toMatchObject({
+      packageName: "@base-ui/react",
+      requestedVersion: "1.3.0",
+      resolutionSource: "provider",
+    });
+    expect(result.diagnostics).toEqual([]);
+    expect(result.nodePaths).toContain(
+      path.join(tmpRoot, "@base-ui__react", "1.3.0", "node_modules", "@base-ui"),
+    );
+
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
 });

@@ -24,6 +24,7 @@ import { normalizeThirdPartyDependenciesInput } from "@/lib/third-party-dependen
 import {
   evaluateThirdPartyDependencies,
   excludeExplicitRegistryDependencies,
+  getDependencyDisplayName,
   getRejectedDependencyDecisions,
 } from "@/lib/third-party-dependency-governance";
 import { resolvePublishTargetForUser } from "@/lib/publish-target";
@@ -299,7 +300,7 @@ export async function POST(request: Request) {
     );
     if (rejectedDependencies.length > 0) {
       const lines = rejectedDependencies
-        .map((decision) => `- ${decision.packageName}: ${decision.message}`)
+        .map((decision) => `- ${getDependencyDisplayName(decision)}: ${decision.message}`)
         .join("\n");
       return NextResponse.json(
         {

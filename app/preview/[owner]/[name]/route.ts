@@ -47,6 +47,7 @@ import { pickPreviewStory } from "@/lib/preview-stories";
 import {
   evaluateThirdPartyDependencies,
   excludeExplicitRegistryDependencies,
+  getDependencyDisplayName,
   getRejectedDependencyDecisions,
   getRuntimePreviewDependencies,
   readDependencyDecisionsFromMeta,
@@ -840,7 +841,7 @@ ${versionToolbarHtml}
     <h1 style="font-size:16px;margin:0 0 8px;">Preview blocked by dependency policy</h1>
     <pre style="white-space:pre-wrap;font-size:13px;background:#fff;border-radius:8px;border:1px solid #fecaca;padding:12px;color:#991b1b;">${escapeHtml(
       rejectedDependencies
-        .map((decision) => `${decision.packageName}: ${decision.message}`)
+        .map((decision) => `${getDependencyDisplayName(decision)}: ${decision.message}`)
         .join("\n"),
     )}</pre>
   </body>
@@ -856,7 +857,7 @@ ${versionToolbarHtml}
   const runtimeDepsHash = sha256(
     stableStringify(
       dependencyDecisions.map((decision) => ({
-        packageName: decision.packageName,
+        packageName: getDependencyDisplayName(decision),
         previewCapability: decision.previewCapability,
         requestedVersion: decision.requestedVersion,
       })),

@@ -42,7 +42,10 @@ import {
   buildStoryPreviewArtifactStatusQuery,
   buildStoryPreviewPageUrl,
 } from "@/lib/story-preview-urls";
-import type { DependencyDecision } from "@/lib/third-party-dependency-governance";
+import {
+  getDependencyDisplayName,
+  type DependencyDecision,
+} from "@/lib/third-party-dependency-governance";
 import { filterControllableProps } from "@/lib/preview-prop-controls";
 import { cn } from "@/lib/utils";
 import { extractPropsFromTsx, type PropField } from "@/lib/validate-tsx";
@@ -1188,12 +1191,12 @@ export function ComponentCard({
                         <div className="flex flex-col gap-2">
                           {detailData.dependencyDiagnostics.map((decision) => (
                             <div
-                              key={decision.packageName}
+                              key={`${decision.packageName}:${decision.importSpecifier ?? ""}`}
                               className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60"
                             >
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="font-mono text-xs text-zinc-800 dark:text-zinc-200">
-                                  {decision.packageName}
+                                  {getDependencyDisplayName(decision)}
                                 </span>
                                 <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
                                   {decision.tier}

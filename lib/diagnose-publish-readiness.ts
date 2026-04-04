@@ -10,6 +10,7 @@ import { normalizeThirdPartyDependenciesInput } from "@/lib/third-party-dependen
 import {
   evaluateThirdPartyDependencies,
   excludeExplicitRegistryDependencies,
+  getDependencyDisplayName,
   getRejectedDependencyDecisions,
 } from "@/lib/third-party-dependency-governance";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
@@ -301,7 +302,7 @@ export async function diagnosePublishReadiness(params: {
       message:
         "Unsupported third-party dependencies: " +
         rejectedDependencies
-          .map((decision) => `${decision.packageName} (${decision.message})`)
+          .map((decision) => `${getDependencyDisplayName(decision)} (${decision.message})`)
           .join(", "),
     };
   }

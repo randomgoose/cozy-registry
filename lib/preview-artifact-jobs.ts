@@ -17,6 +17,7 @@ import {
   type DependencyDecision,
   evaluateThirdPartyDependencies,
   excludeExplicitRegistryDependencies,
+  getDependencyDisplayName,
   getPrebundleDependencies,
   getRejectedDependencyDecisions,
   readDeclaredThirdPartyDependenciesFromMeta,
@@ -69,7 +70,7 @@ export function formatRuntimeOnlyDependencySkipMessage(
         decision.tier !== "runtime-provided" &&
         isBarePackageSpecifier(decision.packageName),
     )
-    .map((decision) => decision.packageName)
+    .map((decision) => getDependencyDisplayName(decision))
     .sort();
 
   if (runtimeOnlyDependencies.length === 0) {
@@ -419,7 +420,7 @@ export async function processPreviewArtifactJob(jobId: string) {
     );
     if (rejectedDependencies.length > 0) {
       const details = rejectedDependencies
-        .map((decision) => `${decision.packageName}: ${decision.message}`)
+        .map((decision) => `${getDependencyDisplayName(decision)}: ${decision.message}`)
         .join("; ");
       throw new Error(`Rejected preview dependencies: ${details}`);
     }

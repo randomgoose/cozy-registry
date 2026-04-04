@@ -67,6 +67,7 @@ describe("preview-artifact-jobs", () => {
         message: "Provided by the platform runtime; prebundle is not needed.",
       },
       {
+        importSpecifier: "@radix-ui/react-slot",
         packageName: "@radix-ui/react-slot",
         requestedVersion: "1.2.4",
         tier: "soft-allowed",
@@ -83,6 +84,7 @@ describe("preview-artifact-jobs", () => {
         message: "Approved for prebundle.",
       },
       {
+        importSpecifier: "motion/react",
         packageName: "motion",
         requestedVersion: null,
         tier: "soft-allowed",
@@ -93,7 +95,7 @@ describe("preview-artifact-jobs", () => {
     ]);
 
     expect(message).toBe(
-      "Artifact prebundle was skipped by policy because these dependencies are runtime-only: @radix-ui/react-slot, motion.",
+      "Artifact prebundle was skipped by policy because these dependencies are runtime-only: @radix-ui/react-slot, motion/react.",
     );
   });
 });

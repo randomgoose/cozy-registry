@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDependencySnapshot,
+  canonicalizeThirdPartyPackageSpecifier,
   excludeExplicitRegistryDependencies,
   evaluateThirdPartyDependencies,
+  getDependencyDisplayName,
   getPrebundleDependencies,
   getRejectedDependencyDecisions,
   getRuntimePreviewDependencies,
@@ -70,14 +72,15 @@ describe("third-party-dependency-governance", () => {
     const decisions = evaluateThirdPartyDependencies({
       discovered: ["@base-ui/react/button", "@hugeicons/react"],
       declared: [
-        { name: "@base-ui/react/button", version: "1.0.0-beta.3" },
+        { name: "@base-ui/react", version: "1.0.0-beta.3" },
         { name: "@hugeicons/react", version: "0.0.8" },
       ],
     });
 
     expect(decisions).toEqual([
       expect.objectContaining({
-        packageName: "@base-ui/react/button",
+        importSpecifier: "@base-ui/react/button",
+        packageName: "@base-ui/react",
         tier: "trusted-built-in",
         previewCapability: "prebundle-supported",
       }),
@@ -87,6 +90,29 @@ describe("third-party-dependency-governance", () => {
         previewCapability: "prebundle-supported",
       }),
     ]);
+  });
+
+  it("canonicalizes @base-ui subpath imports to the root package for version matching", () => {
+    const [decision] = evaluateThirdPartyDependencies({
+      discovered: ["@base-ui/react/dialog"],
+      declared: [{ name: "@base-ui/react", version: "1.0.0-beta.3" }],
+    });
+
+    expect(decision).toMatchObject({
+      importSpecifier: "@base-ui/react/dialog",
+      packageName: "@base-ui/react",
+      requestedVersion: "1.0.0-beta.3",
+      tier: "trusted-built-in",
+      previewCapability: "prebundle-supported",
+    });
+    expect(getDependencyDisplayName(decision)).toBe("@base-ui/react/dialog");
+    expect(getPrebundleDependencies([decision])).toEqual(["@base-ui/react"]);
+    expect(getRuntimePreviewDependencies([decision])).toEqual([
+      "@base-ui/react/dialog",
+    ]);
+    expect(canonicalizeThirdPartyPackageSpecifier("@base-ui/react/dialog")).toBe(
+      "@base-ui/react",
+    );
   });
 
   it("rejects node builtins at classification time", () => {

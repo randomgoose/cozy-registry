@@ -25,6 +25,7 @@ export type VersionPolicyStatus =
   | "rejected";
 
 export type DependencyDecision = {
+  importSpecifier?: string;
   packageName: string;
   requestedVersion: string | null;
   tier: DependencyTier;
@@ -78,15 +79,27 @@ export function evaluateThirdPartyDependencies(input: {
   discovered: string[];
   declared?: DeclaredThirdPartyDependency[];
 }): DependencyDecision[] {
-  const declaredByName = new Map(
-    (input.declared ?? []).map((entry) => [entry.name, entry]),
-  );
+  const declaredByName = new Map<string, DeclaredThirdPartyDependency>();
+  for (const entry of input.declared ?? []) {
+    const canonicalName = canonicalizeThirdPartyPackageSpecifier(entry.name);
+    if (!declaredByName.has(canonicalName)) {
+      declaredByName.set(canonicalName, entry);
+    }
+  }
 
   return Array.from(
     new Set(input.discovered.map((dep) => dep.trim()).filter(Boolean)),
   )
     .sort()
-    .map((packageName) => evaluateDependency(packageName, declaredByName.get(packageName)));
+    .map((importSpecifier) =>
+      evaluateDependency({
+        importSpecifier,
+        packageName: canonicalizeThirdPartyPackageSpecifier(importSpecifier),
+        declared: declaredByName.get(
+          canonicalizeThirdPartyPackageSpecifier(importSpecifier),
+        ),
+      }),
+    );
 }
 
 export function buildDependencySnapshot(input: {
@@ -147,15 +160,18 @@ export function readDependencyDecisionsFromMeta(
 export function getRuntimePreviewDependencies(decisions: DependencyDecision[]) {
   return decisions
     .filter((decision) => decision.previewCapability !== "blocked")
-    .map((decision) => decision.packageName)
+    .map((decision) => getDependencyDisplayName(decision))
     .sort();
 }
 
 export function getPrebundleDependencies(decisions: DependencyDecision[]) {
-  return decisions
-    .filter((decision) => decision.previewCapability === "prebundle-supported")
-    .map((decision) => decision.packageName)
-    .sort();
+  return Array.from(
+    new Set(
+      decisions
+        .filter((decision) => decision.previewCapability === "prebundle-supported")
+        .map((decision) => decision.packageName),
+    ),
+  ).sort();
 }
 
 export function hasRuntimeOnlyDependencies(decisions: DependencyDecision[]) {
@@ -166,14 +182,31 @@ export function getRejectedDependencyDecisions(decisions: DependencyDecision[]) 
   return decisions.filter((decision) => decision.previewCapability === "blocked");
 }
 
-function evaluateDependency(
-  packageName: string,
-  declared?: DeclaredThirdPartyDependency,
-): DependencyDecision {
+export function getDependencyDisplayName(
+  decision: Pick<DependencyDecision, "packageName" | "importSpecifier">,
+) {
+  return decision.importSpecifier?.trim() || decision.packageName;
+}
+
+export function canonicalizeThirdPartyPackageSpecifier(specifier: string) {
+  const trimmed = specifier.trim();
+  if (trimmed === "@base-ui/react" || trimmed.startsWith("@base-ui/react/")) {
+    return "@base-ui/react";
+  }
+  return trimmed;
+}
+
+function evaluateDependency(input: {
+  importSpecifier: string;
+  packageName: string;
+  declared?: DeclaredThirdPartyDependency;
+}): DependencyDecision {
+  const { importSpecifier, packageName, declared } = input;
   const requestedVersion = declared?.version ?? null;
 
   if (RUNTIME_PROVIDED.has(packageName)) {
     return {
+      importSpecifier,
       packageName,
       requestedVersion,
       tier: "runtime-provided",
@@ -185,6 +218,7 @@ function evaluateDependency(
 
   if (isRejectedPackage(packageName)) {
     return {
+      importSpecifier,
       packageName,
       requestedVersion,
       tier: "rejected",
@@ -199,6 +233,7 @@ function evaluateDependency(
   if (isTrustedBuiltInPackage(packageName)) {
     if (requestedVersion) {
       return {
+        importSpecifier,
         packageName,
         requestedVersion,
         tier: "trusted-built-in",
@@ -208,6 +243,7 @@ function evaluateDependency(
       };
     }
     return {
+      importSpecifier,
       packageName,
       requestedVersion: null,
       tier: "trusted-built-in",
@@ -220,6 +256,7 @@ function evaluateDependency(
   }
 
   return {
+    importSpecifier,
     packageName,
     requestedVersion,
     tier: "soft-allowed",
@@ -276,6 +313,8 @@ function normalizeDependencyDecisions(raw: unknown): DependencyDecision[] {
     const rec = entry as Record<string, unknown>;
     const packageName =
       typeof rec.packageName === "string" ? rec.packageName.trim() : "";
+    const importSpecifier =
+      typeof rec.importSpecifier === "string" ? rec.importSpecifier.trim() : "";
     const tier = rec.tier;
     const previewCapability = rec.previewCapability;
     const versionPolicyStatus = rec.versionPolicyStatus;
@@ -303,6 +342,7 @@ function normalizeDependencyDecisions(raw: unknown): DependencyDecision[] {
       continue;
     }
     out.push({
+      importSpecifier: importSpecifier || packageName,
       packageName,
       requestedVersion:
         typeof rec.requestedVersion === "string" && rec.requestedVersion.trim().length > 0
