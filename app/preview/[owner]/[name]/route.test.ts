@@ -6,6 +6,9 @@ const getRegistryItemByScopedIdentityAndVersionMock = vi.fn();
 const getRegistryItemVersionsScopedMock = vi.fn();
 const enqueuePreviewArtifactJobMock = vi.fn();
 const selectMock = vi.fn();
+const fetchMock = vi.fn();
+
+vi.stubGlobal("fetch", fetchMock);
 
 vi.mock("@/lib/auth", () => ({
   auth: {
@@ -113,6 +116,7 @@ describe("preview route state pages", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    fetchMock.mockReset();
     getSessionMock.mockResolvedValue(null);
     getUserIdFromTokenMock.mockResolvedValue(null);
     getRegistryItemVersionsScopedMock.mockResolvedValue([]);
@@ -190,5 +194,50 @@ describe("preview route state pages", () => {
     const html = await response.text();
     expect(html).toContain("Preview artifact failed");
     expect(html).toContain("Artifact build exploded.");
+  });
+
+  it("uses artifact manifest compatible externals when rendering a ready compatible artifact", async () => {
+    createSelectChain([
+      [{ id: "version-1" }],
+      [
+        {
+          status: "ready",
+          artifactCapability: "compatible-artifact",
+          jsUrl: "https://cdn.example.com/preview.js",
+          cssUrl: null,
+          manifestUrl: "https://cdn.example.com/manifest.json",
+          lastErrorMessage: null,
+        },
+      ],
+    ]);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        dependencyPlan: {
+          compatibleExternals: [
+            { importMapTarget: "recharts" },
+            { importMapTarget: "react" },
+          ],
+        },
+      }),
+    });
+
+    const { GET } = await import("@/app/preview/[owner]/[name]/route");
+    const response = await GET(
+      new Request("http://localhost/preview/indeed-cozy/chart"),
+      {
+        params: Promise.resolve({ owner: "indeed-cozy", name: "chart" }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://cdn.example.com/manifest.json",
+      { cache: "no-store" },
+    );
+    const html = await response.text();
+    expect(html).toContain("https://esm.sh/recharts?dev&external=react,react-dom,react-dom/client");
+    expect(html).not.toContain("https://esm.sh/react?dev&external=react,react-dom,react-dom/client");
+    expect(html).toContain("https://cdn.example.com/preview.js");
   });
 });

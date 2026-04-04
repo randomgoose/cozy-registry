@@ -603,6 +603,7 @@ export async function processPreviewArtifactJob(jobId: string) {
     }
 
     const manifest = {
+      schemaVersion: 1,
       owner: payload.owner,
       name: payload.name,
       version: payload.version,

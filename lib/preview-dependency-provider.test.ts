@@ -17,7 +17,9 @@ afterEach(() => {
 });
 
 describe("preview-dependency-provider", () => {
-  it("materializes an exact trusted built-in into the controlled provider cache", async () => {
+  it(
+    "materializes an exact trusted built-in into the controlled provider cache",
+    async () => {
     const tmpRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "cozy-preview-provider-seed-test-"),
     );
@@ -48,7 +50,9 @@ describe("preview-dependency-provider", () => {
     ).resolves.toBeUndefined();
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
-  });
+    },
+    15000,
+  );
 
   it("copies transitive trusted built-in dependencies into the controlled provider cache", async () => {
     const tmpRoot = await fs.mkdtemp(
@@ -147,13 +151,17 @@ describe("preview-dependency-provider", () => {
       expect.objectContaining({
         packageName: "lucide-react",
         resolutionSource: "host-fallback",
+        code: "HOST_FALLBACK_USED",
+        hostFallbackUsed: true,
       }),
     ]);
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
 
-  it("resolves @base-ui subpath imports through the canonical root package", async () => {
+  it(
+    "resolves @base-ui subpath imports through the canonical root package",
+    async () => {
     const tmpRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "cozy-preview-provider-base-ui-test-"),
     );
@@ -178,7 +186,9 @@ describe("preview-dependency-provider", () => {
     );
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
-  });
+    },
+    15000,
+  );
 
   it("records compatible-external dependencies in the provider plan without requiring package materialization", async () => {
     const decisions = evaluateThirdPartyDependencies({

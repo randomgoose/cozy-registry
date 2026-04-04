@@ -15,6 +15,7 @@ export type PreviewDependencyResolution = {
   packageName: string;
   requestedVersion: string;
   resolutionSource: PreviewDependencyResolutionSource;
+  source: "provider-cache" | "host-fallback";
   packageRoot: string;
   packageJsonPath: string;
   moduleSearchPath: string;
@@ -24,8 +25,10 @@ export type PreviewDependencyResolutionDiagnostic = {
   packageName: string;
   requestedVersion: string;
   resolutionSource: PreviewDependencyResolutionSource;
+  code: string;
   message: string;
   providerMode?: "managed-provider" | "compatible-external";
+  hostFallbackUsed?: boolean;
 };
 
 export type PreviewCompatibleExternal = {
@@ -111,6 +114,7 @@ export async function resolvePreviewDependencies(params: {
         packageName,
         requestedVersion,
         resolutionSource: "provider",
+        code: "COMPATIBLE_EXTERNAL_PLAN",
         providerMode: "compatible-external",
         message:
           "Compatible-external dependency does not require a physical provider package; artifact/runtime will keep it external.",
@@ -143,7 +147,9 @@ export async function resolvePreviewDependencies(params: {
       packageName,
       requestedVersion,
       resolutionSource: "host-fallback",
+      code: "HOST_FALLBACK_USED",
       providerMode: "managed-provider",
+      hostFallbackUsed: true,
       message:
         "Resolved via host node_modules fallback because the controlled preview dependency provider does not yet supply this package version.",
     });
@@ -183,6 +189,7 @@ async function tryResolveFromProvider(input: {
       packageName: input.packageName,
       requestedVersion: input.requestedVersion,
       resolutionSource: "provider",
+      source: "provider-cache",
       packageRoot,
       packageJsonPath,
       moduleSearchPath: path.dirname(packageRoot),
@@ -251,6 +258,7 @@ async function resolveFromHost(input: {
     packageName: input.packageName,
     requestedVersion: input.requestedVersion,
     resolutionSource: "host-fallback",
+    source: "host-fallback",
     packageRoot: path.dirname(packageJsonPath),
     packageJsonPath,
     moduleSearchPath: path.dirname(path.dirname(packageJsonPath)),

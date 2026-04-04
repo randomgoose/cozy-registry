@@ -400,6 +400,7 @@ export async function GET(
     "missing";
   let artifactJsUrl: string | null = null;
   let artifactCssUrl: string | null = null;
+  let artifactManifestUrl: string | null = null;
   let artifactErrorMessage: string | null = null;
   stepStartedAt = performance.now();
   try {
@@ -420,6 +421,7 @@ export async function GET(
           artifactCapability: registryPreviewArtifacts.artifactCapability,
           jsUrl: registryPreviewArtifacts.jsUrl,
           cssUrl: registryPreviewArtifacts.cssUrl,
+          manifestUrl: registryPreviewArtifacts.manifestUrl,
           lastErrorMessage: registryPreviewArtifacts.lastErrorMessage,
         })
         .from(registryPreviewArtifacts)
@@ -441,6 +443,7 @@ export async function GET(
         artifactHit = true;
         artifactJsUrl = artifact.jsUrl;
         artifactCssUrl = artifact.cssUrl ?? null;
+        artifactManifestUrl = artifact.manifestUrl ?? null;
       } else if (artifact) {
         artifactCapability = inferPreviewArtifactCapability({
           storedCapability: artifact.artifactCapability,
@@ -562,19 +565,46 @@ export async function GET(
     const isDev =
       previewMode === "default" || process.env.NODE_ENV !== "production" || debug;
     const devSuffix = isDev ? "?dev" : "";
-    const depsFromDb = (item.dependencies ?? []) as string[];
-    const depsFromFiles = new Set<string>();
-    for (const file of item.files ?? []) {
-      const source = file.content;
-      for (const dep of extractDependencies(source)) {
-        if (isBareModuleSpecifier(dep)) depsFromFiles.add(dep);
+    let runtimeDependencies: string[] = [];
+    let manifestPlanUsed = false;
+    if (artifactManifestUrl) {
+      try {
+        const manifestRes = await fetch(artifactManifestUrl, { cache: "no-store" });
+        if (manifestRes.ok) {
+          const manifestJson = (await manifestRes.json()) as {
+            dependencyPlan?: {
+              compatibleExternals?: Array<{ importMapTarget?: string | null }>;
+            };
+          };
+          const compatibleExternals =
+            manifestJson.dependencyPlan?.compatibleExternals ?? [];
+          const compatibleTargets = compatibleExternals
+            .map((entry) => entry.importMapTarget?.trim())
+            .filter((entry): entry is string => !!entry && !entry.startsWith("react"));
+          if (compatibleTargets.length > 0) {
+            runtimeDependencies = Array.from(new Set(compatibleTargets)).sort();
+            manifestPlanUsed = true;
+          }
+        }
+      } catch {
+        // Fall back to deriving runtime externals from current dependency decisions.
       }
     }
-    const runtimeDependencies = Array.from(
-      new Set<string>([...depsFromDb, ...depsFromFiles]),
-    )
-      .filter((dep) => !dep.startsWith("react"))
-      .sort();
+    if (!manifestPlanUsed) {
+      const depsFromDb = (item.dependencies ?? []) as string[];
+      const depsFromFiles = new Set<string>();
+      for (const file of item.files ?? []) {
+        const source = file.content;
+        for (const dep of extractDependencies(source)) {
+          if (isBareModuleSpecifier(dep)) depsFromFiles.add(dep);
+        }
+      }
+      runtimeDependencies = Array.from(
+        new Set<string>([...depsFromDb, ...depsFromFiles]),
+      )
+        .filter((dep) => !dep.startsWith("react"))
+        .sort();
+    }
     const runtimeImportMap = Object.fromEntries(
       runtimeDependencies.map((dep) => {
         const base = `https://esm.sh/${dep}${devSuffix}`;

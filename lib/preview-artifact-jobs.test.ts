@@ -135,4 +135,29 @@ describe("preview-artifact-jobs", () => {
 
     expect(capability).toBe("runtime-only");
   });
+
+  it("keeps the whole artifact in runtime-only when compatible and runtime-only dependencies mix", () => {
+    const capability = classifyPreviewArtifactCapability([
+      {
+        packageName: "recharts",
+        requestedVersion: "2.15.3",
+        tier: "soft-allowed",
+        providerMode: "compatible-external",
+        previewCapability: "compatible-artifact-supported",
+        versionPolicyStatus: "accepted",
+        message: "Compatible artifact supported.",
+      },
+      {
+        packageName: "motion",
+        requestedVersion: null,
+        tier: "soft-allowed",
+        providerMode: "compatible-external",
+        previewCapability: "runtime-only",
+        versionPolicyStatus: "unknown",
+        message: "Missing explicit version.",
+      },
+    ]);
+
+    expect(capability).toBe("runtime-only");
+  });
 });

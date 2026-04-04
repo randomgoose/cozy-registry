@@ -65,6 +65,11 @@ function resolveTracingGlob(packageName: string) {
   return `./${relativeRoot}/**/*`;
 }
 
+// Temporary host compatibility bridge:
+// these tracing globs keep currently installed trusted preview packages available
+// in serverless output while the provider-owned asset model is still being rolled out.
+// Long-term correctness must come from preview dependency provider assets / plans,
+// not from the host app package.json or Next output tracing.
 const TRUSTED_TRACING_GLOBS = readInstalledTrustedPackages().map(resolveTracingGlob);
 
 const nextConfig = {

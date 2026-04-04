@@ -389,7 +389,7 @@ runtime preview 与 artifact prebuild 可以采用不同输出策略，但必须
 
 - `tier` ∈ `runtime-provided | trusted-built-in | soft-allowed | rejected`
 - `providerMode` ∈ `runtime-provided | managed-provider | compatible-external | blocked`
-- `previewCapability` ∈ `runtime-only | prebundle-supported | blocked`
+- `previewCapability` ∈ `runtime-only | prebundle-supported | compatible-artifact-supported | blocked`
 
 ### 7.0 Matching Model
 
@@ -437,7 +437,7 @@ catalog 不应只支持 exact package name，还应支持 namespace-level policy
 
 但这并不意味着“无条件 prebundle”。这些 namespace 下的包仍然遵守统一版本 contract：
 
-- 有显式版本 → `prebundle-supported`
+- 有显式版本 → 根据 provider mode 进入 `prebundle-supported` 或 `compatible-artifact-supported`
 - 无显式版本 → `runtime-only`
 
 这样做的原因是：
@@ -668,6 +668,19 @@ publish 校验必须区分“发现包名”和“拿到可信版本”：
 
 - `trusted-built-in`
 
+### 9.3 `compatible-artifact-supported`
+
+语义：
+
+- 允许 artifact worker 生成 preview shell
+- 但依赖本身继续通过 runtime external / import map 提供
+- 最终产物可进入 `compatible-artifact`，并允许 `artifactStatus = ready`
+
+典型适用：
+
+- `trusted-built-in + compatible-external`
+- `soft-allowed + explicit version`
+
 ### 9.2.1 Long-term mapping to provider modes
 
 长期实现中，preview capability 不应单独承担“依赖从哪里来”的语义。
@@ -692,7 +705,7 @@ publish 校验必须区分“发现包名”和“拿到可信版本”：
 - `compatible-external` 的长期归宿应是 `compatible-artifact`
 - `runtime-only` 只应保留给最后降级场景
 
-### 9.3 `blocked`
+### 9.4 `blocked`
 
 语义：
 
@@ -707,10 +720,12 @@ runtime preview 不应再简单把所有 bare deps 一视同仁映射到 CDN。
 
 - `runtime-provided`：由平台 import map 提供
 - `trusted-built-in`：
-  - 可选择 runtime import map 或 artifact hit 时不需要额外引入
+  - `managed-provider + prebundle-supported` 时，可直接进入 managed artifact
+  - `compatible-external + compatible-artifact-supported` 时，可通过 runtime import map / compatible artifact 提供
 - `soft-allowed`：
-  - 允许 runtime import map external
-  - 但在 diagnostics 中明确这是 compatibility mode
+  - 无显式版本时，保持 `runtime-only`
+  - 有显式版本且通过 compatibility 校验时，可进入 `compatible-artifact-supported`
+  - diagnostics 中应明确这是 compatibility mode
 - `rejected`：
   - 不应走到 runtime preview；publish 应已失败
 
@@ -723,9 +738,18 @@ artifact prebuild 是受控构建路径，应更严格。
 推荐规则：
 
 - `runtime-provided`：始终 external
-- `trusted-built-in`：允许 bundle
-- `soft-allowed`：默认不 bundle，继续 external/runtime-only，并将 artifact 标记为 `skipped`
+- `trusted-built-in`：
+  - `managed-provider + prebundle-supported`：允许 bundle
+  - `compatible-external + compatible-artifact-supported`：允许生成 compatible artifact
+- `soft-allowed`：
+  - 无显式版本：继续 external/runtime-only，并将 artifact 标记为 `skipped`
+  - 有显式版本且 target 可用：允许生成 compatible artifact，并将 artifact 标记为 `ready`
 - `rejected`：不应进入 prebuild
+
+这里要明确区分两类成功产物：
+
+- `managed-artifact`：依赖由受控 provider 提供并参与稳定 prebundle
+- `compatible-artifact`：artifact shell 已生成，但部分依赖继续以 runtime external / import map 方式加载
 
 ### 11.1 Official Artifact Semantics for Runtime-only
 
@@ -990,11 +1014,11 @@ publish 响应应包含依赖诊断信息，至少包括：
     },
     {
       "packageName": "date-fns",
-      "requestedVersion": null,
+      "requestedVersion": "4.1.0",
       "tier": "soft-allowed",
-      "previewCapability": "runtime-only",
-      "versionPolicyStatus": "unknown",
-      "message": "Published in compatibility mode without an explicit version; artifact prebundle is disabled."
+      "previewCapability": "compatible-artifact-supported",
+      "versionPolicyStatus": "accepted",
+      "message": "Published in compatibility mode with an explicit version; artifact shell can be generated while the dependency stays runtime-external."
     }
   ]
 }
