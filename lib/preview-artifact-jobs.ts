@@ -359,6 +359,7 @@ export async function lookupPreviewArtifactFast(params: {
   const [row] = await db
     .select({
       htmlUrl: registryPreviewArtifacts.htmlUrl,
+      htmlContent: registryPreviewArtifacts.htmlContent,
       status: registryPreviewArtifacts.status,
       artifactCapability: registryPreviewArtifacts.artifactCapability,
       itemType: registryItems.type,
@@ -607,7 +608,7 @@ export async function processPreviewArtifactJob(jobId: string) {
         dependencyNodePaths: resolvedPreviewDependencies.nodePaths,
         dependencyResolutionDiagnostics:
           resolvedPreviewDependencies.diagnostics,
-        useInjectedRuntime: true,
+        bundleReact: true,
       },
     );
 
@@ -702,6 +703,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       cssUrl: uploadedCssUrl,
       compatibleExternals: resolvedPreviewDependencies.plan.compatibleExternals,
       mode,
+      bundledReact: true,
     });
     const htmlPath = buildRegistryPreviewArtifactPath({
       owner: payload.owner,
@@ -733,6 +735,7 @@ export async function processPreviewArtifactJob(jobId: string) {
         cssUrl: uploadedCssUrl,
         manifestUrl: uploadedManifest.url,
         htmlUrl: htmlUrlForClients,
+        htmlContent: previewHtml,
         finishedAt: new Date(),
         lastErrorCode: null,
         lastErrorMessage: null,

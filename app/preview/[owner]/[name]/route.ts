@@ -388,19 +388,31 @@ export async function GET(
         });
 
         if (
-          fastResult?.htmlUrl &&
+          fastResult &&
           fastResult.status === "ready" &&
           fastResult.itemType !== "registry:theme"
         ) {
-          const htmlRes = await fetch(fastResult.htmlUrl, { next: { revalidate: 600 } });
-          if (htmlRes.ok) {
+          const html = fastResult.htmlContent;
+          if (html) {
             timings.mark("fastPathHtmlServe", stepStartedAt);
-            return new NextResponse(await htmlRes.text(), {
+            return new NextResponse(html, {
               headers: {
                 "Content-Type": "text/html; charset=utf-8",
                 "Cache-Control": CACHE_IMMUTABLE,
               },
             });
+          }
+          if (fastResult.htmlUrl) {
+            const htmlRes = await fetch(fastResult.htmlUrl, { next: { revalidate: 600 } });
+            if (htmlRes.ok) {
+              timings.mark("fastPathHtmlServe", stepStartedAt);
+              return new NextResponse(await htmlRes.text(), {
+                headers: {
+                  "Content-Type": "text/html; charset=utf-8",
+                  "Cache-Control": CACHE_IMMUTABLE,
+                },
+              });
+            }
           }
         }
       }

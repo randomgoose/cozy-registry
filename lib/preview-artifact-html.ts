@@ -17,16 +17,19 @@ function escapeHtmlCss(css: string): string {
 function buildImportMap(input: {
   compatibleExternals: PreviewCompatibleExternal[];
   isDev: boolean;
+  bundledReact: boolean;
 }): Record<string, string> {
   const devSuffix = input.isDev ? "?dev" : "";
   const reactExternal = "?external=react,react-dom,react-dom/client";
 
-  const imports: Record<string, string> = {
-    react: `https://esm.sh/react@${PREVIEW_REACT_VERSION}${devSuffix}`,
-    "react-dom": `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}${devSuffix}`,
-    "react-dom/client": `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}/client${devSuffix}`,
-    "react/jsx-runtime": `https://esm.sh/react@${PREVIEW_REACT_VERSION}/jsx-runtime${devSuffix}`,
-  };
+  const imports: Record<string, string> = {};
+
+  if (!input.bundledReact) {
+    imports["react"] = `https://esm.sh/react@${PREVIEW_REACT_VERSION}${devSuffix}`;
+    imports["react-dom"] = `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}${devSuffix}`;
+    imports["react-dom/client"] = `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}/client${devSuffix}`;
+    imports["react/jsx-runtime"] = `https://esm.sh/react@${PREVIEW_REACT_VERSION}/jsx-runtime${devSuffix}`;
+  }
 
   for (const ext of input.compatibleExternals) {
     const target = ext.importMapTarget?.trim();
@@ -39,14 +42,26 @@ function buildImportMap(input: {
   return imports;
 }
 
-function buildModulepreloadHints(imports: Record<string, string>): string {
-  const reactKeys = ["react", "react-dom", "react-dom/client", "react/jsx-runtime"];
-  return [
-    `<link rel="preconnect" href="https://esm.sh" crossorigin />`,
-    ...reactKeys
-      .filter((k) => k in imports)
-      .map((k) => `<link rel="modulepreload" href="${escapeHtml(imports[k])}" />`),
-  ].join("\n    ");
+function buildHeadHints(imports: Record<string, string>, bundledReact: boolean): string {
+  if (Object.keys(imports).length === 0) return "";
+
+  const lines: string[] = [];
+
+  const hasEsmSh = Object.values(imports).some((v) => v.includes("esm.sh"));
+  if (hasEsmSh) {
+    lines.push(`<link rel="preconnect" href="https://esm.sh" crossorigin />`);
+  }
+
+  if (!bundledReact) {
+    const reactKeys = ["react", "react-dom", "react-dom/client", "react/jsx-runtime"];
+    for (const k of reactKeys) {
+      if (k in imports) {
+        lines.push(`<link rel="modulepreload" href="${escapeHtml(imports[k])}" />`);
+      }
+    }
+  }
+
+  return lines.join("\n    ");
 }
 
 export type BuildArtifactPreviewHtmlInput = {
@@ -55,19 +70,23 @@ export type BuildArtifactPreviewHtmlInput = {
   themeCss?: string | null;
   compatibleExternals?: PreviewCompatibleExternal[];
   mode: "default" | "thumbnail";
+  bundledReact?: boolean;
 };
 
 /**
  * Assembles a complete, self-contained preview HTML document.
- * This is the static artifact that replaces the request-time HTML assembly.
+ * When bundledReact is true, React is inside preview.js — no esm.sh needed for React.
  */
 export function buildArtifactPreviewHtml(input: BuildArtifactPreviewHtmlInput): string {
-  const isDev = input.mode === "default";
+  const bundledReact = input.bundledReact !== false;
+  const isDev = !bundledReact && input.mode === "default";
   const compatibleExternals = input.compatibleExternals ?? [];
-  const imports = buildImportMap({ compatibleExternals, isDev });
-  const importMapJson = JSON.stringify({ imports }, null, 2);
-  const preloadHints = buildModulepreloadHints(imports);
+  const imports = buildImportMap({ compatibleExternals, isDev, bundledReact });
+  const hasImportMap = Object.keys(imports).length > 0;
   const isThumbnail = input.mode === "thumbnail";
+
+  const headHints = buildHeadHints(imports, bundledReact);
+  const headHintsBlock = headHints ? `\n    ${headHints}` : "";
 
   const cssLink =
     input.cssUrl != null && input.cssUrl !== ""
@@ -79,6 +98,14 @@ export function buildArtifactPreviewHtml(input: BuildArtifactPreviewHtmlInput): 
       ? `\n    <style>${escapeHtmlCss(input.themeCss)}</style>`
       : "";
 
+  const importMapBlock = hasImportMap
+    ? `\n    <script type="importmap">\n${JSON.stringify({ imports }, null, 2)}\n    </script>`
+    : "";
+
+  const runtimeScript = bundledReact
+    ? ""
+    : `\n    <script type="module" src="/assets/preview-runtime-v1.js"></script>`;
+
   const bodyClass = isThumbnail
     ? "min-h-screen overflow-hidden bg-transparent"
     : "min-h-screen bg-white";
@@ -89,18 +116,13 @@ export function buildArtifactPreviewHtml(input: BuildArtifactPreviewHtmlInput): 
   <head>
     <meta charset="UTF-8" />
     <title>Component Preview</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    ${preloadHints}${cssLink}${themeStyle}
-    <script type="importmap">
-${importMapJson}
-    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />${headHintsBlock}${cssLink}${themeStyle}${importMapBlock}
     <script>
     (function(){var p=new URLSearchParams(location.search);var t=p.get("theme");if(t)document.documentElement.className=t;})();
     </script>
   </head>
   <body class="${bodyClass}" style="${bodyStyle}">
-    <div id="root"></div>
-    <script type="module" src="/assets/preview-runtime-v1.js"></script>
+    <div id="root"></div>${runtimeScript}
     <script type="module">
 import ${JSON.stringify(input.jsUrl)};
     </script>

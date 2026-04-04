@@ -171,6 +171,7 @@ export async function buildPreviewBundle(
     dependencyNodePaths?: string[];
     dependencyResolutionDiagnostics?: PreviewDependencyResolutionDiagnostic[];
     useInjectedRuntime?: boolean;
+    bundleReact?: boolean;
   },
 ): Promise<PreviewBuildResult> {
   // 注意：为了避免 Next.js 在服务器 bundle 时把 esbuild 的可执行文件等一起打包，
@@ -243,6 +244,7 @@ export async function buildPreviewBundle(
     const debugEnabled = options?.debug === true;
     const externalizeDependencies = options?.externalizeDependencies !== false;
     const useInjectedRuntime = options?.useInjectedRuntime === true;
+    const bundleReact = options?.bundleReact === true;
     const previewHints = JSON.stringify({
       previewExport:
         typeof bundle.previewExport === "string" && bundle.previewExport.trim()
@@ -659,13 +661,10 @@ root.render(
       },
       plugins: [bundleAliasPlugin, cssPlugin, figmaAssetPlugin],
       nodePaths: previewNodePaths,
-      // React 相关始终由 runtime import map 提供
       external: [
-        "react",
-        "react-dom",
-        "react-dom/client",
-        "react/jsx-runtime",
-        // 默认将依赖 external 给 import map（与浏览器 ESM + import map 一致；勿内联 CJS 子依赖）
+        ...(bundleReact
+          ? []
+          : ["react", "react-dom", "react-dom/client", "react/jsx-runtime"]),
         ...(externalizeDependencies ? (bundle.dependencies ?? []) : []),
       ],
       logLevel: "silent",

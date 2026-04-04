@@ -3,9 +3,15 @@
  *
  * Usage:
  *   npx tsx scripts/backfill-preview-html.ts [--dry-run] [--limit N]
+ *
+ * Or with explicit env:
+ *   npx tsx bin/run-with-env.ts dev npx tsx scripts/backfill-preview-html.ts
  */
-import "dotenv/config";
-import { and, eq, isNull, isNotNull } from "drizzle-orm";
+import { config as loadEnv } from "dotenv";
+loadEnv({ path: ".env" });
+loadEnv({ path: ".env.dev", override: true });
+loadEnv({ path: ".env.local", override: true });
+import { and, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { registryPreviewArtifacts } from "@/lib/db/schema";
 import { buildArtifactPreviewHtml } from "@/lib/preview-artifact-html";
@@ -35,13 +41,37 @@ type ManifestJson = {
   };
 };
 
+async function ensureColumns() {
+  const [htmlUrlCol] = await db.execute(sql`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_name = 'registry_preview_artifacts' AND column_name = 'html_url'
+  `);
+  if (!htmlUrlCol) {
+    console.log("Column html_url missing — running migration...");
+    await db.execute(sql`ALTER TABLE "registry_preview_artifacts" ADD COLUMN "html_url" text`);
+    console.log("html_url migration applied.");
+  }
+
+  const [htmlContentCol] = await db.execute(sql`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_name = 'registry_preview_artifacts' AND column_name = 'html_content'
+  `);
+  if (!htmlContentCol) {
+    console.log("Column html_content missing — running migration...");
+    await db.execute(sql`ALTER TABLE "registry_preview_artifacts" ADD COLUMN "html_content" text`);
+    console.log("html_content migration applied.");
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
   const limitIdx = args.indexOf("--limit");
   const limit = limitIdx >= 0 ? parseInt(args[limitIdx + 1], 10) || 50 : 500;
 
-  console.log(`Backfilling preview.html for ready artifacts (limit=${limit}, dryRun=${dryRun})`);
+  await ensureColumns();
+
+  console.log(`Backfilling preview HTML for ready artifacts (limit=${limit}, dryRun=${dryRun})`);
 
   const artifacts = await db
     .select({
@@ -56,7 +86,7 @@ async function main() {
     .where(
       and(
         eq(registryPreviewArtifacts.status, "ready"),
-        isNull(registryPreviewArtifacts.htmlUrl),
+        isNull(registryPreviewArtifacts.htmlContent),
         isNotNull(registryPreviewArtifacts.jsUrl),
       ),
     )
@@ -100,6 +130,7 @@ async function main() {
         cssUrl: artifact.cssUrl,
         compatibleExternals,
         mode,
+        bundledReact: true,
       });
 
       if (dryRun) {
@@ -134,7 +165,7 @@ async function main() {
 
       await db
         .update(registryPreviewArtifacts)
-        .set({ htmlUrl })
+        .set({ htmlUrl, htmlContent: html })
         .where(eq(registryPreviewArtifacts.id, artifact.id));
 
       success++;
