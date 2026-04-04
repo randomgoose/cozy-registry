@@ -616,7 +616,11 @@ root.render(
       name: "bundle-root-alias",
       setup(build: import("esbuild").PluginBuild) {
         build.onResolve({ filter: /^@\// }, async (args: import("esbuild").OnResolveArgs) => {
-          const resolved = await resolveBundleRootAliasPath(tmpDir, args.path);
+          const resolved = await resolveBundleRootAliasPath(
+            tmpDir,
+            args.importer,
+            args.path,
+          );
           if (!resolved) {
             return {
               errors: [{ text: `Could not resolve ${JSON.stringify(args.path)}` }],
@@ -717,18 +721,50 @@ function isEsbuildBuildError(err: unknown): err is EsbuildBuildErrorLike {
 
 async function resolveBundleRootAliasPath(
   workspaceRoot: string,
+  importerPath: string | undefined,
   specifier: string,
 ): Promise<string | null> {
-  for (const candidate of resolveBundleRootAliasImport(specifier)) {
-    const abs = path.join(workspaceRoot, candidate);
-    try {
-      const stat = await fs.stat(abs);
-      if (stat.isFile()) return abs;
-    } catch {
-      continue;
+  const normalizedWorkspaceRoot = path.resolve(workspaceRoot);
+  const realWorkspaceRoot = await safeRealpath(normalizedWorkspaceRoot);
+  const candidateRoots = new Set<string>([
+    normalizedWorkspaceRoot,
+    realWorkspaceRoot,
+  ]);
+
+  if (importerPath) {
+    let current = await safeRealpath(path.resolve(path.dirname(importerPath)));
+    while (
+      current.startsWith(normalizedWorkspaceRoot) ||
+      current.startsWith(realWorkspaceRoot)
+    ) {
+      candidateRoots.add(current);
+      if (current === normalizedWorkspaceRoot || current === realWorkspaceRoot) break;
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+  }
+
+  for (const root of candidateRoots) {
+    for (const candidate of resolveBundleRootAliasImport(specifier)) {
+      const abs = path.join(root, candidate);
+      try {
+        const stat = await fs.stat(abs);
+        if (stat.isFile()) return abs;
+      } catch {
+        continue;
+      }
     }
   }
   return null;
+}
+
+async function safeRealpath(target: string) {
+  try {
+    return await fs.realpath(target);
+  } catch {
+    return target;
+  }
 }
 
 async function getPreviewWorkspace(

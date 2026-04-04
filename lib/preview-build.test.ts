@@ -24,7 +24,9 @@ describe("preview-build", () => {
       { externalizeDependencies: false },
     );
 
-    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.error.message);
+    }
     if (!result.ok) return;
     expect(result.code).toContain("createLucideIcon");
     expect(result.code).not.toContain(`from "lucide-react"`);
@@ -57,6 +59,40 @@ describe("preview-build", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.code).toContain("hello");
+    expect(result.code).not.toContain(`from "@/lib/utils"`);
+  });
+
+  it("resolves bundle-local @/ aliases from nested installed bundle roots", async () => {
+    const result = await buildPreviewBundle(
+      {
+        name: "dialog",
+        version: "1.0.0",
+        files: {
+          "index.tsx": `
+            export { default } from "./src/components/registry/indeed-cozy/dialog/index";
+          `,
+          "src/components/registry/indeed-cozy/dialog/lib/utils.ts": `
+            export function cn(...parts: Array<string | false | null | undefined>) {
+              return parts.filter(Boolean).join(" ");
+            }
+          `,
+          "src/components/registry/indeed-cozy/dialog/index.tsx": `
+            import React from "react";
+            import { cn } from "@/lib/utils";
+
+            export default function Dialog() {
+              return <div className={cn("dialog", "open")}>ok</div>;
+            }
+          `,
+        },
+      },
+      {},
+    );
+
+    if (!result.ok) {
+      throw new Error(result.error.message);
+    }
+    expect(result.code).toContain("dialog");
     expect(result.code).not.toContain(`from "@/lib/utils"`);
   });
 });
