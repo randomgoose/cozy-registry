@@ -41,6 +41,13 @@ function publicAssetUrlWithContentBust(url: string, body: string): string {
 }
 
 export const BUILD_PREVIEW_ARTIFACT_JOB = "build_preview_artifact" as const;
+export const PREVIEW_ARTIFACT_CAPABILITIES = [
+  "managed-artifact",
+  "compatible-artifact",
+  "runtime-only",
+] as const;
+export type PreviewArtifactCapability =
+  (typeof PREVIEW_ARTIFACT_CAPABILITIES)[number];
 
 type PreviewArtifactJobPayload = {
   owner: string;
@@ -86,7 +93,7 @@ export function formatRuntimeOnlyDependencySkipMessage(
   return `Artifact prebundle was skipped by policy because these dependencies are runtime-only: ${runtimeOnlyDependencies.join(", ")}.`;
 }
 
-function hasBlockingRuntimeOnlyDependencies(
+function hasNonPlatformRuntimeOnlyDependencies(
   dependencyDecisions: DependencyDecision[],
 ) {
   return dependencyDecisions.some(
@@ -95,6 +102,38 @@ function hasBlockingRuntimeOnlyDependencies(
       decision.tier !== "runtime-provided" &&
       isBarePackageSpecifier(decision.packageName),
   );
+}
+
+export function normalizePreviewArtifactCapability(
+  value: unknown,
+): PreviewArtifactCapability | null {
+  return PREVIEW_ARTIFACT_CAPABILITIES.includes(
+    value as PreviewArtifactCapability,
+  )
+    ? (value as PreviewArtifactCapability)
+    : null;
+}
+
+export function classifyPreviewArtifactCapability(
+  dependencyDecisions: DependencyDecision[],
+): PreviewArtifactCapability {
+  if (hasNonPlatformRuntimeOnlyDependencies(dependencyDecisions)) {
+    return "compatible-artifact";
+  }
+  return "managed-artifact";
+}
+
+export function inferPreviewArtifactCapability(input: {
+  storedCapability?: unknown;
+  artifactStatus?: unknown;
+  dependencyDecisions: DependencyDecision[];
+}): PreviewArtifactCapability {
+  const stored = normalizePreviewArtifactCapability(input.storedCapability);
+  if (stored) return stored;
+  if (input.artifactStatus === "skipped") {
+    return "runtime-only";
+  }
+  return classifyPreviewArtifactCapability(input.dependencyDecisions);
 }
 
 export async function enqueuePreviewArtifactJob(params: {
@@ -122,6 +161,7 @@ export async function enqueuePreviewArtifactJob(params: {
       mode: params.payload.mode,
       storyId: normalizedStoryId,
       status: "queued",
+      artifactCapability: "managed-artifact",
       artifactKey,
       lastErrorCode: null,
       lastErrorMessage: null,
@@ -136,6 +176,7 @@ export async function enqueuePreviewArtifactJob(params: {
       ],
       set: {
         status: "queued",
+        artifactCapability: "managed-artifact",
         artifactKey,
         lastErrorCode: null,
         lastErrorMessage: null,
@@ -351,11 +392,13 @@ export async function processPreviewArtifactJob(jobId: string) {
           mode,
           storyId: normalizedStoryId,
         });
+  let artifactCapability: PreviewArtifactCapability = "managed-artifact";
 
   await db
     .update(registryPreviewArtifacts)
     .set({
       status: "running",
+      artifactCapability: "managed-artifact",
       startedAt: new Date(),
       finishedAt: null,
       lastErrorCode: null,
@@ -430,7 +473,17 @@ export async function processPreviewArtifactJob(jobId: string) {
         .join("; ");
       throw new Error(`Rejected preview dependencies: ${details}`);
     }
-    if (hasBlockingRuntimeOnlyDependencies(dependencyDecisions)) {
+    artifactCapability =
+      classifyPreviewArtifactCapability(dependencyDecisions);
+
+    await db
+      .update(registryPreviewArtifacts)
+      .set({
+        artifactCapability,
+      })
+      .where(eq(registryPreviewArtifacts.artifactKey, artifactKey));
+
+    if (artifactCapability === "runtime-only") {
       const reasonCode = "SKIPPED_RUNTIME_ONLY_DEPENDENCIES";
       const message =
         formatRuntimeOnlyDependencySkipMessage(dependencyDecisions);
@@ -439,6 +492,7 @@ export async function processPreviewArtifactJob(jobId: string) {
         .update(registryPreviewArtifacts)
         .set({
           status: "skipped",
+          artifactCapability,
           finishedAt: new Date(),
           lastErrorCode: reasonCode,
           lastErrorMessage: message,
@@ -472,6 +526,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       {
         mode,
         debug: false,
+        externalizeDependencies: artifactCapability !== "managed-artifact",
         dependencyNodePaths: resolvedPreviewDependencies.nodePaths,
         dependencyResolutionDiagnostics:
           resolvedPreviewDependencies.diagnostics,
@@ -566,6 +621,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       .update(registryPreviewArtifacts)
       .set({
         status: "ready",
+        artifactCapability,
         jsUrl: jsUrlForClients,
         cssUrl: uploadedCssUrl,
         manifestUrl: uploadedManifest.url,
@@ -591,6 +647,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       .update(registryPreviewArtifacts)
       .set({
         status: "failed",
+        artifactCapability,
         finishedAt: new Date(),
         lastErrorCode: "PREVIEW_ARTIFACT_BUILD_FAILED",
         lastErrorMessage: message,

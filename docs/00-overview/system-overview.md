@@ -53,4 +53,5 @@ Source of truth: yes
 - [Registry Resource Lifecycle Spec](../20-engineering/registry-resource-lifecycle-spec.md)：资源归档、硬删除与个人/组织归属迁移方案。
 - [Preview Third-Party Dependency Governance Spec](../20-engineering/preview-third-party-dependency-governance-spec.md)：第三方依赖的分级准入、发布校验与预构建治理方案。
 - [Story Preview UX / Performance Spec](../20-engineering/story-preview-ux-performance-spec.md)：story 预览的产品目标、性能指标与 artifact-first 主路径定义。
+- [Preview Artifact Capability Model Spec](../20-engineering/preview-artifact-capability-model-spec.md)：`managed-artifact / compatible-artifact / runtime-only` 的能力分层与实现方向。
 - [Project-Scoped Registry Identity Spec](../20-engineering/project-scoped-registry-identity-spec.md)：将 registry 正式身份从 `owner + name` 升级到 `owner + project + name` 的系统方案。

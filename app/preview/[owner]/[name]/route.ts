@@ -42,6 +42,8 @@ import { registryItemVersions, registryPreviewArtifacts } from "@/lib/db/schema"
 import {
   enqueuePreviewArtifactJob,
   formatRuntimeOnlyDependencySkipMessage,
+  inferPreviewArtifactCapability,
+  type PreviewArtifactCapability,
 } from "@/lib/preview-artifact-jobs";
 import { pickPreviewStory } from "@/lib/preview-stories";
 import {
@@ -393,6 +395,7 @@ export async function GET(
   const normalizedStoryId = resolvedStoryId ?? "";
 
   let artifactHit = false;
+  let artifactCapability: PreviewArtifactCapability = "managed-artifact";
   let artifactStatus: "missing" | "queued" | "running" | "ready" | "failed" | "skipped" =
     "missing";
   let artifactJsUrl: string | null = null;
@@ -414,6 +417,7 @@ export async function GET(
       const [artifact] = await db
         .select({
           status: registryPreviewArtifacts.status,
+          artifactCapability: registryPreviewArtifacts.artifactCapability,
           jsUrl: registryPreviewArtifacts.jsUrl,
           cssUrl: registryPreviewArtifacts.cssUrl,
           lastErrorMessage: registryPreviewArtifacts.lastErrorMessage,
@@ -428,11 +432,21 @@ export async function GET(
         )
         .limit(1);
       if (artifact?.status === "ready" && artifact.jsUrl) {
+        artifactCapability = inferPreviewArtifactCapability({
+          storedCapability: artifact.artifactCapability,
+          artifactStatus: artifact.status,
+          dependencyDecisions: readDependencyDecisionsFromMeta(item.meta),
+        });
         artifactStatus = "ready";
         artifactHit = true;
         artifactJsUrl = artifact.jsUrl;
         artifactCssUrl = artifact.cssUrl ?? null;
       } else if (artifact) {
+        artifactCapability = inferPreviewArtifactCapability({
+          storedCapability: artifact.artifactCapability,
+          artifactStatus: artifact.status,
+          dependencyDecisions: readDependencyDecisionsFromMeta(item.meta),
+        });
         artifactStatus =
           artifact.status === "queued" ||
           artifact.status === "running" ||
@@ -520,11 +534,19 @@ export async function GET(
 
     if (artifactStatus === "skipped") {
       const html = buildPreviewStatePageHtml({
-        title: "Runtime preview only",
-        heading: "Prebundle skipped by policy",
+        title:
+          artifactCapability === "compatible-artifact"
+            ? "Compatibility mode"
+            : "Runtime preview only",
+        heading:
+          artifactCapability === "compatible-artifact"
+            ? "Artifact compatibility mode"
+            : "Prebundle skipped by policy",
         body:
-          artifactErrorMessage ??
-          "This story can still be previewed, but it is currently using the runtime-only compatibility path instead of a stable prebuilt artifact.",
+          artifactCapability === "compatible-artifact"
+            ? "This story artifact is ready in compatibility mode. Some dependencies still load at runtime."
+            : (artifactErrorMessage ??
+              "This story can still be previewed, but it is currently using the runtime-only compatibility path instead of a stable prebuilt artifact."),
         tone: "warning",
         versionToolbarHtml,
         toolbarBodyPadding,

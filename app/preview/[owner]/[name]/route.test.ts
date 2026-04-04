@@ -36,6 +36,11 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/preview-artifact-jobs", () => ({
   enqueuePreviewArtifactJob: enqueuePreviewArtifactJobMock,
+  inferPreviewArtifactCapability: vi.fn(
+    ({ artifactStatus }: { artifactStatus?: string }) =>
+      artifactStatus === "skipped" ? "runtime-only" : "managed-artifact",
+  ),
+  formatRuntimeOnlyDependencySkipMessage: vi.fn(() => "Skipped by policy."),
 }));
 
 vi.mock("@/lib/preview-build", () => ({
@@ -81,6 +86,7 @@ vi.mock("@/lib/third-party-dependency-governance", () => ({
   excludeExplicitRegistryDependencies: vi.fn((deps: string[]) => deps),
   getRejectedDependencyDecisions: vi.fn(() => []),
   getRuntimePreviewDependencies: vi.fn(() => []),
+  readDependencyDecisionsFromMeta: vi.fn(() => []),
   readDeclaredThirdPartyDependenciesFromMeta: vi.fn(() => []),
 }));
 

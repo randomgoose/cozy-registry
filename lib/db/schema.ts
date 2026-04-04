@@ -473,6 +473,9 @@ export const registryPreviewArtifacts = pgTable(
     mode: text("mode").default("default").notNull(), // default | thumbnail
     storyId: text("story_id").default("").notNull(), // empty means component-level preview
     status: text("status").default("queued").notNull(), // queued | running | ready | failed | skipped
+    artifactCapability: text("artifact_capability")
+      .default("managed-artifact")
+      .notNull(), // managed-artifact | compatible-artifact | runtime-only
     artifactKey: text("artifact_key").notNull(),
     jsUrl: text("js_url"),
     cssUrl: text("css_url"),

@@ -7,8 +7,11 @@ import {
   registryItemVersions,
   registryPreviewArtifacts,
 } from "@/lib/db/schema";
-import { enqueuePreviewArtifactJob } from "@/lib/preview-artifact-jobs";
-import { formatRuntimeOnlyDependencySkipMessage } from "@/lib/preview-artifact-jobs";
+import {
+  enqueuePreviewArtifactJob,
+  formatRuntimeOnlyDependencySkipMessage,
+  inferPreviewArtifactCapability,
+} from "@/lib/preview-artifact-jobs";
 import {
   getCurrentVersion,
   getRegistryItemByScopedIdentityAndVersion,
@@ -130,11 +133,15 @@ export async function GET(request: Request) {
     );
   }
 
+  const dependencyDecisions = readDependencyDecisionsFromMeta(item.meta);
+  const artifactCapability = inferPreviewArtifactCapability({
+    storedCapability: artifact.artifactCapability,
+    artifactStatus: artifact.status,
+    dependencyDecisions,
+  });
   const fallbackSkippedMessage =
     artifact.status === "skipped"
-      ? formatRuntimeOnlyDependencySkipMessage(
-          readDependencyDecisionsFromMeta(item.meta),
-        )
+      ? formatRuntimeOnlyDependencySkipMessage(dependencyDecisions)
       : null;
   const normalizedLastErrorMessage =
     artifact.status === "skipped"
@@ -148,6 +155,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     artifactStatus: artifact.status,
+    artifactCapability,
     owner,
     name,
     version: effectiveVersion,

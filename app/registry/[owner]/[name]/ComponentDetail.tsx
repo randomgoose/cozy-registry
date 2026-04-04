@@ -41,9 +41,14 @@ type PreviewArtifactStatus =
   | "ready"
   | "failed"
   | "skipped";
+type PreviewArtifactCapability =
+  | "managed-artifact"
+  | "compatible-artifact"
+  | "runtime-only";
 
 type PreviewArtifactStatusPayload = {
   artifactStatus: PreviewArtifactStatus;
+  artifactCapability?: PreviewArtifactCapability | null;
   lastError?: {
     code?: string | null;
     message?: string | null;
@@ -257,7 +262,9 @@ export function ComponentDetail({
       case "running":
         return "Artifact building";
       case "ready":
-        return "Artifact ready";
+        return artifactStatus.artifactCapability === "compatible-artifact"
+          ? "Compatibility mode"
+          : "Artifact ready";
       case "failed":
         return "Artifact failed";
       case "skipped":
@@ -269,7 +276,10 @@ export function ComponentDetail({
     }
   })();
   const artifactStatusMessage =
-    artifactStatus?.artifactStatus === "skipped"
+    artifactStatus?.artifactStatus === "ready" &&
+    artifactStatus.artifactCapability === "compatible-artifact"
+      ? "Some dependencies load at runtime."
+      : artifactStatus?.artifactStatus === "skipped"
       ? artifactStatus.lastError?.message ??
         "Preview artifact prebundle was skipped by policy."
       : artifactStatus?.artifactStatus === "failed"
