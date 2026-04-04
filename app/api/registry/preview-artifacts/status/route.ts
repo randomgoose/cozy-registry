@@ -17,6 +17,7 @@ import {
   getRegistryItemByScopedIdentityAndVersion,
 } from "@/lib/registry";
 import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-governance";
+import { getCompatibleArtifactDependencyDisplayNames } from "@/lib/third-party-dependency-governance";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -134,6 +135,8 @@ export async function GET(request: Request) {
   }
 
   const dependencyDecisions = readDependencyDecisionsFromMeta(item.meta);
+  const compatibleExternalDependencies =
+    getCompatibleArtifactDependencyDisplayNames(dependencyDecisions);
   const artifactCapability = inferPreviewArtifactCapability({
     storedCapability: artifact.artifactCapability,
     artifactStatus: artifact.status,
@@ -161,6 +164,7 @@ export async function GET(request: Request) {
     version: effectiveVersion,
     mode,
     storyId,
+    compatibleExternalDependencies,
     artifactKey: artifact.artifactKey,
     artifactUrl: artifact.jsUrl,
     cssUrl: artifact.cssUrl,

@@ -111,7 +111,7 @@ function hasCompatibleExternalDependencies(
   return dependencyDecisions.some(
     (decision) =>
       getDependencyProviderMode(decision) === "compatible-external" &&
-      decision.previewCapability === "prebundle-supported" &&
+      decision.previewCapability === "compatible-artifact-supported" &&
       isBarePackageSpecifier(decision.packageName),
   );
 }
@@ -612,6 +612,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       generatedAt: new Date().toISOString(),
       jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
+      dependencyPlan: resolvedPreviewDependencies.plan,
       dependencyResolutionDiagnostics:
         buildResult.dependencyResolutionDiagnostics ?? [],
     };

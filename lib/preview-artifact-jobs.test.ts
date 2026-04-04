@@ -118,7 +118,7 @@ describe("preview-artifact-jobs", () => {
         requestedVersion: "1.3.0",
         tier: "trusted-built-in",
         providerMode: "compatible-external",
-        previewCapability: "prebundle-supported",
+        previewCapability: "compatible-artifact-supported",
         versionPolicyStatus: "accepted",
         message: "Allowed in compatibility mode.",
       },

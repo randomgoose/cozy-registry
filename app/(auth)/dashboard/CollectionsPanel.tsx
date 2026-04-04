@@ -70,6 +70,7 @@ type PreviewArtifactCapability =
 type PreviewArtifactStatusPayload = {
   artifactStatus: PreviewArtifactStatus;
   artifactCapability?: PreviewArtifactCapability | null;
+  compatibleExternalDependencies?: string[];
   lastError?: {
     code?: string | null;
     message?: string | null;
@@ -978,7 +979,9 @@ export function ProjectsPanel(props: {
                   const artifactStatusMessage =
                     artifactStatus?.artifactStatus === "ready" &&
                     artifactStatus.artifactCapability === "compatible-artifact"
-                      ? "Some dependencies load at runtime."
+                      ? artifactStatus.compatibleExternalDependencies?.length
+                        ? `Some dependencies load at runtime: ${artifactStatus.compatibleExternalDependencies.join(", ")}.`
+                        : "Some dependencies load at runtime."
                       : artifactStatus?.artifactStatus === "skipped"
                       ? artifactStatus.lastError?.message ??
                         "Preview artifact prebundle was skipped by policy."

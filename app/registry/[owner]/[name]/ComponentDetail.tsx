@@ -49,6 +49,7 @@ type PreviewArtifactCapability =
 type PreviewArtifactStatusPayload = {
   artifactStatus: PreviewArtifactStatus;
   artifactCapability?: PreviewArtifactCapability | null;
+  compatibleExternalDependencies?: string[];
   lastError?: {
     code?: string | null;
     message?: string | null;
@@ -278,7 +279,9 @@ export function ComponentDetail({
   const artifactStatusMessage =
     artifactStatus?.artifactStatus === "ready" &&
     artifactStatus.artifactCapability === "compatible-artifact"
-      ? "Some dependencies load at runtime."
+      ? artifactStatus.compatibleExternalDependencies?.length
+        ? `Some dependencies load at runtime: ${artifactStatus.compatibleExternalDependencies.join(", ")}.`
+        : "Some dependencies load at runtime."
       : artifactStatus?.artifactStatus === "skipped"
       ? artifactStatus.lastError?.message ??
         "Preview artifact prebundle was skipped by policy."
@@ -462,6 +465,8 @@ export function ComponentDetail({
                             className={
                               decision.previewCapability === "prebundle-supported"
                                 ? "rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                                : decision.previewCapability === "compatible-artifact-supported"
+                                  ? "rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
                                 : decision.previewCapability === "runtime-only"
                                   ? "rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
                                   : "rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-800 dark:bg-red-900/40 dark:text-red-200"

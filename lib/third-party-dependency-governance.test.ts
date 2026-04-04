@@ -63,7 +63,7 @@ describe("third-party-dependency-governance", () => {
     expect(knownVersion).toMatchObject({
       packageName: "@radix-ui/react-dialog",
       tier: "trusted-built-in",
-      previewCapability: "prebundle-supported",
+      previewCapability: "compatible-artifact-supported",
       versionPolicyStatus: "accepted",
     });
   });
@@ -131,8 +131,9 @@ describe("third-party-dependency-governance", () => {
       declared: [{ name: "date-fns", version: "4.1.0" }],
     });
 
-    expect(hasRuntimeOnlyDependencies(decisions)).toBe(true);
+    expect(hasRuntimeOnlyDependencies(decisions)).toBe(false);
     expect(getRejectedDependencyDecisions(decisions)).toEqual([]);
+    expect(decisions[0]?.previewCapability).toBe("compatible-artifact-supported");
   });
 
   it("reads declared dependencies from item meta", () => {

@@ -179,4 +179,23 @@ describe("preview-dependency-provider", () => {
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
+
+  it("records compatible-external dependencies in the provider plan without requiring package materialization", async () => {
+    const decisions = evaluateThirdPartyDependencies({
+      discovered: ["recharts"],
+      declared: [{ name: "recharts", version: "2.15.3" }],
+    });
+
+    const result = await resolvePreviewDependencies({ decisions });
+
+    expect(result.resolutions).toEqual([]);
+    expect(result.plan.compatibleExternals).toEqual([
+      {
+        packageName: "recharts",
+        requestedVersion: "2.15.3",
+        importMapTarget: "recharts",
+      },
+    ]);
+    expect(result.plan.managedPackages).toEqual([]);
+  });
 });

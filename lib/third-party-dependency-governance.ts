@@ -182,6 +182,35 @@ export function getPrebundleDependencies(decisions: DependencyDecision[]) {
   ).sort();
 }
 
+export function getCompatibleArtifactDependencies(
+  decisions: DependencyDecision[],
+) {
+  return Array.from(
+    new Set(
+      decisions
+        .filter(
+          (decision) =>
+            decision.previewCapability === "compatible-artifact-supported" &&
+            getDependencyProviderMode(decision) === "compatible-external",
+        )
+        .map((decision) => decision.packageName),
+    ),
+  ).sort();
+}
+
+export function getCompatibleArtifactDependencyDisplayNames(
+  decisions: DependencyDecision[],
+) {
+  return decisions
+    .filter(
+      (decision) =>
+        decision.previewCapability === "compatible-artifact-supported" &&
+        getDependencyProviderMode(decision) === "compatible-external",
+    )
+    .map((decision) => getDependencyDisplayName(decision))
+    .sort();
+}
+
 export function hasRuntimeOnlyDependencies(decisions: DependencyDecision[]) {
   return decisions.some((decision) => decision.previewCapability === "runtime-only");
 }
@@ -243,12 +272,15 @@ function evaluateDependency(input: {
         requestedVersion,
         tier: "trusted-built-in",
         providerMode,
-        previewCapability: "prebundle-supported",
+        previewCapability:
+          providerMode === "managed-provider"
+            ? "prebundle-supported"
+            : "compatible-artifact-supported",
         versionPolicyStatus: "accepted",
         message:
           providerMode === "managed-provider"
             ? "Allowed and eligible for preview artifact prebundle."
-            : "Allowed in compatibility mode; preview artifacts may keep this dependency external at runtime.",
+            : "Allowed in compatibility mode; preview artifacts may keep this dependency external at runtime while still producing a compatible artifact.",
       };
     }
     return {
@@ -271,13 +303,15 @@ function evaluateDependency(input: {
     requestedVersion,
     tier: "soft-allowed",
     providerMode: "compatible-external",
-    previewCapability: "runtime-only",
+    previewCapability: requestedVersion
+      ? "compatible-artifact-supported"
+      : "runtime-only",
     versionPolicyStatus: requestedVersion ? "accepted" : "unknown",
     message: requestedVersion
-      ? "Published in compatibility mode; artifact prebundle is disabled by policy."
+      ? "Published in compatibility mode; this dependency may stay external while the component still produces a compatible artifact."
       : "Published in compatibility mode without an explicit version; artifact prebundle is disabled.",
     reasonCode: requestedVersion
-      ? "SOFT_ALLOWED_RUNTIME_ONLY"
+      ? "SOFT_ALLOWED_COMPATIBLE_ARTIFACT"
       : "VERSION_UNKNOWN_RUNTIME_ONLY",
   };
 }
@@ -354,6 +388,7 @@ function normalizeDependencyDecisions(raw: unknown): DependencyDecision[] {
     if (
       previewCapability !== "runtime-only" &&
       previewCapability !== "prebundle-supported" &&
+      previewCapability !== "compatible-artifact-supported" &&
       previewCapability !== "blocked"
     ) {
       continue;

@@ -84,6 +84,14 @@ runtime preview 与 artifact prebuild 可以采用不同输出策略，但必须
 
 宿主仓库 `node_modules` 可以作为短期兼容和开发 fallback，但不能继续作为长期生产 contract。
 
+进一步决议：
+
+- 平台长期**不接受**“宿主 app 装了就算支持”作为正式定义
+- 平台长期必须收敛到：
+  - `provider-owned managed assets`
+  - `compatible external runtime contract`
+- 因此所有 host tracing、host fallback、host-copied package tree 都只能视为过渡补丁
+
 ### 4.5 Provider mode should drive artifact capability
 
 长期来看，第三方依赖不能只靠 `tier + previewCapability` 推断实际构建能力。
@@ -98,6 +106,37 @@ runtime preview 与 artifact prebuild 可以采用不同输出策略，但必须
 ## 5. Core Contracts
 
 本节定义本 spec 的三条核心 contract。后续 publish、preview、artifact worker、UI diagnostics 都必须服从这里的决议，不能各自推断。
+
+### 5.0 Canonical Decision Layers
+
+本 spec 明确将以下四层定义为 preview dependency / artifact 系统的**正式决策层**：
+
+- `tier`
+- `previewCapability`
+- `providerMode`
+- `artifactCapability`
+
+决议：
+
+- 这四层都已经是正式 contract，不应再被视为“边做边补的临时字段”
+- 实现层不得跳过其中任意一层，直接从其他层临时反推
+- 若需要新增兼容能力，应先更新 contract，再更新实现
+
+各层语义：
+
+- `tier`
+  - 依赖治理层分类，回答“平台如何看待这个依赖”
+- `previewCapability`
+  - 依赖级 preview 能力，回答“它能否支持 managed / compatible / runtime-only 路径”
+- `providerMode`
+  - 依赖供应层模式，回答“平台从哪里提供它”
+- `artifactCapability`
+  - 组件级产物能力，回答“这个组件最终进入哪种 artifact 车道”
+
+结论：
+
+- 这四层是系统中的唯一真相
+- 后续 provider 与 compatible lane 的演进，都必须围绕这四层收敛，而不是额外再引入并行判断
 
 ### 5.1 Admission Contract: Unknown Packages Default to Compatibility Mode
 
@@ -585,6 +624,26 @@ publish 校验必须区分“发现包名”和“拿到可信版本”：
 ## 9. Preview Capability Model
 
 每个依赖除 tier 外，还应映射为 preview capability。
+
+### 9.0 Long-term Strategy Decision
+
+平台长期路线不是继续维护一组“官方支持包名单”就结束，而是建设真正的 provider 平台。
+
+短期可以接受：
+
+- 一组 exact trusted built-ins
+- 少量 trusted namespace defaults
+- host fallback / host tracing 作为兼容桥
+
+长期必须收敛到：
+
+- `provider-owned managed assets`
+- `compatible external runtime contract`
+
+也就是说：
+
+- “官方支持包集合”可以作为 rollout 手段
+- 但不是最终架构终点
 
 ### 9.1 `runtime-only`
 
@@ -1090,3 +1149,20 @@ publish 响应应包含依赖诊断信息，至少包括：
 - [Preview Build Performance Spec](./preview-build-performance-spec.md)
 - [Publish Preview Smoke Gate](./publish-preview-smoke-gate.md)
 - [Registry Dependency Management Spec](./registry-dependency-management-spec.md)
+- [Preview Dependency Provider Refactor Spec](./preview-dependency-provider-refactor-spec.md)
+- [Soft-Allowed Compatible Artifact Spec](./soft-allowed-compatible-artifact-spec.md)
+- [Preview Artifact Capability Model Spec](./preview-artifact-capability-model-spec.md)
+
+## Document Topology
+
+本主题的文档收敛策略如下：
+
+- 本文保持主 spec 与最终决议来源
+- [Preview Dependency Provider Refactor Spec](./preview-dependency-provider-refactor-spec.md) 保持独立，负责 provider 边界与实现迁移
+- [Soft-Allowed Compatible Artifact Spec](./soft-allowed-compatible-artifact-spec.md) 作为阶段性专项文档存在
+- [Preview Artifact Capability Model Spec](./preview-artifact-capability-model-spec.md) 负责 artifact capability / status 的产品与运行时语义
+
+长期要求：
+
+- 专项文档中的成熟决议应并回本文的 decision table / classification rules
+- 不应长期让实现团队依赖多份并行主文档做最终判断

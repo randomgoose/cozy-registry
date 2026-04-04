@@ -310,6 +310,26 @@ preview build / artifact worker 的决策不应再只输出：
 
 为避免 `compatible-artifact` 只停留在概念层，本 spec 进一步定义它的运行时 contract。
 
+#### 8.4.0 Formal success-path decision
+
+本 spec 明确拍板：
+
+- `compatible-artifact` 是正式成功路径
+- 允许 `artifactStatus = ready`
+- 允许 thumbnail
+- 允许 warm cache / artifact cache
+- UI 必须把它展示为成功预览，而不是降级失败
+
+推荐用户侧语义：
+
+- `Preview ready (compatibility mode)`
+
+不推荐：
+
+- 将其继续挂在 `skipped`
+- 将其渲染为“失败但可兼容”
+- 将其视为仅供内部兜底的临时态
+
 #### 8.4.1 Thumbnail
 
 `compatible-artifact` 默认应允许生成并消费 thumbnail。

@@ -3,6 +3,7 @@ import Module from "node:module";
 import os from "node:os";
 import path from "node:path";
 import {
+  getCompatibleArtifactDependencies,
   getDependencyProviderMode,
   getPrebundleDependencies,
   type DependencyDecision,
@@ -25,6 +26,18 @@ export type PreviewDependencyResolutionDiagnostic = {
   resolutionSource: PreviewDependencyResolutionSource;
   message: string;
   providerMode?: "managed-provider" | "compatible-external";
+};
+
+export type PreviewCompatibleExternal = {
+  packageName: string;
+  requestedVersion: string | null;
+  importMapTarget: string;
+};
+
+export type PreviewDependencyPlan = {
+  managedPackages: PreviewDependencyResolution[];
+  compatibleExternals: PreviewCompatibleExternal[];
+  diagnostics: PreviewDependencyResolutionDiagnostic[];
 };
 
 const DEFAULT_PROVIDER_ROOT = path.join(
@@ -58,6 +71,7 @@ export async function resolvePreviewDependencies(params: {
 }): Promise<{
   nodePaths: string[];
   resolutions: PreviewDependencyResolution[];
+  plan: PreviewDependencyPlan;
   diagnostics: PreviewDependencyResolutionDiagnostic[];
 }> {
   const appRequire = Module.createRequire(
@@ -67,12 +81,25 @@ export async function resolvePreviewDependencies(params: {
   const byName = new Map(
     params.decisions.map((decision) => [decision.packageName, decision]),
   );
-  const packageNames = getPrebundleDependencies(params.decisions);
+  const managedPackageNames = getPrebundleDependencies(params.decisions);
+  const compatibleExternalNames = getCompatibleArtifactDependencies(
+    params.decisions,
+  );
   const nodePathSet = new Set<string>(hostNodePaths);
   const resolutions: PreviewDependencyResolution[] = [];
   const diagnostics: PreviewDependencyResolutionDiagnostic[] = [];
+  const compatibleExternals: PreviewCompatibleExternal[] = compatibleExternalNames.map(
+    (packageName) => {
+      const decision = byName.get(packageName);
+      return {
+        packageName,
+        requestedVersion: decision?.requestedVersion ?? null,
+        importMapTarget: packageName,
+      };
+    },
+  );
 
-  for (const packageName of packageNames) {
+  for (const packageName of managedPackageNames) {
     const decision = byName.get(packageName);
     const requestedVersion = decision?.requestedVersion?.trim();
     if (!requestedVersion) continue;
@@ -125,6 +152,11 @@ export async function resolvePreviewDependencies(params: {
   return {
     nodePaths: Array.from(nodePathSet),
     resolutions,
+    plan: {
+      managedPackages: resolutions,
+      compatibleExternals,
+      diagnostics,
+    },
     diagnostics,
   };
 }

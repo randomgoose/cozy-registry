@@ -7,6 +7,7 @@ export type DependencyTier =
 export type PreviewCapability =
   | "runtime-only"
   | "prebundle-supported"
+  | "compatible-artifact-supported"
   | "blocked";
 
 export type ProviderMode =

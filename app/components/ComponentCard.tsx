@@ -104,6 +104,7 @@ function resolveSelectedPreviewStoryId(input: {
 type PreviewArtifactStatusPayload = {
   artifactStatus: PreviewArtifactStatus;
   artifactCapability?: PreviewArtifactCapability | null;
+  compatibleExternalDependencies?: string[];
   lastError?: {
     code?: string | null;
     message?: string | null;
@@ -818,7 +819,9 @@ export function ComponentCard({
   const artifactStatusMessage =
     artifactStatus?.artifactStatus === "ready" &&
     artifactStatus.artifactCapability === "compatible-artifact"
-      ? "Some dependencies load at runtime."
+      ? artifactStatus.compatibleExternalDependencies?.length
+        ? `Some dependencies load at runtime: ${artifactStatus.compatibleExternalDependencies.join(", ")}.`
+        : "Some dependencies load at runtime."
       : artifactStatus?.artifactStatus === "skipped"
       ? artifactStatus.lastError?.message ??
         "Preview artifact prebundle was skipped by policy."
@@ -1235,6 +1238,8 @@ export function ComponentCard({
                                     "rounded-full px-2 py-0.5 text-[11px] font-medium",
                                     decision.previewCapability === "prebundle-supported"
                                       ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                                      : decision.previewCapability === "compatible-artifact-supported"
+                                        ? "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
                                       : decision.previewCapability === "runtime-only"
                                         ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
                                         : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
