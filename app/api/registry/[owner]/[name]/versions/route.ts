@@ -15,6 +15,7 @@ import {
   extractDependencies,
   validateComponentBundle,
   validateTsx,
+  isBarePackageSpecifier,
 } from "@/lib/validate-tsx";
 import { parseTokensFromJson, tokensToRootCss } from "@/lib/theme-tokens";
 import { analyzeUploadStyleHints } from "@/lib/upload-style-hints";
@@ -251,13 +252,11 @@ export async function POST(request: Request, { params }: Params) {
 
   const dependencies = (() => {
     if (isTheme) return [];
-    const isBare = (spec: string) =>
-      !spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/");
     const all = new Set<string>();
     const addDepsFromSource = (src: string | undefined) => {
       if (!src) return;
       for (const dep of extractDependencies(src)) {
-        if (isBare(dep)) all.add(dep);
+        if (isBarePackageSpecifier(dep)) all.add(dep);
       }
     };
     if (finalFiles) {

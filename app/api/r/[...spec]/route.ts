@@ -11,6 +11,7 @@ import { getAuthContextFromToken } from "@/lib/auth-api";
 import { resolveOwner } from "@/lib/owner";
 import { getOrganizationCanonicalOwnerRef } from "@/lib/registry-organization";
 import { getRegistryPolicyForApiKey } from "@/lib/registry-policy";
+import { isBarePackageSpecifier } from "@/lib/module-specifiers";
 
 function parseOwnerAndName(spec: string[]): { owner: string | null; name: string | null } {
   if (spec.length >= 3) {
@@ -102,13 +103,9 @@ export async function GET(
     return { ...f, content: `${header}${f.content}` };
   });
 
-  const isBare = (spec: string) =>
-    typeof spec === "string" &&
-    !spec.startsWith("./") &&
-    !spec.startsWith("../") &&
-    !spec.startsWith("/");
-
-  const cleanDependencies = (shadcnItem.dependencies ?? []).filter(isBare);
+  const cleanDependencies = (shadcnItem.dependencies ?? []).filter(
+    (spec) => typeof spec === "string" && isBarePackageSpecifier(spec),
+  );
 
   return NextResponse.json({
     ...shadcnItem,
@@ -116,4 +113,3 @@ export async function GET(
     files: filesWithHeader,
   });
 }
-

@@ -297,6 +297,7 @@ catalog 不应只支持 exact package name，还应支持 namespace-level policy
 
 - `@base-ui/*`
 - `@radix-ui/*`
+- `@hugeicons/*`
 
 但 namespace rule 不应等同于“该 scope 下所有包一律完全放行”。
 
@@ -307,19 +308,27 @@ catalog 不应只支持 exact package name，还应支持 namespace-level policy
 
 ### 7.0.2 Recommended Default for Namespace Rules
 
-对于像 `@base-ui/*` 这类 UI 生态 namespace，推荐默认策略是：
+当前实现对一小组高频 UI namespace 采用更积极的默认策略：
 
-- `soft-allowed + runtime-only`
+- `@base-ui/*` → `trusted-built-in`
+- `@radix-ui/*` → `trusted-built-in`
+- `@hugeicons/*` → `trusted-built-in`
 
-而不是直接：
+但这并不意味着“无条件 prebundle”。这些 namespace 下的包仍然遵守统一版本 contract：
 
-- `trusted-built-in + prebundle-supported`
+- 有显式版本 → `prebundle-supported`
+- 无显式版本 → `runtime-only`
 
-原因：
+这样做的原因是：
 
-- 同一 namespace 下的不同包，运行边界与稳定性不一定一致
-- namespace 级默认策略应优先解决“首次发布不要硬失败”
-- 只有经过验证的具体包，才应被提升为 `trusted-built-in`
+- 这些 namespace 已被平台视为首批受支持 UI 生态
+- 它们在当前 preview / smoke / artifact 流程中已有实际使用与回归测试
+- 版本信息仍然是 prebundle 的硬前提，不会因为 namespace trusted 就绕过版本治理
+
+若未来需要更保守的 rollout，也可以回退成：
+
+- namespace rule = `soft-allowed + runtime-only`
+- 高频具体包再由 exact rule 提升
 
 ### 7.0.3 Exact Overrides Beat Namespace Defaults
 
@@ -332,7 +341,7 @@ catalog 不应只支持 exact package name，还应支持 namespace-level policy
 
 示例：
 
-- `@base-ui/*` → `soft-allowed + runtime-only`
+- `@base-ui/*` → `trusted-built-in`
 - `@base-ui/react-dialog` → `trusted-built-in + prebundle-supported`
 
 则 `@base-ui/react-dialog` 必须按 exact rule 处理。
@@ -780,8 +789,15 @@ publish 响应应包含依赖诊断信息，至少包括：
   "namespaceRules": [
     {
       "pattern": "@base-ui/*",
-      "tier": "soft-allowed",
-      "previewCapability": "runtime-only"
+      "tier": "trusted-built-in"
+    },
+    {
+      "pattern": "@radix-ui/*",
+      "tier": "trusted-built-in"
+    },
+    {
+      "pattern": "@hugeicons/*",
+      "tier": "trusted-built-in"
     }
   ]
 }

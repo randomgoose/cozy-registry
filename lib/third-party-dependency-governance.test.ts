@@ -42,6 +42,53 @@ describe("third-party-dependency-governance", () => {
     expect(getPrebundleDependencies([knownVersion])).toEqual(["lucide-react"]);
   });
 
+  it("treats approved UI namespaces as trusted built-ins", () => {
+    const [unknownVersion] = evaluateThirdPartyDependencies({
+      discovered: ["@radix-ui/react-dialog"],
+      declared: [],
+    });
+    const [knownVersion] = evaluateThirdPartyDependencies({
+      discovered: ["@radix-ui/react-dialog"],
+      declared: [{ name: "@radix-ui/react-dialog", version: "1.1.15" }],
+    });
+
+    expect(unknownVersion).toMatchObject({
+      packageName: "@radix-ui/react-dialog",
+      tier: "trusted-built-in",
+      previewCapability: "runtime-only",
+      versionPolicyStatus: "unknown",
+    });
+    expect(knownVersion).toMatchObject({
+      packageName: "@radix-ui/react-dialog",
+      tier: "trusted-built-in",
+      previewCapability: "prebundle-supported",
+      versionPolicyStatus: "accepted",
+    });
+  });
+
+  it("applies the same trusted namespace policy to @base-ui and @hugeicons packages", () => {
+    const decisions = evaluateThirdPartyDependencies({
+      discovered: ["@base-ui/react/button", "@hugeicons/react"],
+      declared: [
+        { name: "@base-ui/react/button", version: "1.0.0-beta.3" },
+        { name: "@hugeicons/react", version: "0.0.8" },
+      ],
+    });
+
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        packageName: "@base-ui/react/button",
+        tier: "trusted-built-in",
+        previewCapability: "prebundle-supported",
+      }),
+      expect.objectContaining({
+        packageName: "@hugeicons/react",
+        tier: "trusted-built-in",
+        previewCapability: "prebundle-supported",
+      }),
+    ]);
+  });
+
   it("rejects node builtins at classification time", () => {
     const decisions = evaluateThirdPartyDependencies({
       discovered: ["node:fs", "fs"],

@@ -24,6 +24,7 @@ import {
   isRelativeImport,
   validateComponentBundle,
 } from "./validate-tsx";
+import { isBarePackageSpecifier } from "@/lib/module-specifiers";
 import { findAppSpecificUsage } from "@/lib/registry-app-usage-scan";
 import { normalizePublishThemeArgs } from "@/lib/theme-publish-args";
 import { diagnosePublishReadiness } from "@/lib/diagnose-publish-readiness";
@@ -2925,14 +2926,11 @@ ${fileContent}
           contract.value.registryDependenciesToWrite ??
           ((existing.registryDependencies ?? []) as string[]);
         const dependencies = (() => {
-          const isBare = (spec: string) =>
-            !spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/");
-
           const allDeps = new Set<string>();
           const addDepsFromSource = (src: string | undefined | null) => {
             if (!src) return;
             for (const dep of extractDependencies(src)) {
-              if (isBare(dep)) allDeps.add(dep);
+              if (isBarePackageSpecifier(dep)) allDeps.add(dep);
             }
           };
 
@@ -3156,15 +3154,12 @@ ${fileContent}
       // 否则创建一个全新的组件（初始版本会在 createRegistryItem 中一并写入）
       // 仅保留裸模块依赖（npm 包），忽略相对路径 import
       const dependencies = (() => {
-        const isBare = (spec: string) =>
-          !spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/");
-
         const allDeps = new Set<string>();
 
         const addDepsFromSource = (src: string | undefined | null) => {
           if (!src) return;
           for (const dep of extractDependencies(src)) {
-            if (isBare(dep)) allDeps.add(dep);
+            if (isBarePackageSpecifier(dep)) allDeps.add(dep);
           }
         };
 

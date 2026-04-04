@@ -5,6 +5,7 @@ import {
   validateTsx,
   extractDependencies,
   validateComponentBundle,
+  isBarePackageSpecifier,
 } from "@/lib/validate-tsx";
 import {
   LEGACY_REGISTRY_COMPONENT_TYPE,
@@ -266,14 +267,12 @@ export async function POST(request: Request) {
     // 仅保留裸模块依赖（npm 包），忽略相对路径 import
     const dependencies = (() => {
       if (isTheme) return [];
-      const isBare = (spec: string) =>
-        !spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/");
       const all = new Set<string>();
 
       const addDepsFromSource = (src: string | undefined | null) => {
         if (!src) return;
         for (const dep of extractDependencies(src)) {
-          if (isBare(dep)) all.add(dep);
+          if (isBarePackageSpecifier(dep)) all.add(dep);
         }
       };
 

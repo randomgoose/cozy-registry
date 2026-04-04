@@ -50,6 +50,7 @@ type PreviewArtifactStatusPayload = {
 
 interface ComponentDetailProps {
   owner: string;
+  project?: string | null;
   name: string;
   title: string;
   description: string | null;
@@ -81,6 +82,7 @@ interface ComponentDetailProps {
 
 export function ComponentDetail({
   owner,
+  project,
   name,
   title,
   description,
@@ -143,6 +145,7 @@ export function ComponentDetail({
           owner,
           name,
           version: localSelectedVersion,
+          project,
           storyId: selectedStoryId,
           enqueue: true,
         });
@@ -169,7 +172,7 @@ export function ComponentDetail({
     return () => {
       cancelled = true;
     };
-  }, [owner, name, localSelectedVersion, selectedStoryId]);
+  }, [owner, project, name, localSelectedVersion, selectedStoryId]);
 
   async function handleCopy() {
     await navigator.clipboard.writeText(code);
@@ -200,6 +203,7 @@ export function ComponentDetail({
   const previewHref = buildStoryPreviewPageUrl({
     owner,
     name,
+    project,
     version:
       localSelectedVersion && localSelectedVersion !== currentVersion
         ? localSelectedVersion
@@ -253,11 +257,15 @@ export function ComponentDetail({
   function handleVersionChange(e: ChangeEvent<HTMLSelectElement>) {
     const v = e.target.value;
     setLocalSelectedVersion(v);
-    if (v === currentVersion) {
-      router.push(`/registry/${owner}/${name}`);
-    } else {
-      router.push(`/registry/${owner}/${name}?v=${encodeURIComponent(v)}`);
+    const search = new URLSearchParams();
+    if (project?.trim()) {
+      search.set("project", project.trim());
     }
+    if (v !== currentVersion) {
+      search.set("v", v);
+    }
+    const query = search.toString();
+    router.push(`/registry/${owner}/${name}${query ? `?${query}` : ""}`);
   }
 
   async function handleDelete() {

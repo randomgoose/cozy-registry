@@ -25,6 +25,7 @@ import {
   setPreviewResolveCache,
 } from "@/lib/preview-resolve-cache";
 import { extractDependencies } from "@/lib/validate-tsx";
+import { isBarePackageSpecifier } from "@/lib/module-specifiers";
 import {
   collectThemeCssFromResolvedGraph,
   createRegistryResolverMemo,
@@ -252,11 +253,7 @@ const DEMO_PROPS: Record<string, unknown> = {
 };
 
 function isBareModuleSpecifier(spec: string): boolean {
-  return (
-    !spec.startsWith("./") &&
-    !spec.startsWith("../") &&
-    !spec.startsWith("/")
-  );
+  return isBarePackageSpecifier(spec);
 }
 
 type PreviewMode = "default" | "thumbnail";

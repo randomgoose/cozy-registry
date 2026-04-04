@@ -14,6 +14,12 @@ export const TRUSTED_BUILT_IN_DEPENDENCIES = [
   "tailwind-merge",
 ] as const;
 
+export const TRUSTED_BUILT_IN_NAMESPACE_PREFIXES = [
+  "@base-ui/",
+  "@hugeicons/",
+  "@radix-ui/",
+] as const;
+
 export const BLOCKED_THIRD_PARTY_DEPENDENCIES = [
   "@aws-sdk/client-s3",
   "@prisma/client",

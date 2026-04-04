@@ -1,5 +1,11 @@
 import path from "path";
 import * as parser from "@babel/parser";
+import {
+  isBarePackageSpecifier,
+  isBundleRootAliasImport,
+  isRelativeModuleSpecifier,
+  resolveBundleRootAliasImport,
+} from "@/lib/module-specifiers";
 
 export interface ValidateResult {
   valid: boolean;
@@ -57,12 +63,7 @@ export function extractDependencies(code: string): string[] {
 }
 
 export function isRelativeImport(specifier: string): boolean {
-  return (
-    specifier.startsWith("./") ||
-    specifier.startsWith("../") ||
-    specifier === "." ||
-    specifier === ".."
-  );
+  return isRelativeModuleSpecifier(specifier);
 }
 
 function normalizePosix(p: string): string {
@@ -103,8 +104,14 @@ export function findMissingRelativeImports(files: Record<string, string>): strin
     if (!isCodeFile(filePath) || typeof content !== "string") continue;
     const imports = extractDependencies(content);
     for (const spec of imports) {
-      if (!isRelativeImport(spec)) continue;
-      const candidates = resolveRelativeImport(filePath, spec);
+      let candidates: string[] = [];
+      if (isRelativeImport(spec)) {
+        candidates = resolveRelativeImport(filePath, spec);
+      } else if (isBundleRootAliasImport(spec)) {
+        candidates = resolveBundleRootAliasImport(spec);
+      } else {
+        continue;
+      }
       const ok = candidates.some((candidate) => keys.has(candidate));
       if (!ok) missing.add(`${filePath} -> ${spec}`);
     }
@@ -154,6 +161,8 @@ export function validateComponentBundle(
 
   return { valid: true };
 }
+
+export { isBarePackageSpecifier };
 
 function isFigmaAssetSpecifier(spec: string): boolean {
   // e.g. "figma:asset/xxxx.png"

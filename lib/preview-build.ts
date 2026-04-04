@@ -9,6 +9,7 @@ import {
   PREVIEW_MSG_SET_PROPS,
 } from "@/lib/preview-messages";
 import type { PreviewDependencyResolutionDiagnostic } from "@/lib/preview-dependency-provider";
+import { resolveBundleRootAliasImport } from "@/lib/module-specifiers";
 
 type EsbuildModule = typeof import("esbuild");
 
@@ -611,6 +612,20 @@ root.render(
         });
       },
     };
+    const bundleAliasPlugin: import("esbuild").Plugin = {
+      name: "bundle-root-alias",
+      setup(build: import("esbuild").PluginBuild) {
+        build.onResolve({ filter: /^@\// }, async (args: import("esbuild").OnResolveArgs) => {
+          const resolved = await resolveBundleRootAliasPath(tmpDir, args.path);
+          if (!resolved) {
+            return {
+              errors: [{ text: `Could not resolve ${JSON.stringify(args.path)}` }],
+            };
+          }
+          return { path: resolved };
+        });
+      },
+    };
 
     const previewNodePaths = resolvePreviewNodePaths(
       options?.dependencyNodePaths,
@@ -626,7 +641,7 @@ root.render(
       outfile: "preview.js",
       target: ["es2018"],
       sourcemap: debugEnabled ? "inline" : false,
-      plugins: [cssPlugin, figmaAssetPlugin],
+      plugins: [bundleAliasPlugin, cssPlugin, figmaAssetPlugin],
       nodePaths: previewNodePaths,
       // React 相关始终由 runtime import map 提供
       external: [
@@ -698,6 +713,22 @@ function isEsbuildBuildError(err: unknown): err is EsbuildBuildErrorLike {
   const rec = err as Record<string, unknown>;
   if (!Array.isArray(rec.errors)) return false;
   return true;
+}
+
+async function resolveBundleRootAliasPath(
+  workspaceRoot: string,
+  specifier: string,
+): Promise<string | null> {
+  for (const candidate of resolveBundleRootAliasImport(specifier)) {
+    const abs = path.join(workspaceRoot, candidate);
+    try {
+      const stat = await fs.stat(abs);
+      if (stat.isFile()) return abs;
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 async function getPreviewWorkspace(

@@ -29,6 +29,7 @@ import {
   pickPreviewStory,
 } from "@/lib/preview-stories";
 import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
+import { isBarePackageSpecifier } from "@/lib/module-specifiers";
 
 export const BUILD_PREVIEW_ARTIFACT_JOB = "build_preview_artifact" as const;
 
@@ -61,7 +62,8 @@ export function formatRuntimeOnlyDependencySkipMessage(
     .filter(
       (decision) =>
         decision.previewCapability === "runtime-only" &&
-        decision.tier !== "runtime-provided",
+        decision.tier !== "runtime-provided" &&
+        isBarePackageSpecifier(decision.packageName),
     )
     .map((decision) => decision.packageName)
     .sort();
@@ -79,7 +81,8 @@ function hasBlockingRuntimeOnlyDependencies(
   return dependencyDecisions.some(
     (decision) =>
       decision.previewCapability === "runtime-only" &&
-      decision.tier !== "runtime-provided",
+      decision.tier !== "runtime-provided" &&
+      isBarePackageSpecifier(decision.packageName),
   );
 }
 
@@ -390,11 +393,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       ]),
     )
       .filter(
-        (spec) =>
-          !!spec &&
-          !spec.startsWith("./") &&
-          !spec.startsWith("../") &&
-          !spec.startsWith("/"),
+        (spec) => !!spec && isBarePackageSpecifier(spec),
       )
       .sort();
     const dependencyDecisions = evaluateThirdPartyDependencies({

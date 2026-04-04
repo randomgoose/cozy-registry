@@ -17,6 +17,10 @@ import {
   resolvePreviewDependencies,
   type PreviewDependencyResolutionDiagnostic,
 } from "@/lib/preview-dependency-provider";
+import {
+  isBarePackageSpecifier,
+  resolveBundleRootAliasImport,
+} from "@/lib/module-specifiers";
 
 type SmokeTestCode = "PREVIEW_BUILD_FAILED" | "PREVIEW_RENDER_FAILED";
 const SMOKE_EXECUTION_TIMEOUT_MS = 3000;
@@ -136,6 +140,10 @@ export async function runRegistryPreviewSmokeTest(params: {
     Array.from(merged.values()),
   );
   const rootEntry = installedLayout.rootEntries[rootRef];
+  const bundleAliasRoot =
+    rootEntry && rootEntry.trim().length > 0
+      ? path.dirname(rootEntry)
+      : "";
   const files = { ...installedLayout.files };
   if (rootEntry) {
     files["index.tsx"] =
@@ -255,6 +263,7 @@ export const __previewProps = PREVIEW_PROPS;
     const stubbedBareModulePlugin = createBareModuleStubPlugin(
       importSpecifiers,
       passThroughBareImports,
+      path.join(tmpDir, bundleAliasRoot),
     );
     const previewNodePaths = resolvePreviewNodePaths();
 
@@ -696,7 +705,7 @@ function safeSerialize(value: unknown) {
 }
 
 function isBareModuleSpecifier(spec: string) {
-  return !spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/");
+  return isBarePackageSpecifier(spec);
 }
 
 function slugToPascalExportName(slug: string): string {
@@ -815,10 +824,21 @@ function walkAst(
 function createBareModuleStubPlugin(
   specifiers: Map<string, BareImportSpecifiers>,
   passThroughBareImports: Set<string>,
+  bundleRoot: string,
 ): import("esbuild").Plugin {
   return {
     name: "smoke-bare-module-stub",
     setup(build: import("esbuild").PluginBuild) {
+      build.onResolve({ filter: /^@\// }, async (args) => {
+        const resolved = await resolveBundleRootAliasPath(bundleRoot, args.path);
+        if (!resolved) {
+          return {
+            errors: [{ text: `Could not resolve ${JSON.stringify(args.path)}` }],
+          };
+        }
+        return { path: resolved };
+      });
+
       build.onResolve({ filter: /^[^./].*/ }, (args) => {
         if (args.path === "react" || args.path === "react-dom/server" || args.path === "react/jsx-runtime") {
           return null;
@@ -855,6 +875,22 @@ export const __esModule = true;
       });
     },
   };
+}
+
+async function resolveBundleRootAliasPath(
+  bundleRoot: string,
+  specifier: string,
+): Promise<string | null> {
+  for (const candidate of resolveBundleRootAliasImport(specifier)) {
+    const abs = path.join(bundleRoot, candidate);
+    try {
+      const stat = await fs.stat(abs);
+      if (stat.isFile()) return abs;
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 function findUnsupportedBareImports(specifiers: Map<string, BareImportSpecifiers>) {

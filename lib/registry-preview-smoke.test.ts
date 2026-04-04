@@ -193,6 +193,32 @@ describe("registry-preview-smoke", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("treats @/ bundle aliases as local files instead of third-party deps", async () => {
+    const result = await runRegistryPreviewSmokeTest({
+      name: "alias-card",
+      files: {
+        "lib/utils.ts": `
+          export function cn(...parts: Array<string | false | null | undefined>) {
+            return parts.filter(Boolean).join(" ");
+          }
+        `,
+        "index.tsx": `
+          import React from "react";
+          import { cn } from "@/lib/utils";
+
+          export default function AliasCard() {
+            return <div className={cn("alpha", "beta")}>ok</div>;
+          }
+        `,
+      },
+    });
+
+    if (!result.ok) {
+      throw new Error(`${result.code}: ${result.message}`);
+    }
+    expect(result.ok).toBe(true);
+  });
+
   it("fails when importing Node built-in modules", async () => {
     const result = await runRegistryPreviewSmokeTest({
       name: "builtin-module-card",

@@ -10,10 +10,11 @@ describe("story preview urls", () => {
       buildStoryPreviewPageUrl({
         owner: "indeed-cozy",
         name: "button",
+        project: "dashboard",
         version: "1.2.3",
         storyId: "destructive",
       }),
-    ).toBe("/preview/indeed-cozy/button?v=1.2.3&story=destructive");
+    ).toBe("/preview/indeed-cozy/button?project=dashboard&v=1.2.3&story=destructive");
   });
 
   it("omits empty story and version params", () => {

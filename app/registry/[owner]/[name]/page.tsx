@@ -16,6 +16,7 @@ import {
 } from "@/lib/preview-stories";
 import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-governance";
 import { extractPropsFromTsx } from "@/lib/validate-tsx";
+import { isBarePackageSpecifier } from "@/lib/module-specifiers";
 import { ComponentDetail } from "./ComponentDetail";
 
 export const dynamic = "force-dynamic";
@@ -75,7 +76,7 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
   const currentVersion = getCurrentVersion(item);
   const allDependencies = (item.dependencies ?? []) as string[];
   const dependencies = allDependencies.filter(
-    (d) => !d.startsWith("./") && !d.startsWith("../") && !d.startsWith("/"),
+    (d) => isBarePackageSpecifier(d),
   );
   const registryDependencies = (item.registryDependencies ?? []) as string[];
   const propsFromCode = item.type !== "registry:theme" ? extractPropsFromTsx(code) : [];
@@ -100,6 +101,7 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
   return (
     <ComponentDetail
       owner={canonicalOwner}
+      project={project}
       name={item.name}
       title={item.title}
       description={item.description}

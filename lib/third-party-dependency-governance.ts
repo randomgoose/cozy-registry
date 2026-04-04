@@ -5,6 +5,7 @@ import {
   NODE_BUILTIN_DEPENDENCIES,
   RUNTIME_PROVIDED_DEPENDENCIES,
   TRUSTED_BUILT_IN_DEPENDENCIES,
+  TRUSTED_BUILT_IN_NAMESPACE_PREFIXES,
 } from "@/lib/third-party-dependency-catalog";
 
 export type DependencyTier =
@@ -42,6 +43,7 @@ export type DependencySnapshot = {
 
 const RUNTIME_PROVIDED: Set<string> = new Set(RUNTIME_PROVIDED_DEPENDENCIES);
 const TRUSTED_BUILT_INS: Set<string> = new Set(TRUSTED_BUILT_IN_DEPENDENCIES);
+const TRUSTED_BUILT_IN_PREFIXES = [...TRUSTED_BUILT_IN_NAMESPACE_PREFIXES];
 const BLOCKED_PACKAGES: Set<string> = new Set(BLOCKED_THIRD_PARTY_DEPENDENCIES);
 const NODE_BUILTINS: Set<string> = new Set(NODE_BUILTIN_DEPENDENCIES);
 const DEPENDENCY_SNAPSHOT_VERSION = 1 as const;
@@ -194,7 +196,7 @@ function evaluateDependency(
     };
   }
 
-  if (TRUSTED_BUILT_INS.has(packageName)) {
+  if (isTrustedBuiltInPackage(packageName)) {
     if (requestedVersion) {
       return {
         packageName,
@@ -230,6 +232,11 @@ function evaluateDependency(
       ? "SOFT_ALLOWED_RUNTIME_ONLY"
       : "VERSION_UNKNOWN_RUNTIME_ONLY",
   };
+}
+
+function isTrustedBuiltInPackage(packageName: string) {
+  if (TRUSTED_BUILT_INS.has(packageName)) return true;
+  return TRUSTED_BUILT_IN_PREFIXES.some((prefix) => packageName.startsWith(prefix));
 }
 
 function isRejectedPackage(packageName: string) {
