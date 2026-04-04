@@ -398,7 +398,7 @@ function AppShellFrame(props: {
             </div>
           </header>
 
-          <main className={cn("min-w-0", isProjectDetailRoute ? "px-0 py-0" : "px-4 py-6 sm:px-6 sm:py-8",)}>
+          <main className={cn("min-w-0")}>
             {props.children}
           </main>
         </SidebarInset>

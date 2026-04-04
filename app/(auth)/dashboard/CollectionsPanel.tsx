@@ -882,11 +882,6 @@ export function ProjectsPanel(props: {
           ) : (
             <div className="grid min-h-[calc(100vh-4.5rem)] lg:grid-cols-[320px_minmax(0,1fr)]">
               <section className="min-h-0 border-b border-zinc-200/80 lg:border-r lg:border-b-0 dark:border-zinc-800">
-                <div className="border-b border-zinc-200/80 px-4 py-3 dark:border-zinc-800">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-                    Resources
-                  </p>
-                </div>
                 <div className="space-y-1 overflow-auto p-2 lg:h-[calc(100vh-7.5rem)]">
                   {projectItems.map((it) => {
                     const active = it.itemId === selectedItemId;
