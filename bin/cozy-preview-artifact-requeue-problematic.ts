@@ -18,6 +18,8 @@ type AllowedStatus = "failed" | "skipped" | "queued" | "running" | "ready";
 function parseArgs(argv: string[]) {
   const args = new Set(argv);
   const dryRun = args.has("--dry-run");
+  const includeReady = args.has("--include-ready");
+  const force = args.has("--force");
 
   const limitArg = argv.find((arg) => arg.startsWith("--limit="));
   const limit = (() => {
@@ -30,7 +32,11 @@ function parseArgs(argv: string[]) {
   const statusArg = argv.find((arg) => arg.startsWith("--status="));
   const statuses = (() => {
     const raw = statusArg?.split("=")[1]?.trim();
-    if (!raw) return ["failed", "skipped"] as AllowedStatus[];
+    if (!raw) {
+      return includeReady || force
+        ? (["failed", "skipped", "ready"] as AllowedStatus[])
+        : (["failed", "skipped"] as AllowedStatus[]);
+    }
     const parsed = raw
       .split(",")
       .map((entry) => entry.trim())
@@ -45,11 +51,13 @@ function parseArgs(argv: string[]) {
     return parsed.length > 0 ? parsed : (["failed", "skipped"] as AllowedStatus[]);
   })();
 
-  return { dryRun, limit, statuses };
+  return { dryRun, force, includeReady, limit, statuses };
 }
 
 async function main() {
-  const { dryRun, limit, statuses } = parseArgs(process.argv.slice(2));
+  const { dryRun, force, includeReady, limit, statuses } = parseArgs(
+    process.argv.slice(2),
+  );
 
   const rows = await db
     .select({
@@ -138,6 +146,8 @@ async function main() {
     `${JSON.stringify({
       done: true,
       dryRun,
+      force,
+      includeReady,
       limit,
       statuses,
       matched: rows.length,

@@ -17,7 +17,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { PreviewStory } from "@/lib/preview-stories";
-import { resolveSelectedPreviewStoryId } from "@/app/components/preview-story-selection";
 import {
   buildStoryPreviewArtifactStatusQuery,
   buildStoryPreviewPageUrl,
@@ -50,6 +49,26 @@ type PreviewArtifactStatusPayload = {
     message?: string | null;
   } | null;
 };
+
+function resolveSelectedPreviewStoryId(input: {
+  currentStoryId: string | null;
+  stories: Array<{ id: string }>;
+  defaultStoryId: string | null;
+}) {
+  const normalizedCurrent = input.currentStoryId?.trim() || null;
+  const normalizedDefault = input.defaultStoryId?.trim() || null;
+  const availableStoryIds = new Set(
+    input.stories.map((story) => story.id.trim()).filter(Boolean),
+  );
+
+  if (normalizedCurrent && availableStoryIds.has(normalizedCurrent)) {
+    return normalizedCurrent;
+  }
+  if (normalizedDefault && availableStoryIds.has(normalizedDefault)) {
+    return normalizedDefault;
+  }
+  return input.stories[0]?.id ?? null;
+}
 
 interface ComponentDetailProps {
   owner: string;
