@@ -456,7 +456,7 @@ function createSmokeVmContext(modulePath: string) {
 }
 
 async function loadHostReactRuntime(appRequire: NodeJS.Require) {
-  const ReactModule = await import("react");
+  const ReactModule = await Promise.resolve(loadHostReactModule(appRequire));
   const React = pickReactObject(ReactModule) as {
     createElement: (type: unknown, props: unknown) => unknown;
     Fragment?: unknown;
@@ -465,6 +465,15 @@ async function loadHostReactRuntime(appRequire: NodeJS.Require) {
   const { renderToString } = await loadHostReactDomServer(appRequire);
   const jsxRuntime = createJsxRuntimeShim(React);
   return { React, ReactRequire, jsxRuntime, renderToString };
+}
+
+function loadHostReactModule(appRequire: NodeJS.Require) {
+  try {
+    return appRequire("react");
+  } catch {
+    // Fall back to ESM import for environments where require is unavailable.
+  }
+  return import("react");
 }
 
 type SmokeRenderToString = (node: unknown) => string | Promise<string>;

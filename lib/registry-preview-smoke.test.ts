@@ -43,6 +43,24 @@ describe("registry-preview-smoke", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("passes a client component using named useEffect import", async () => {
+    const result = await runRegistryPreviewSmokeTest({
+      name: "effect-card",
+      files: {
+        "index.tsx": `
+          "use client";
+          import React, { useEffect } from "react";
+          export default function EffectCard() {
+            useEffect(() => {}, []);
+            return <div>ok</div>;
+          }
+        `,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("fails when the component renders an undefined child", async () => {
     const result = await runRegistryPreviewSmokeTest({
       name: "kpi-card",

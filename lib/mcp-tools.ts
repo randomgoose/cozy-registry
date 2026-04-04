@@ -200,6 +200,37 @@ export function createRegistryMcpServer(request?: Request) {
     };
   }
 
+  function formatRegistryCoordinate(params: {
+    owner: string;
+    name: string;
+    projectSlug?: string | null;
+  }) {
+    return params.projectSlug && params.projectSlug.trim().length > 0
+      ? `@${params.owner}/${params.projectSlug}/${params.name}`
+      : `@${params.owner}/${params.name}`;
+  }
+
+  function buildPreviewArtifactStatusPath(params: {
+    owner: string;
+    name: string;
+    version: string;
+    projectSlug?: string | null;
+    storyId?: string | null;
+  }) {
+    const search = new URLSearchParams({
+      owner: params.owner,
+      name: params.name,
+      v: params.version,
+    });
+    if (params.projectSlug && params.projectSlug.trim().length > 0) {
+      search.set("project", params.projectSlug);
+    }
+    if (params.storyId && params.storyId.trim().length > 0) {
+      search.set("story", params.storyId);
+    }
+    return `/api/registry/preview-artifacts/status?${search.toString()}`;
+  }
+
   function getRegistryFetch(): typeof fetch {
     const authHeader = request?.headers.get("authorization");
     const apiKey = request?.headers.get("x-api-key");
@@ -3105,16 +3136,30 @@ ${fileContent}
             : orgTarget != null
               ? (await getOrganizationCanonicalOwnerRef(orgTarget.id)) ?? orgTarget.slug
               : null;
+        const existingOwnerRef =
+          orgRef ??
+          ((await resolveOwner(existing.userId ?? userId))?.handle ??
+            existing.userId ??
+            "legacy");
+        const existingProjectSlug =
+          existing.canonicalProjectKey ??
+          canonicalProjectForLink.project?.namespaceKey ??
+          null;
+        const existingCoordinate = formatRegistryCoordinate({
+          owner: existingOwnerRef,
+          projectSlug: existingProjectSlug,
+          name: existing.name,
+        });
         const baseText = orgTarget
-          ? `Updated organization component "${existing.title}" (@${orgRef}/${existing.name}) to v${result.version}.${healthSuffix}`
-          : `Updated "${existing.title}" (@${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}) to version v${result.version}. View at /registry/${(await resolveOwner(existing.userId ?? userId))?.handle ?? existing.userId ?? "legacy"}/${existing.name}${healthSuffix}`;
+          ? `Updated organization component "${existing.title}" (${existingCoordinate}) to v${result.version}.${healthSuffix}`
+          : `Updated "${existing.title}" (${existingCoordinate}) to version v${result.version}. View at /registry/${existingOwnerRef}/${existing.name}${healthSuffix}`;
 
         await enqueuePreviewArtifactJob({
           itemId: existing.id,
           itemVersionId: result.id,
           payload: {
-            owner: orgRef ?? ((await resolveOwner(existing.userId ?? userId))?.handle ?? "legacy"),
-            project: existing.canonicalProjectKey ?? canonicalProjectForLink.project?.namespaceKey ?? null,
+            owner: existingOwnerRef,
+            project: existingProjectSlug,
             name: existing.name,
             version: result.version,
             mode: "default",
@@ -3123,13 +3168,15 @@ ${fileContent}
           },
         });
 
-        const previewStatusNote = `\n\nPreview artifact status: queued\nCheck: /api/registry/preview-artifacts/status?owner=${encodeURIComponent(
-          orgRef ?? ((await resolveOwner(existing.userId ?? userId))?.handle ?? "legacy"),
-        )}&name=${encodeURIComponent(existing.name)}&v=${encodeURIComponent(result.version)}${
-          defaultStoryIdForVersion
-            ? `&story=${encodeURIComponent(defaultStoryIdForVersion)}`
-            : ""
-        }`;
+        const previewStatusNote = `\n\nPreview artifact status: queued\nCheck: ${buildPreviewArtifactStatusPath(
+          {
+            owner: existingOwnerRef,
+            projectSlug: existingProjectSlug,
+            name: existing.name,
+            version: result.version,
+            storyId: defaultStoryIdForVersion,
+          },
+        )}`;
 
         if (canonicalProjectForLink.project) {
           const attach = await attachPublishedItemToProject(
@@ -3304,15 +3351,24 @@ ${fileContent}
           : orgTarget != null
             ? (await getOrganizationCanonicalOwnerRef(orgTarget.id)) ?? orgTarget.slug
             : null;
-      const baseTextCreate = orgTarget
-        ? `Published new organization component "${item.title}" (@${orgRefCreate}/${item.name}).${healthSuffixCreate}`
-        : `Published new component "${item.title}" (@${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}). View at /registry/${(await resolveOwner(item.userId ?? "legacy"))?.handle ?? item.userId ?? "legacy"}/${item.name}${healthSuffixCreate}`;
-
       const createOwner =
         orgRefCreate ??
         ((await resolveOwner(item.userId ?? "legacy"))?.handle ??
           item.userId ??
           "legacy");
+      const createProjectSlug =
+        item.canonicalProjectKey ??
+        canonicalProjectForLink.project?.namespaceKey ??
+        null;
+      const createCoordinate = formatRegistryCoordinate({
+        owner: createOwner,
+        projectSlug: createProjectSlug,
+        name: item.name,
+      });
+      const baseTextCreate = orgTarget
+        ? `Published new organization component "${item.title}" (${createCoordinate}).${healthSuffixCreate}`
+        : `Published new component "${item.title}" (${createCoordinate}). View at /registry/${createOwner}/${item.name}${healthSuffixCreate}`;
+
       const initialVersionId =
         "initialVersionId" in item && typeof item.initialVersionId === "string"
           ? item.initialVersionId
@@ -3328,7 +3384,7 @@ ${fileContent}
           itemVersionId: initialVersionId,
           payload: {
             owner: createOwner,
-            project: item.canonicalProjectKey ?? canonicalProjectForLink.project?.namespaceKey ?? null,
+            project: createProjectSlug,
             name: item.name,
             version: item.currentVersion ?? "0.1.0",
             mode: "default",
@@ -3337,14 +3393,19 @@ ${fileContent}
           },
         });
       }
-      const previewStatusNoteCreate = `\n\nPreview artifact status: queued\nCheck: /api/registry/preview-artifacts/status?owner=${encodeURIComponent(
-        createOwner,
-      )}&name=${encodeURIComponent(item.name)}&v=${encodeURIComponent(item.currentVersion ?? "0.1.0")}${
-        typeof args.previewDefaultStoryId === "string" &&
-        args.previewDefaultStoryId.trim().length > 0
-          ? `&story=${encodeURIComponent(args.previewDefaultStoryId.trim())}`
-          : ""
-      }`;
+      const previewStatusNoteCreate = `\n\nPreview artifact status: queued\nCheck: ${buildPreviewArtifactStatusPath(
+        {
+          owner: createOwner,
+          projectSlug: createProjectSlug,
+          name: item.name,
+          version: item.currentVersion ?? "0.1.0",
+          storyId:
+            typeof args.previewDefaultStoryId === "string" &&
+            args.previewDefaultStoryId.trim().length > 0
+              ? args.previewDefaultStoryId.trim()
+              : null,
+        },
+      )}`;
 
       if (canonicalProjectForLink.project) {
         const attach = await attachPublishedItemToProject(
