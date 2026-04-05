@@ -401,6 +401,10 @@ async function materializeFromRegistry(input: {
         dest: string,
         opts?: Record<string, unknown>,
       ) => Promise<unknown>;
+      manifest: (
+        spec: string,
+        opts?: Record<string, unknown>,
+      ) => Promise<{ version?: string }>;
     };
 
     const destinationNodeModulesRoot = path.join(
@@ -433,6 +437,10 @@ async function materializePackageTreeFromRegistry(input: {
       dest: string,
       opts?: Record<string, unknown>,
     ) => Promise<unknown>;
+    manifest: (
+      spec: string,
+      opts?: Record<string, unknown>,
+    ) => Promise<{ version?: string }>;
   };
   packageName: string;
   version: string;
@@ -465,30 +473,48 @@ async function materializePackageTreeFromRegistry(input: {
     return;
   }
 
+  const optionalDepNames = new Set(
+    Object.keys(manifest.optionalDependencies ?? {}),
+  );
   const dependencyEntries = [
     ...Object.entries(manifest.dependencies ?? {}),
     ...Object.entries(manifest.optionalDependencies ?? {}),
   ];
 
   for (const [depName, depRange] of dependencyEntries) {
-    const depVersion = extractExactVersionFromRange(depRange);
-    if (!depVersion) continue;
+    const trimmedRange = depRange.trim();
+    if (!trimmedRange) continue;
+
+    let resolvedVersion: string;
+    if (isExactVersion(trimmedRange)) {
+      resolvedVersion = trimmedRange;
+    } else {
+      try {
+        const picked = await input.pacote.manifest(
+          `${depName}@${trimmedRange}`,
+          { timeout: REGISTRY_FETCH_TIMEOUT_MS },
+        );
+        const v = picked.version;
+        if (typeof v !== "string" || !v.trim()) {
+          throw new Error(`registry manifest for "${depName}" has no version`);
+        }
+        resolvedVersion = v.trim();
+      } catch {
+        if (optionalDepNames.has(depName)) continue;
+        throw new Error(
+          `Failed to resolve "${depName}@${trimmedRange}" while materializing preview dependencies from the registry.`,
+        );
+      }
+    }
 
     await materializePackageTreeFromRegistry({
       pacote: input.pacote,
       packageName: depName,
-      version: depVersion,
+      version: resolvedVersion,
       destinationNodeModulesRoot: input.destinationNodeModulesRoot,
       seen: input.seen,
     });
   }
-}
-
-function extractExactVersionFromRange(range: string): string | null {
-  const trimmed = range.trim();
-  if (isExactVersion(trimmed)) return trimmed;
-  const match = trimmed.match(/^[\^~>=<]*(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/);
-  return match ? match[1] : null;
 }
 
 async function materializePackageTreeFromHost(input: {
