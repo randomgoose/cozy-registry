@@ -44,5 +44,8 @@ next-env.d.ts
 # pnpm
 .pnpm-store
 
+# build artifacts
+.react-bundles
+
 # cursor
 .cursor

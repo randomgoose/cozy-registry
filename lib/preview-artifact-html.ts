@@ -2,6 +2,21 @@ import type { PreviewCompatibleExternal } from "@/lib/preview-dependency-provide
 
 export const PREVIEW_REACT_VERSION = "19.2.3";
 
+function getSelfHostedReactBaseUrl(): string | null {
+  const supabaseUrl =
+    process.env.SUPABASE_URL ??
+    process.env.NEXT_PUBLIC_SUPABASE_URL ??
+    "";
+  const bucket =
+    process.env.SUPABASE_PREVIEW_ARTIFACT_BUCKET ??
+    process.env.NEXT_PUBLIC_SUPABASE_PREVIEW_ARTIFACT_BUCKET ??
+    process.env.SUPABASE_STORAGE_BUCKET ??
+    process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET ??
+    "";
+  if (!supabaseUrl || !bucket) return null;
+  return `${supabaseUrl}/storage/v1/object/public/${bucket}/preview-react-bundles/${PREVIEW_REACT_VERSION}`;
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -19,22 +34,30 @@ function buildImportMap(input: {
   isDev: boolean;
   bundledReact: boolean;
 }): Record<string, string> {
-  const devSuffix = input.isDev ? "?dev" : "";
   const reactExternal = "?external=react,react-dom,react-dom/client";
 
   const imports: Record<string, string> = {};
 
   if (!input.bundledReact) {
-    imports["react"] = `https://esm.sh/react@${PREVIEW_REACT_VERSION}${devSuffix}`;
-    imports["react-dom"] = `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}${devSuffix}`;
-    imports["react-dom/client"] = `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}/client${devSuffix}`;
-    imports["react/jsx-runtime"] = `https://esm.sh/react@${PREVIEW_REACT_VERSION}/jsx-runtime${devSuffix}`;
+    const selfHostedBase = getSelfHostedReactBaseUrl();
+    if (selfHostedBase) {
+      imports["react"] = `${selfHostedBase}/react.mjs`;
+      imports["react/jsx-runtime"] = `${selfHostedBase}/react-jsx-runtime.mjs`;
+      imports["react-dom"] = `${selfHostedBase}/react-dom.mjs`;
+      imports["react-dom/client"] = `${selfHostedBase}/react-dom-client.mjs`;
+    } else {
+      const devSuffix = input.isDev ? "?dev" : "";
+      imports["react"] = `https://esm.sh/react@${PREVIEW_REACT_VERSION}${devSuffix}`;
+      imports["react-dom"] = `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}${devSuffix}`;
+      imports["react-dom/client"] = `https://esm.sh/react-dom@${PREVIEW_REACT_VERSION}/client${devSuffix}`;
+      imports["react/jsx-runtime"] = `https://esm.sh/react@${PREVIEW_REACT_VERSION}/jsx-runtime${devSuffix}`;
+    }
   }
 
   for (const ext of input.compatibleExternals) {
     const target = ext.importMapTarget?.trim();
     if (!target || target in imports) continue;
-    const base = `https://esm.sh/${target}${devSuffix}`;
+    const base = `https://esm.sh/${target}`;
     const joiner = base.includes("?") ? "&" : "?";
     imports[target] = `${base}${joiner}${reactExternal.slice(1)}&bundle`;
   }
@@ -46,10 +69,14 @@ function buildHeadHints(imports: Record<string, string>, bundledReact: boolean):
   if (Object.keys(imports).length === 0) return "";
 
   const lines: string[] = [];
-
-  const hasEsmSh = Object.values(imports).some((v) => v.includes("esm.sh"));
-  if (hasEsmSh) {
-    lines.push(`<link rel="preconnect" href="https://esm.sh" crossorigin />`);
+  const origins = new Set<string>();
+  for (const url of Object.values(imports)) {
+    try {
+      origins.add(new URL(url).origin);
+    } catch { /* skip malformed */ }
+  }
+  for (const origin of origins) {
+    lines.push(`<link rel="preconnect" href="${escapeHtml(origin)}" crossorigin />`);
   }
 
   if (!bundledReact) {

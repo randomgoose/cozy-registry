@@ -73,6 +73,7 @@
     "next": "16.1.6",
     "nextra": "^4.6.1",
     "nextra-theme-docs": "^4.6.1",
+    "pacote": "^21.5.0",
     "playwright-core": "^1.58.2",
     "postgres": "^3.4.8",
     "react": "19.2.3",

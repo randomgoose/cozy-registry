@@ -130,10 +130,13 @@ export function normalizePreviewArtifactCapability(
 export function classifyPreviewArtifactCapability(
   dependencyDecisions: DependencyDecision[],
 ): PreviewArtifactCapability {
-  if (hasNonPlatformRuntimeOnlyDependencies(dependencyDecisions)) {
+  const hasRuntimeOnly = hasNonPlatformRuntimeOnlyDependencies(dependencyDecisions);
+  const hasCompatible = hasCompatibleExternalDependencies(dependencyDecisions);
+
+  if (hasRuntimeOnly && !hasCompatible) {
     return "runtime-only";
   }
-  if (hasCompatibleExternalDependencies(dependencyDecisions)) {
+  if (hasCompatible) {
     return "compatible-artifact";
   }
   return "managed-artifact";
@@ -592,6 +595,11 @@ export async function processPreviewArtifactJob(jobId: string) {
       decisions: dependencyDecisions,
     });
 
+    const allExternalsMaterialized =
+      resolvedPreviewDependencies.plan.compatibleExternals.length === 0;
+    const canFullyBundle =
+      artifactCapability === "managed-artifact" || allExternalsMaterialized;
+
     const buildResult = await buildPreviewBundle(
       {
         name: payload.name,
@@ -604,11 +612,11 @@ export async function processPreviewArtifactJob(jobId: string) {
       {
         mode,
         debug: false,
-        externalizeDependencies: artifactCapability !== "managed-artifact",
+        externalizeDependencies: !canFullyBundle,
         dependencyNodePaths: resolvedPreviewDependencies.nodePaths,
         dependencyResolutionDiagnostics:
           resolvedPreviewDependencies.diagnostics,
-        bundleReact: artifactCapability === "managed-artifact",
+        bundleReact: canFullyBundle,
       },
     );
 
@@ -698,13 +706,12 @@ export async function processPreviewArtifactJob(jobId: string) {
       assetType: "preview-artifact",
     });
 
-    const shouldBundleReact = artifactCapability === "managed-artifact";
     const previewHtml = buildArtifactPreviewHtml({
       jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
       compatibleExternals: resolvedPreviewDependencies.plan.compatibleExternals,
       mode,
-      bundledReact: shouldBundleReact,
+      bundledReact: canFullyBundle,
     });
     const htmlPath = buildRegistryPreviewArtifactPath({
       owner: payload.owner,

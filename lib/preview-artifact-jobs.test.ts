@@ -136,7 +136,7 @@ describe("preview-artifact-jobs", () => {
     expect(capability).toBe("runtime-only");
   });
 
-  it("keeps the whole artifact in runtime-only when compatible and runtime-only dependencies mix", () => {
+  it("allows compatible-artifact when runtime-only and compatible deps coexist", () => {
     const capability = classifyPreviewArtifactCapability([
       {
         packageName: "recharts",
@@ -147,6 +147,22 @@ describe("preview-artifact-jobs", () => {
         versionPolicyStatus: "accepted",
         message: "Compatible artifact supported.",
       },
+      {
+        packageName: "motion",
+        requestedVersion: null,
+        tier: "soft-allowed",
+        providerMode: "compatible-external",
+        previewCapability: "runtime-only",
+        versionPolicyStatus: "unknown",
+        message: "Missing explicit version.",
+      },
+    ]);
+
+    expect(capability).toBe("compatible-artifact");
+  });
+
+  it("stays runtime-only when all non-platform deps are runtime-only", () => {
+    const capability = classifyPreviewArtifactCapability([
       {
         packageName: "motion",
         requestedVersion: null,

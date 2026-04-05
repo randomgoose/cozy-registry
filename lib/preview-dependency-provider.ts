@@ -155,12 +155,53 @@ export async function resolvePreviewDependencies(params: {
     });
   }
 
+  const remainingExternals: PreviewCompatibleExternal[] = [];
+  for (const ext of compatibleExternals) {
+    if (!ext.requestedVersion || !isExactVersion(ext.requestedVersion)) {
+      remainingExternals.push(ext);
+      continue;
+    }
+
+    const providerResolution = await ensureProviderResolution({
+      appRequire,
+      packageName: ext.packageName,
+      requestedVersion: ext.requestedVersion,
+      hostNodePaths,
+      allowRegistryFetch: true,
+    });
+
+    if (providerResolution) {
+      resolutions.push(providerResolution);
+      nodePathSet.add(providerResolution.moduleSearchPath);
+      diagnostics.push({
+        packageName: ext.packageName,
+        requestedVersion: ext.requestedVersion,
+        resolutionSource: "provider",
+        code: "COMPATIBLE_EXTERNAL_MATERIALIZED",
+        providerMode: "compatible-external",
+        message:
+          "Compatible-external dependency was materialized into the provider and will be bundled.",
+      });
+    } else {
+      remainingExternals.push(ext);
+      diagnostics.push({
+        packageName: ext.packageName,
+        requestedVersion: ext.requestedVersion,
+        resolutionSource: "provider",
+        code: "COMPATIBLE_EXTERNAL_FALLBACK",
+        providerMode: "compatible-external",
+        message:
+          "Compatible-external dependency could not be materialized; will use esm.sh import map fallback.",
+      });
+    }
+  }
+
   return {
     nodePaths: Array.from(nodePathSet),
     resolutions,
     plan: {
       managedPackages: resolutions,
-      compatibleExternals,
+      compatibleExternals: remainingExternals,
       diagnostics,
     },
     diagnostics,
@@ -204,6 +245,7 @@ async function ensureProviderResolution(input: {
   packageName: string;
   requestedVersion: string;
   hostNodePaths: string[];
+  allowRegistryFetch?: boolean;
 }): Promise<PreviewDependencyResolution | null> {
   const providerRoot = getPreviewDependencyProviderRoot();
   const existing = await tryResolveFromProvider({
@@ -213,20 +255,41 @@ async function ensureProviderResolution(input: {
   });
   if (existing) return existing;
 
-  const seeded = await seedProviderFromHost({
-    appRequire: input.appRequire,
-    packageName: input.packageName,
-    requestedVersion: input.requestedVersion,
-    providerRoot,
-    hostNodePaths: input.hostNodePaths,
-  });
-  if (!seeded) return null;
+  try {
+    const seeded = await seedProviderFromHost({
+      appRequire: input.appRequire,
+      packageName: input.packageName,
+      requestedVersion: input.requestedVersion,
+      providerRoot,
+      hostNodePaths: input.hostNodePaths,
+    });
+    if (seeded) {
+      return tryResolveFromProvider({
+        packageName: input.packageName,
+        requestedVersion: input.requestedVersion,
+        providerRoot,
+      });
+    }
+  } catch {
+    /* package not on host — fall through to registry fetch */
+  }
 
-  return tryResolveFromProvider({
-    packageName: input.packageName,
-    requestedVersion: input.requestedVersion,
-    providerRoot,
-  });
+  if (input.allowRegistryFetch && isExactVersion(input.requestedVersion)) {
+    const fetched = await materializeFromRegistry({
+      packageName: input.packageName,
+      requestedVersion: input.requestedVersion,
+      providerRoot,
+    });
+    if (fetched) {
+      return tryResolveFromProvider({
+        packageName: input.packageName,
+        requestedVersion: input.requestedVersion,
+        providerRoot,
+      });
+    }
+  }
+
+  return null;
 }
 
 async function resolveFromHost(input: {
@@ -312,6 +375,120 @@ async function seedProviderFromHost(input: {
   });
 
   return true;
+}
+
+const REGISTRY_FETCH_TIMEOUT_MS = 30_000;
+
+function isRegistryFetchEnabled(): boolean {
+  const flag = process.env.COZY_PREVIEW_REGISTRY_FETCH?.trim().toLowerCase();
+  if (flag === "0" || flag === "false" || flag === "off") return false;
+  if (process.env.NODE_ENV === "test" || process.env.VITEST) return false;
+  return true;
+}
+
+async function materializeFromRegistry(input: {
+  packageName: string;
+  requestedVersion: string;
+  providerRoot: string;
+}): Promise<boolean> {
+  if (!isRegistryFetchEnabled()) return false;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pacote = require("pacote") as {
+      extract: (
+        spec: string,
+        dest: string,
+        opts?: Record<string, unknown>,
+      ) => Promise<unknown>;
+    };
+
+    const destinationNodeModulesRoot = path.join(
+      input.providerRoot,
+      encodeProviderPathSegment(input.packageName),
+      input.requestedVersion,
+      "node_modules",
+    );
+
+    const seen = new Set<string>();
+
+    await materializePackageTreeFromRegistry({
+      pacote,
+      packageName: input.packageName,
+      version: input.requestedVersion,
+      destinationNodeModulesRoot,
+      seen,
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function materializePackageTreeFromRegistry(input: {
+  pacote: {
+    extract: (
+      spec: string,
+      dest: string,
+      opts?: Record<string, unknown>,
+    ) => Promise<unknown>;
+  };
+  packageName: string;
+  version: string;
+  destinationNodeModulesRoot: string;
+  seen: Set<string>;
+}): Promise<void> {
+  const seenKey = `${input.packageName}@${input.version}`;
+  if (input.seen.has(seenKey)) return;
+  input.seen.add(seenKey);
+
+  const destinationPackageRoot = path.join(
+    input.destinationNodeModulesRoot,
+    input.packageName,
+  );
+  const destinationPackageJson = path.join(destinationPackageRoot, "package.json");
+
+  if (!(await fileExists(destinationPackageJson))) {
+    await fs.mkdir(path.dirname(destinationPackageRoot), { recursive: true });
+    await input.pacote.extract(
+      `${input.packageName}@${input.version}`,
+      destinationPackageRoot,
+      { timeout: REGISTRY_FETCH_TIMEOUT_MS },
+    );
+  }
+
+  let manifest: { dependencies?: Record<string, string>; optionalDependencies?: Record<string, string> };
+  try {
+    manifest = await readPackageManifest(destinationPackageJson);
+  } catch {
+    return;
+  }
+
+  const dependencyEntries = [
+    ...Object.entries(manifest.dependencies ?? {}),
+    ...Object.entries(manifest.optionalDependencies ?? {}),
+  ];
+
+  for (const [depName, depRange] of dependencyEntries) {
+    const depVersion = extractExactVersionFromRange(depRange);
+    if (!depVersion) continue;
+
+    await materializePackageTreeFromRegistry({
+      pacote: input.pacote,
+      packageName: depName,
+      version: depVersion,
+      destinationNodeModulesRoot: input.destinationNodeModulesRoot,
+      seen: input.seen,
+    });
+  }
+}
+
+function extractExactVersionFromRange(range: string): string | null {
+  const trimmed = range.trim();
+  if (isExactVersion(trimmed)) return trimmed;
+  const match = trimmed.match(/^[\^~>=<]*(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/);
+  return match ? match[1] : null;
 }
 
 async function materializePackageTreeFromHost(input: {
