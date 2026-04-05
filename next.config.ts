@@ -79,7 +79,13 @@ const nextConfig = {
       { source: "/.well-known/oauth-authorization-server", destination: "/api/well-known/oauth-authorization-server" },
     ];
   },
-  serverExternalPackages: ["esbuild"],
+  serverExternalPackages: [
+    "esbuild",
+    // pacote pulls @npmcli/run-script → node-gyp (includes .cs); must not be bundled by Turbopack
+    "pacote",
+    "node-gyp",
+    "@npmcli/run-script",
+  ],
   outputFileTracingIncludes: {
     "/*": TRUSTED_TRACING_GLOBS,
   },
