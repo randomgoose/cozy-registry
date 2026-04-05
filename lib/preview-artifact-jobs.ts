@@ -337,6 +337,7 @@ export async function getPreviewArtifactStatus(params: {
 export async function lookupPreviewArtifactFast(params: {
   ownerUserId?: string | null;
   organizationId?: string | null;
+  requestUserId?: string | null;
   name: string;
   projectKey?: string | null;
   version: string | null;
@@ -363,6 +364,8 @@ export async function lookupPreviewArtifactFast(params: {
     ? eq(registryItemVersions.version, params.version)
     : eq(registryItemVersions.version, sql`COALESCE(${registryItems.currentVersion}, '0.1.0')`);
 
+  const ACTIVE_STATUS = "active";
+
   const [row] = await db
     .select({
       htmlUrl: registryPreviewArtifacts.htmlUrl,
@@ -370,6 +373,10 @@ export async function lookupPreviewArtifactFast(params: {
       status: registryPreviewArtifacts.status,
       artifactCapability: registryPreviewArtifacts.artifactCapability,
       itemType: registryItems.type,
+      itemVisibility: registryItems.visibility,
+      itemStatus: registryItems.status,
+      itemUserId: registryItems.userId,
+      itemOrganizationId: registryItems.organizationId,
     })
     .from(registryPreviewArtifacts)
     .innerJoin(
@@ -384,6 +391,7 @@ export async function lookupPreviewArtifactFast(params: {
       and(
         ownerFilter,
         eq(registryItems.name, params.name),
+        eq(registryItems.status, ACTIVE_STATUS),
         projectFilter,
         versionFilter,
         eq(registryPreviewArtifacts.mode, params.mode),
@@ -392,7 +400,22 @@ export async function lookupPreviewArtifactFast(params: {
     )
     .limit(1);
 
-  return row ?? null;
+  if (!row) return null;
+
+  if (row.itemVisibility === "private") {
+    if (!params.requestUserId) return null;
+    const isOwner = row.itemUserId === params.requestUserId;
+    if (!isOwner && row.itemOrganizationId) {
+      const { isUserOrganizationMember } = await import("@/lib/registry-organization");
+      if (!(await isUserOrganizationMember(params.requestUserId, row.itemOrganizationId))) {
+        return null;
+      }
+    } else if (!isOwner) {
+      return null;
+    }
+  }
+
+  return row;
 }
 
 export async function claimPendingPreviewArtifactJob() {

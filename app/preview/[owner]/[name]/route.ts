@@ -380,6 +380,7 @@ export async function GET(
         const fastResult = await lookupPreviewArtifactFast({
           ownerUserId,
           organizationId,
+          requestUserId: userId,
           name,
           projectKey: project,
           version,
