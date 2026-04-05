@@ -644,6 +644,10 @@ root.render(
       options?.dependencyNodePaths,
     );
 
+    const bundledReactSingletonPlugin = bundleReact
+      ? createPreviewBundledReactSingletonPlugin()
+      : null;
+
     // Run esbuild to bundle the preview entry into a single ESM file.
     const result = await esbuild.build({
       entryPoints: [previewEntryPath],
@@ -659,7 +663,12 @@ root.render(
           debugEnabled ? "development" : "production",
         ),
       },
-      plugins: [bundleAliasPlugin, cssPlugin, figmaAssetPlugin],
+      plugins: [
+        ...(bundledReactSingletonPlugin ? [bundledReactSingletonPlugin] : []),
+        bundleAliasPlugin,
+        cssPlugin,
+        figmaAssetPlugin,
+      ],
       nodePaths: previewNodePaths,
       external: [
         ...(bundleReact
@@ -833,6 +842,51 @@ function normalizeWorkspacePath(relPath: string) {
 
 function hashContent(content: string) {
   return createHash("sha256").update(content).digest("hex");
+}
+
+/**
+ * When preview dependencies are materialized under the provider tree, copies of
+ * react / react-dom / peers can sit beside recharts. Esbuild would otherwise
+ * resolve those importers to duplicate packages → invalid hooks (e.g. useContext
+ * on null). Force a single host-resolved copy for the fully-bundled artifact path.
+ */
+function createPreviewBundledReactSingletonPlugin(): import("esbuild").Plugin {
+  const appRequire = Module.createRequire(
+    path.join(process.cwd(), "package.json"),
+  );
+
+  const tryResolve = (spec: string): string | null => {
+    try {
+      return appRequire.resolve(spec);
+    } catch {
+      return null;
+    }
+  };
+
+  const entries: { filter: RegExp; path: string }[] = [];
+  for (const spec of [
+    "react",
+    "react/jsx-runtime",
+    "react/jsx-dev-runtime",
+    "react-dom",
+    "react-dom/client",
+    "scheduler",
+    "react-is",
+  ] as const) {
+    const resolved = tryResolve(spec);
+    if (!resolved) continue;
+    const escaped = spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    entries.push({ filter: new RegExp(`^${escaped}$`), path: resolved });
+  }
+
+  return {
+    name: "preview-bundled-react-singleton",
+    setup(build) {
+      for (const { filter, path: filePath } of entries) {
+        build.onResolve({ filter }, () => ({ path: filePath }));
+      }
+    },
+  };
 }
 
 function resolvePreviewNodePaths(additionalNodePaths?: string[]) {
