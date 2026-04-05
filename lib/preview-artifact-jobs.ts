@@ -34,6 +34,7 @@ import {
 } from "@/lib/preview-stories";
 import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
 import { isBarePackageSpecifier } from "@/lib/module-specifiers";
+import { buildMultiStoryPreviewHtml } from "@/lib/multi-story-preview-html";
 import { buildArtifactPreviewHtml } from "@/lib/preview-artifact-html";
 
 /** 公开存储路径按 artifactKey 固定为 preview.js，长期 Cache-Control 会留下陈旧内容；用内容哈希 bust 浏览器/CDN。 */
@@ -701,6 +702,36 @@ export async function processPreviewArtifactJob(jobId: string) {
       );
     }
 
+    const storiesHtml = buildMultiStoryPreviewHtml({
+      owner: payload.owner,
+      name: payload.name,
+      title: item.title,
+      description: item.description,
+      project: normalizedProjectKey,
+      version: payload.version,
+      stories: getPreviewStoriesFromMeta(itemMeta),
+    });
+    const storiesHtmlPath = buildRegistryPreviewArtifactPath({
+      owner: payload.owner,
+      project: normalizedProjectKey,
+      itemName: payload.name,
+      version: payload.version,
+      mode,
+      artifactKey,
+      filename: "stories.html",
+    });
+    const uploadedStoriesHtml = await uploadPublicAsset({
+      path: storiesHtmlPath,
+      body: storiesHtml,
+      contentType: "text/html; charset=utf-8",
+      cacheControl: "31536000",
+      assetType: "preview-artifact",
+    });
+    const storiesHtmlUrlForClients = publicAssetUrlWithContentBust(
+      uploadedStoriesHtml.url,
+      storiesHtml,
+    );
+
     const manifest = {
       schemaVersion: 1,
       owner: payload.owner,
@@ -712,6 +743,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       generatedAt: new Date().toISOString(),
       jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
+      storiesHtmlUrl: storiesHtmlUrlForClients,
       dependencyPlan: resolvedPreviewDependencies.plan,
       dependencyResolutionDiagnostics:
         buildResult.dependencyResolutionDiagnostics ?? [],

@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 
 type Props = {
   params: Promise<{ owner: string; name: string }>;
-  searchParams: Promise<{ v?: string; project?: string }>;
+  searchParams: Promise<{ v?: string; project?: string; story?: string }>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -47,12 +47,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function RegistryItemPage({ params, searchParams }: Props) {
   const { owner, name } = await params;
-  const { v: versionParam, project: projectParam } = await searchParams;
+  const {
+    v: versionParam,
+    project: projectParam,
+    story: storyParam,
+  } = await searchParams;
   const session = await auth.api.getSession({ headers: await headers() });
   const requestUserId = session?.user?.id ?? null;
 
   const version = versionParam && versionParam.trim() ? versionParam.trim() : null;
   const project = projectParam && projectParam.trim() ? projectParam.trim() : null;
+  const story = storyParam && storyParam.trim() ? storyParam.trim() : null;
 
   let item: Awaited<ReturnType<typeof getRegistryItemByScopedIdentityAndVersion>>;
   try {
@@ -128,6 +133,7 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
       propsFromCode={propsFromCode}
       previewStories={getPreviewStoriesFromMeta(item.meta)}
       defaultPreviewStoryId={getPreviewDefaultStoryIdFromMeta(item.meta)}
+      requestedPreviewStoryId={story}
       files={files}
     />
   );

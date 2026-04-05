@@ -38,7 +38,11 @@ import {
   REGISTRY_UI_TYPE,
   normalizeRegistryItemType,
 } from "@/lib/registry-types";
-import { buildStoryPreviewArtifactStatusQuery } from "@/lib/story-preview-urls";
+import {
+  buildMultiStoryPreviewPageUrl,
+  buildStoryPreviewArtifactStatusQuery,
+  buildStoryPreviewPageUrl,
+} from "@/lib/story-preview-urls";
 
 type Project = ProjectListItem;
 
@@ -76,6 +80,26 @@ type PreviewArtifactStatusPayload = {
     message?: string | null;
   } | null;
 };
+
+function resolveSelectedPreviewStoryId(input: {
+  currentStoryId: string | null;
+  stories: Array<{ id: string }>;
+  defaultStoryId: string | null;
+}) {
+  const normalizedCurrent = input.currentStoryId?.trim() || null;
+  const normalizedDefault = input.defaultStoryId?.trim() || null;
+  const availableStoryIds = new Set(
+    input.stories.map((story) => story.id.trim()).filter(Boolean),
+  );
+
+  if (normalizedCurrent && availableStoryIds.has(normalizedCurrent)) {
+    return normalizedCurrent;
+  }
+  if (normalizedDefault && availableStoryIds.has(normalizedDefault)) {
+    return normalizedDefault;
+  }
+  return input.stories[0]?.id ?? null;
+}
 
 function normalizeProjectItemDetailData(value: unknown): ProjectItemDetailData | null {
   if (!value || typeof value !== "object") return null;
@@ -212,6 +236,9 @@ export function ProjectsPanel(props: {
   const [artifactStatusByItemId, setArtifactStatusByItemId] = useState<
     Record<string, PreviewArtifactStatusPayload | null>
   >({});
+  const [selectedStoryIdByItemId, setSelectedStoryIdByItemId] = useState<
+    Record<string, string | null>
+  >({});
   const detailByItemIdRef = useRef<Record<string, ProjectItemDetailData>>({});
   const [itemDetailLoadingId, setItemDetailLoadingId] = useState<string | null>(null);
   const [itemDetailError, setItemDetailError] = useState<string | null>(null);
@@ -237,10 +264,14 @@ export function ProjectsPanel(props: {
   );
   const canEditProject = props.canEditProject ?? false;
   const currentProjectNamespaceKey = selectedProject?.namespaceKey ?? null;
-  const selectedProjectStoryId =
-    selectedProjectDetail?.previewDefaultStoryId ??
-    selectedProjectDetail?.previewStories[0]?.id ??
-    null;
+  const selectedProjectStoryId = useMemo(() => {
+    if (!selectedItemId || !selectedProjectDetail) return null;
+    return resolveSelectedPreviewStoryId({
+      currentStoryId: selectedStoryIdByItemId[selectedItemId] ?? null,
+      stories: selectedProjectDetail.previewStories,
+      defaultStoryId: selectedProjectDetail.previewDefaultStoryId,
+    });
+  }, [selectedItemId, selectedProjectDetail, selectedStoryIdByItemId]);
   const moveTargetProjects = useMemo(
     () => projects.filter((project) => project.id !== selectedId),
     [projects, selectedId],
@@ -1036,6 +1067,15 @@ export function ProjectsPanel(props: {
                       : artifactStatus?.artifactStatus === "failed"
                         ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
                         : null;
+                  const storiesPreviewHref =
+                    selectedItem && selectedDetail?.previewStories.length
+                      ? buildMultiStoryPreviewPageUrl({
+                          owner: props.registryOwner,
+                          name: selectedItem.name,
+                          project: currentProjectNamespaceKey,
+                          storyId: selectedProjectStoryId,
+                        })
+                      : null;
                   return (
                     <>
                       <div className="border-b border-zinc-200/80 px-4 py-3 dark:border-zinc-800">
@@ -1062,6 +1102,43 @@ export function ProjectsPanel(props: {
                                   <span className="text-xs text-zinc-500 dark:text-zinc-400">
                                     {artifactStatusMessage}
                                   </span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {detailTab === "preview" &&
+                            selectedDetail?.previewStories.length ? (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                                  Story:
+                                </span>
+                                <select
+                                  aria-label="Select story"
+                                  value={selectedProjectStoryId ?? ""}
+                                  onChange={(event) => {
+                                    if (!selectedItem) return;
+                                    const next = event.target.value.trim();
+                                    setSelectedStoryIdByItemId((prev) => ({
+                                      ...prev,
+                                      [selectedItem.itemId]: next.length > 0 ? next : null,
+                                    }));
+                                  }}
+                                  className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                                >
+                                  {selectedDetail.previewStories.map((story) => (
+                                    <option key={story.id} value={story.id}>
+                                      {story.title}
+                                    </option>
+                                  ))}
+                                </select>
+                                {selectedDetail.previewStories.length > 1 && storiesPreviewHref ? (
+                                  <Link
+                                    href={storiesPreviewHref}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
+                                  >
+                                    Open stories page
+                                  </Link>
                                 ) : null}
                               </div>
                             ) : null}
@@ -1240,11 +1317,23 @@ export function ProjectsPanel(props: {
                             const isActive =
                               selectedItem.itemId === slot.itemId &&
                               currentProjectNamespaceKey === slot.projectKey;
-                            const src = `/preview/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(slot.name)}${
-                              slot.projectKey
-                                ? `?project=${encodeURIComponent(slot.projectKey)}`
-                                : ""
-                            }`;
+                            const slotDetail = detailByItemId[slot.itemId] ?? null;
+                            const slotStoryId =
+                              slotDetail
+                                ? resolveSelectedPreviewStoryId({
+                                    currentStoryId: isActive
+                                      ? selectedStoryIdByItemId[slot.itemId] ?? null
+                                      : null,
+                                    stories: slotDetail.previewStories,
+                                    defaultStoryId: slotDetail.previewDefaultStoryId,
+                                  })
+                                : null;
+                            const src = buildStoryPreviewPageUrl({
+                              owner: props.registryOwner,
+                              name: slot.name,
+                              project: slot.projectKey,
+                              storyId: slotStoryId,
+                            });
                             return (
                               <div
                                 key={`${slot.itemId}:${slot.projectKey ?? ""}`}

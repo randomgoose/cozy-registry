@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import type { PreviewStory } from "@/lib/preview-stories";
 import {
+  buildMultiStoryPreviewPageUrl,
   buildStoryPreviewArtifactStatusQuery,
   buildStoryPreviewPageUrl,
 } from "@/lib/story-preview-urls";
@@ -104,6 +105,7 @@ interface ComponentDetailProps {
   propsFromCode: PropField[];
   previewStories: PreviewStory[];
   defaultPreviewStoryId: string | null;
+  requestedPreviewStoryId: string | null;
   /** All files in the current version bundle */
   files: { path: string; content: string; type: string }[];
 }
@@ -128,6 +130,7 @@ export function ComponentDetail({
   propsFromCode,
   previewStories,
   defaultPreviewStoryId,
+  requestedPreviewStoryId,
   files,
 }: ComponentDetailProps) {
   const [copied, setCopied] = useState(false);
@@ -142,7 +145,11 @@ export function ComponentDetail({
   const [artifactStatus, setArtifactStatus] =
     useState<PreviewArtifactStatusPayload | null>(null);
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(
-    defaultPreviewStoryId ?? previewStories[0]?.id ?? null,
+    resolveSelectedPreviewStoryId({
+      currentStoryId: requestedPreviewStoryId,
+      stories: previewStories,
+      defaultStoryId: defaultPreviewStoryId,
+    }),
   );
   const router = useRouter();
 
@@ -156,14 +163,14 @@ export function ComponentDetail({
   }, [visibility]);
 
   useEffect(() => {
-    setSelectedStoryId((current) => {
-      return resolveSelectedPreviewStoryId({
-        currentStoryId: current,
+    setSelectedStoryId(
+      resolveSelectedPreviewStoryId({
+        currentStoryId: requestedPreviewStoryId,
         stories: previewStories,
         defaultStoryId: defaultPreviewStoryId,
-      });
-    });
-  }, [defaultPreviewStoryId, previewStories]);
+      }),
+    );
+  }, [defaultPreviewStoryId, previewStories, requestedPreviewStoryId]);
 
   const [previewReady, setPreviewReady] = useState(type === "registry:theme");
 
@@ -259,6 +266,16 @@ export function ComponentDetail({
         : null,
     storyId: selectedStoryId,
   });
+  const storiesPreviewHref = buildMultiStoryPreviewPageUrl({
+    owner,
+    name,
+    project,
+    version:
+      localSelectedVersion && localSelectedVersion !== currentVersion
+        ? localSelectedVersion
+        : null,
+    storyId: selectedStoryId,
+  });
   const isTheme = type === "registry:theme";
   const canEditTheme =
     isTheme && isOwner && localSelectedVersion === currentVersion;
@@ -320,8 +337,32 @@ export function ComponentDetail({
     if (v !== currentVersion) {
       search.set("v", v);
     }
+    if (selectedStoryId?.trim()) {
+      search.set("story", selectedStoryId.trim());
+    }
     const query = search.toString();
     router.push(`/registry/${owner}/${name}${query ? `?${query}` : ""}`);
+  }
+
+  function handleStoryChange(nextStoryId: string | null) {
+    const normalizedNextStoryId = nextStoryId?.trim() || null;
+    setSelectedStoryId(normalizedNextStoryId);
+
+    const search = new URLSearchParams();
+    if (project?.trim()) {
+      search.set("project", project.trim());
+    }
+    if (
+      localSelectedVersion.trim() &&
+      localSelectedVersion.trim() !== currentVersion
+    ) {
+      search.set("v", localSelectedVersion.trim());
+    }
+    if (normalizedNextStoryId) {
+      search.set("story", normalizedNextStoryId);
+    }
+    const query = search.toString();
+    router.replace(`/registry/${owner}/${name}${query ? `?${query}` : ""}`);
   }
 
   async function handleDelete() {
@@ -519,7 +560,7 @@ export function ComponentDetail({
                     value={selectedStoryId ?? ""}
                     onChange={(event) => {
                       const next = event.target.value.trim();
-                      setSelectedStoryId(next.length > 0 ? next : null);
+                      handleStoryChange(next.length > 0 ? next : null);
                     }}
                     className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
                   >
@@ -541,6 +582,16 @@ export function ComponentDetail({
               >
                 Preview
               </Link>
+              {previewStories.length > 1 ? (
+                <Link
+                  href={storiesPreviewHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                >
+                  Stories
+                </Link>
+              ) : null}
               {isOwner && (
                 <Button
                   type="button"
