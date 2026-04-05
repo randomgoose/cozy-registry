@@ -37,13 +37,24 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+const lookupPreviewArtifactFastMock = vi.fn();
+
 vi.mock("@/lib/preview-artifact-jobs", () => ({
   enqueuePreviewArtifactJob: enqueuePreviewArtifactJobMock,
+  lookupPreviewArtifactFast: lookupPreviewArtifactFastMock,
   inferPreviewArtifactCapability: vi.fn(
     ({ artifactStatus }: { artifactStatus?: string }) =>
       artifactStatus === "skipped" ? "runtime-only" : "managed-artifact",
   ),
   formatRuntimeOnlyDependencySkipMessage: vi.fn(() => "Skipped by policy."),
+}));
+
+vi.mock("@/lib/owner", () => ({
+  resolveOwner: vi.fn(() => Promise.resolve(null)),
+}));
+
+vi.mock("@/lib/registry-organization", () => ({
+  resolveOrganizationBySlug: vi.fn(() => Promise.resolve(null)),
 }));
 
 vi.mock("@/lib/preview-build", () => ({
@@ -117,6 +128,7 @@ describe("preview route state pages", () => {
     vi.resetModules();
     vi.clearAllMocks();
     fetchMock.mockReset();
+    lookupPreviewArtifactFastMock.mockResolvedValue(null);
     getSessionMock.mockResolvedValue(null);
     getUserIdFromTokenMock.mockResolvedValue(null);
     getRegistryItemVersionsByItemIdMock.mockResolvedValue([]);

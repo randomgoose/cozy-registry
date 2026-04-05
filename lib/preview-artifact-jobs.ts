@@ -339,7 +339,7 @@ export async function lookupPreviewArtifactFast(params: {
   organizationId?: string | null;
   name: string;
   projectKey?: string | null;
-  version: string;
+  version: string | null;
   mode: "default" | "thumbnail";
   storyId: string;
 }) {
@@ -358,6 +358,10 @@ export async function lookupPreviewArtifactFast(params: {
   const projectFilter = params.projectKey
     ? eq(registryItems.canonicalProjectKey, params.projectKey)
     : undefined;
+
+  const versionFilter = params.version
+    ? eq(registryItemVersions.version, params.version)
+    : eq(registryItemVersions.version, sql`COALESCE(${registryItems.currentVersion}, '0.1.0')`);
 
   const [row] = await db
     .select({
@@ -381,7 +385,7 @@ export async function lookupPreviewArtifactFast(params: {
         ownerFilter,
         eq(registryItems.name, params.name),
         projectFilter,
-        eq(registryItemVersions.version, params.version),
+        versionFilter,
         eq(registryPreviewArtifacts.mode, params.mode),
         eq(registryPreviewArtifacts.storyId, params.storyId),
       ),

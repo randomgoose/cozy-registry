@@ -362,7 +362,7 @@ export async function GET(
   const userId = session?.user?.id ?? (await getUserIdFromToken(request));
   timings.mark("session", stepStartedAt);
 
-  if (version && !debug && !allowInlineFallback) {
+  if (!debug && !allowInlineFallback) {
     stepStartedAt = performance.now();
     try {
       let ownerUserId: string | null = null;
