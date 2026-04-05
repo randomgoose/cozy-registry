@@ -36,7 +36,7 @@ function buildImportMap(input: {
     if (!target || target in imports) continue;
     const base = `https://esm.sh/${target}${devSuffix}`;
     const joiner = base.includes("?") ? "&" : "?";
-    imports[target] = `${base}${joiner}${reactExternal.slice(1)}`;
+    imports[target] = `${base}${joiner}${reactExternal.slice(1)}&bundle`;
   }
 
   return imports;
@@ -78,7 +78,7 @@ export type BuildArtifactPreviewHtmlInput = {
  * When bundledReact is true, React is inside preview.js — no esm.sh needed for React.
  */
 export function buildArtifactPreviewHtml(input: BuildArtifactPreviewHtmlInput): string {
-  const bundledReact = input.bundledReact !== false;
+  const bundledReact = input.bundledReact === true;
   const isDev = !bundledReact && input.mode === "default";
   const compatibleExternals = input.compatibleExternals ?? [];
   const imports = buildImportMap({ compatibleExternals, isDev, bundledReact });

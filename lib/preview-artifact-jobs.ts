@@ -608,7 +608,7 @@ export async function processPreviewArtifactJob(jobId: string) {
         dependencyNodePaths: resolvedPreviewDependencies.nodePaths,
         dependencyResolutionDiagnostics:
           resolvedPreviewDependencies.diagnostics,
-        bundleReact: true,
+        bundleReact: artifactCapability === "managed-artifact",
       },
     );
 
@@ -698,12 +698,13 @@ export async function processPreviewArtifactJob(jobId: string) {
       assetType: "preview-artifact",
     });
 
+    const shouldBundleReact = artifactCapability === "managed-artifact";
     const previewHtml = buildArtifactPreviewHtml({
       jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
       compatibleExternals: resolvedPreviewDependencies.plan.compatibleExternals,
       mode,
-      bundledReact: true,
+      bundledReact: shouldBundleReact,
     });
     const htmlPath = buildRegistryPreviewArtifactPath({
       owner: payload.owner,

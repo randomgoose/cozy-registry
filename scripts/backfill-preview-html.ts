@@ -125,12 +125,13 @@ async function main() {
         | "default"
         | "thumbnail";
 
+      const hasCompatibleExternals = compatibleExternals.length > 0;
       const html = buildArtifactPreviewHtml({
         jsUrl: artifact.jsUrl,
         cssUrl: artifact.cssUrl,
         compatibleExternals,
         mode,
-        bundledReact: true,
+        bundledReact: !hasCompatibleExternals,
       });
 
       if (dryRun) {
