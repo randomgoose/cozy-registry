@@ -466,7 +466,12 @@ async function materializePackageTreeFromRegistry(input: {
     );
   }
 
-  let manifest: { dependencies?: Record<string, string>; optionalDependencies?: Record<string, string> };
+  let manifest: {
+    dependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+    peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+  };
   try {
     manifest = await readPackageManifest(destinationPackageJson);
   } catch {
@@ -476,9 +481,16 @@ async function materializePackageTreeFromRegistry(input: {
   const optionalDepNames = new Set(
     Object.keys(manifest.optionalDependencies ?? {}),
   );
+  const optionalPeerNames = new Set(
+    Object.entries(manifest.peerDependenciesMeta ?? {})
+      .filter(([, meta]) => meta?.optional === true)
+      .map(([name]) => name),
+  );
+  /** Peers (e.g. react-is on recharts) are required at bundle time but omitted from dependencies. */
   const dependencyEntries = [
     ...Object.entries(manifest.dependencies ?? {}),
     ...Object.entries(manifest.optionalDependencies ?? {}),
+    ...Object.entries(manifest.peerDependencies ?? {}),
   ];
 
   for (const [depName, depRange] of dependencyEntries) {
@@ -500,7 +512,12 @@ async function materializePackageTreeFromRegistry(input: {
         }
         resolvedVersion = v.trim();
       } catch {
-        if (optionalDepNames.has(depName)) continue;
+        if (
+          optionalDepNames.has(depName) ||
+          optionalPeerNames.has(depName)
+        ) {
+          continue;
+        }
         throw new Error(
           `Failed to resolve "${depName}@${trimmedRange}" while materializing preview dependencies from the registry.`,
         );
@@ -560,6 +577,11 @@ async function materializePackageTreeFromHost(input: {
         ? manifest.optionalDependencies
         : {},
     ),
+    ...Object.keys(
+      typeof manifest.peerDependencies === "object" && manifest.peerDependencies
+        ? manifest.peerDependencies
+        : {},
+    ),
   ].sort();
 
   for (const dependencyName of dependencyNames) {
@@ -591,12 +613,16 @@ async function readPackageManifest(packageJsonPath: string): Promise<{
   version: string;
   dependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
 }> {
   const raw = await fs.readFile(packageJsonPath, "utf8");
   const parsed = JSON.parse(raw) as {
     version?: unknown;
     dependencies?: unknown;
     optionalDependencies?: unknown;
+    peerDependencies?: unknown;
+    peerDependenciesMeta?: unknown;
   };
   return {
     version: typeof parsed.version === "string" ? parsed.version.trim() : "",
@@ -609,6 +635,18 @@ async function readPackageManifest(packageJsonPath: string): Promise<{
       typeof parsed.optionalDependencies === "object" &&
       !Array.isArray(parsed.optionalDependencies)
         ? (parsed.optionalDependencies as Record<string, string>)
+        : undefined,
+    peerDependencies:
+      parsed.peerDependencies &&
+      typeof parsed.peerDependencies === "object" &&
+      !Array.isArray(parsed.peerDependencies)
+        ? (parsed.peerDependencies as Record<string, string>)
+        : undefined,
+    peerDependenciesMeta:
+      parsed.peerDependenciesMeta &&
+      typeof parsed.peerDependenciesMeta === "object" &&
+      !Array.isArray(parsed.peerDependenciesMeta)
+        ? (parsed.peerDependenciesMeta as Record<string, { optional?: boolean }>)
         : undefined,
   };
 }
