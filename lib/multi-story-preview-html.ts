@@ -12,6 +12,72 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function escapeHtmlCode(value: string): string {
+  return escapeHtml(value).replace(/'/g, "&#39;");
+}
+
+function encodeCopyPayload(value: string): string {
+  return Buffer.from(value, "utf8").toString("base64");
+}
+
+const COPY_BUTTON_INNER_HTML = `
+  <span class="copy-button-icon" aria-hidden="true">
+    <svg viewBox="0 0 16 16" fill="none">
+      <rect x="5" y="3" width="8" height="10" rx="2"></rect>
+      <path d="M3 10V5.5C3 4.67157 3.67157 4 4.5 4H9"></path>
+    </svg>
+  </span>
+  <span class="copy-button-text">Copy</span>
+`;
+
+function isCodeFile(path: string): boolean {
+  return /\.(tsx?|jsx?|css|json)$/i.test(path);
+}
+
+type PreviewFile = {
+  path: string;
+  content: string;
+  type?: string;
+};
+
+function findStoryCodeFile(
+  story: PreviewStory,
+  files: PreviewFile[],
+): PreviewFile | null {
+  const codeFiles = files.filter(
+    (file) => file.path && typeof file.content === "string" && isCodeFile(file.path),
+  );
+  if (codeFiles.length === 0) return null;
+
+  const exportName = story.export?.trim();
+  if (exportName) {
+    const exportPatterns = [
+      `export function ${exportName}`,
+      `export const ${exportName}`,
+      `export class ${exportName}`,
+      `export { ${exportName}`,
+      `export default function ${exportName}`,
+    ];
+    const directMatch = codeFiles.find((file) =>
+      exportPatterns.some((pattern) => file.content.includes(pattern)),
+    );
+    if (directMatch) return directMatch;
+  }
+
+  const preferredTsx = codeFiles.find((file) => /\.(tsx|jsx)$/i.test(file.path));
+  return preferredTsx ?? codeFiles[0] ?? null;
+}
+
+function buildCodeBlockHtml(content: string): string {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  return lines
+    .map((line, index) => {
+      const displayLine = line.length > 0 ? escapeHtmlCode(line) : "&nbsp;";
+      return `<div class="code-line"><span class="line-no">${index + 1}</span><span class="line-code">${displayLine}</span></div>`;
+    })
+    .join("");
+}
+
 export function buildMultiStoryPreviewHtml(input: {
   owner: string;
   name: string;
@@ -20,7 +86,9 @@ export function buildMultiStoryPreviewHtml(input: {
   project: string | null;
   version: string;
   stories: PreviewStory[];
+  files?: PreviewFile[];
 }) {
+  const files = input.files ?? [];
   const navLinks = input.stories
     .map((story) => {
       const href = buildMultiStoryPreviewPageUrl({
@@ -61,6 +129,10 @@ export function buildMultiStoryPreviewHtml(input: {
               .map((tag) => `<span class="story-tag">${escapeHtml(tag)}</span>`)
               .join("")}</div>`
           : "";
+      const codeFile = findStoryCodeFile(story, files);
+      const codeHtml = codeFile
+        ? buildCodeBlockHtml(codeFile.content)
+        : `<div class="code-empty">No source snippet available for this story yet.</div>`;
 
       return `
         <section id="story-${escapeHtml(story.id)}" data-story-section="${escapeHtml(
@@ -92,6 +164,30 @@ export function buildMultiStoryPreviewHtml(input: {
               loading="lazy"
               sandbox="allow-scripts allow-same-origin"
             ></iframe>
+          </div>
+          <div class="story-code-panel">
+            <div class="story-code-toolbar">
+              <div class="story-code-meta">
+                <span class="story-code-label">Code</span>
+                ${
+                  codeFile
+                    ? `<span class="story-code-path">${escapeHtml(codeFile.path)}</span>`
+                    : ""
+                }
+              </div>
+              <button
+                type="button"
+                class="copy-button"
+                data-copy-button="${escapeHtml(story.id)}"
+                data-copy-b64="${codeFile ? encodeCopyPayload(codeFile.content) : ""}"
+                aria-label="Copy source for ${escapeHtml(story.title)}"
+              >
+                ${COPY_BUTTON_INNER_HTML}
+              </button>
+            </div>
+            <div class="story-code-scroll">
+              <pre class="story-code"><code>${codeHtml}</code></pre>
+            </div>
           </div>
         </section>
       `;
@@ -180,7 +276,7 @@ export function buildMultiStoryPreviewHtml(input: {
       }
       .story-section {
         margin-bottom: 20px;
-        padding: 20px;
+        overflow: hidden;
         border: 1px solid var(--border);
         border-radius: 20px;
         background: var(--panel);
@@ -192,7 +288,8 @@ export function buildMultiStoryPreviewHtml(input: {
         gap: 16px;
         align-items: flex-start;
         justify-content: space-between;
-        margin-bottom: 14px;
+        padding: 20px 20px 0;
+        margin-bottom: 16px;
       }
       .story-kicker {
         margin: 0 0 6px;
@@ -226,16 +323,115 @@ export function buildMultiStoryPreviewHtml(input: {
       }
       .story-frame-wrap {
         overflow: hidden;
-        border-radius: 18px;
-        border: 1px solid var(--border);
-        background: var(--panel-muted);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        background:
+          radial-gradient(circle at top, color-mix(in srgb, var(--panel-muted) 90%, transparent), transparent 60%),
+          var(--panel);
       }
       .story-frame-wrap iframe {
         display: block;
         width: 100%;
-        height: 460px;
+        min-height: 420px;
+        height: 54vh;
+        max-height: 620px;
         border: 0;
         background: transparent;
+      }
+      .story-code-panel {
+        overflow: hidden;
+        border-radius: 0;
+        border: 0;
+        background: var(--panel-muted);
+      }
+      .story-code-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        background: color-mix(in srgb, var(--panel) 70%, var(--panel-muted));
+      }
+      .story-code-meta {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .story-code-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .story-code-path {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .copy-button {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 8px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .copy-button svg {
+        display: block;
+        width: 15px;
+        height: 15px;
+        stroke: currentColor;
+        stroke-width: 1.5;
+      }
+      .copy-button-text {
+        white-space: nowrap;
+      }
+      .copy-button[data-copied="true"] {
+        color: var(--accent);
+        border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+        background: var(--accent-soft);
+      }
+      .story-code-scroll {
+        overflow: auto;
+      }
+      .story-code {
+        margin: 0;
+        padding: 14px 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 13px;
+        line-height: 1.7;
+      }
+      .code-line {
+        display: grid;
+        grid-template-columns: 56px minmax(0, 1fr);
+        gap: 12px;
+        padding: 0 16px;
+        white-space: pre;
+      }
+      .line-no {
+        user-select: none;
+        text-align: right;
+        color: color-mix(in srgb, var(--muted) 84%, transparent);
+      }
+      .line-code {
+        overflow-x: auto;
+      }
+      .code-empty {
+        padding: 16px;
+        color: var(--muted);
       }
       .sidebar {
         position: sticky;
@@ -329,6 +525,34 @@ export function buildMultiStoryPreviewHtml(input: {
           var baseHref = link.getAttribute("data-base-href");
           if (!baseHref) return;
           link.setAttribute("href", withTheme(baseHref));
+        });
+
+        document.querySelectorAll("[data-copy-button]").forEach(function (button) {
+          var initialHtml = button.innerHTML;
+          button.addEventListener("click", async function () {
+            var encoded = button.getAttribute("data-copy-b64") || "";
+            if (!encoded) return;
+            try {
+              var binary = window.atob(encoded);
+              var bytes = new Uint8Array(binary.length);
+              for (var i = 0; i < binary.length; i += 1) {
+                bytes[i] = binary.charCodeAt(i);
+              }
+              var raw = new TextDecoder().decode(bytes);
+              await navigator.clipboard.writeText(raw);
+              button.textContent = "Copied";
+              button.setAttribute("data-copied", "true");
+              window.setTimeout(function () {
+                button.innerHTML = initialHtml;
+                button.removeAttribute("data-copied");
+              }, 1500);
+            } catch (_error) {
+              button.textContent = "Failed";
+              window.setTimeout(function () {
+                button.innerHTML = initialHtml;
+              }, 1500);
+            }
+          });
         });
 
         var navLinks = new Map();

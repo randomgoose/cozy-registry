@@ -133,7 +133,7 @@ function ToolTriggerCard({
     <button
       type="button"
       onClick={onOpen}
-      className="rounded-2xl border border-white/50 bg-white/45 px-5 py-4 text-left shadow-[0_12px_32px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.55)] backdrop-blur-xl transition duration-200 hover:-translate-y-0.5 hover:border-white/70 hover:bg-white/60 hover:shadow-[0_18px_40px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.62)] dark:border-white/10 dark:bg-white/[0.045] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:border-white/15 dark:hover:bg-white/[0.07]"
+      className="rounded-2xl border border-white/50 bg-surface-overlay-soft px-5 py-4 text-left shadow-[0_12px_32px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.55)] backdrop-blur-xl transition duration-200 hover:-translate-y-0.5 hover:border-white/70 hover:bg-white/60 hover:shadow-[0_18px_40px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.62)] dark:border-white/10 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:border-white/15 dark:hover:bg-white/[0.07]"
     >
       <div className="flex items-center gap-2">
         {tool.icon ? (

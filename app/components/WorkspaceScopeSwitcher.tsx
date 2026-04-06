@@ -49,7 +49,7 @@ function ScopeAvatar(props: {
   return (
     <span
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-black/8 bg-zinc-100 text-zinc-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-100",
+        "flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-black/8 bg-surface-muted text-zinc-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] dark:border-white/10 dark:text-zinc-100",
         props.className,
       )}
       aria-hidden="true"
@@ -256,7 +256,7 @@ export function WorkspaceScopeSwitcher({
           }
         }}
       >
-        <DialogContent className="max-w-md rounded-[24px] border border-white/65 bg-white/90 p-5 shadow-[0_24px_48px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/92 dark:shadow-[0_28px_52px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]">
+        <DialogContent className="max-w-md rounded-[24px] border border-white/65 bg-surface-overlay p-5 shadow-[0_24px_48px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl dark:border-white/10 dark:shadow-[0_28px_52px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]">
           <DialogHeader>
             <DialogTitle>Create organization</DialogTitle>
             <DialogDescription>
@@ -273,12 +273,12 @@ export function WorkspaceScopeSwitcher({
                 value={orgName}
                 onChange={(event) => setOrgName(event.target.value)}
                 placeholder="Acme Design"
-                className="h-9 rounded-xl border-zinc-200 bg-white/90 px-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/70"
+                className="h-9 rounded-xl border-zinc-200 bg-surface-field px-3 text-sm dark:border-zinc-800"
                 autoFocus
               />
             </div>
             {createError ? (
-              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+              <p className="rounded-xl border border-amber-200 bg-surface-warning-soft px-3 py-2 text-xs text-amber-700 dark:border-amber-900/60 dark:text-amber-300">
                 {createError}
               </p>
             ) : null}
@@ -311,11 +311,8 @@ export function WorkspaceScopeSwitcher({
               fallback={effectiveActiveOrganization ? "organization" : "user"}
             />
             <div className="min-w-0">
-              <div className="truncate text-[13px] font-semibold text-zinc-950 dark:text-zinc-50">
+              <div className="truncate text-sm font-medium text-foreground">
                 {activePrimaryLabel}
-              </div>
-              <div className="truncate pt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-                {activeSecondaryLabel}
               </div>
             </div>
           </div>
@@ -325,11 +322,8 @@ export function WorkspaceScopeSwitcher({
         <DropdownMenuContent
           align="start"
           sideOffset={10}
-          className="w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/60 bg-white/88 p-2 shadow-[0_20px_40px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/90 dark:shadow-[0_24px_44px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]"
+          className="w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-border bg-surface-overlay p-2 shadow-lg backdrop-blur-lg"
         >
-          <div className="px-2 pb-1 pt-0 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-            Current scope
-          </div>
           <DropdownMenuItem
             className="rounded-xl px-3 py-2 text-sm text-zinc-700 focus:bg-black/[0.06] focus:text-zinc-950 dark:text-zinc-300 dark:focus:bg-black/30 dark:focus:text-zinc-50"
             onClick={switchToPersonal}
@@ -352,9 +346,9 @@ export function WorkspaceScopeSwitcher({
             </div>
           </DropdownMenuItem>
 
-          {workspace.organizations.length > 0 ? (
+          {/* {workspace.organizations.length > 0 ? (
             <DropdownMenuSeparator className="my-2 bg-zinc-200/80 dark:bg-zinc-800/80" />
-          ) : null}
+          ) : null} */}
 
           <div className="max-h-[18rem] overflow-auto">
             {workspace.organizations.map((organization) => (
@@ -389,9 +383,6 @@ export function WorkspaceScopeSwitcher({
           </div>
 
           <DropdownMenuSeparator className="my-2 bg-zinc-200/80 dark:bg-zinc-800/80" />
-          <div className="px-2 pb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-            Actions
-          </div>
           <div className="px-1">
             <button
               type="button"

@@ -5,7 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --color-background: var(--background);
+  --color-background: var(--color-neutral-100);
+  --color-background-hover: var(--color-neutral-200);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
@@ -16,6 +17,7 @@
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-input-background: var(--color-white);
   --color-sidebar: var(--sidebar);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
@@ -48,6 +50,20 @@
   --color-on-inverse-popover: var(--on-inverse-popover);
   --color-on-inverse-popover-fg: var(--on-inverse-popover-fg);
   --color-on-inverse-popover-border: var(--on-inverse-popover-border);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-field: var(--surface-field);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-inverse: var(--surface-inverse);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-surface-overlay-soft: var(--surface-overlay-soft);
+  --color-surface-overlay-inverse: var(--surface-overlay-inverse);
+  --color-scrim: var(--scrim);
+  --color-surface-warning-soft: var(--surface-warning-soft);
+  --color-surface-success-soft: var(--surface-success-soft);
+  --color-surface-danger-soft: var(--surface-danger-soft);
+  --color-surface-info-soft: var(--surface-info-soft);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -75,7 +91,7 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
+  --border: var(--color-neutral-200);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.809 0.105 251.813);
@@ -84,10 +100,10 @@
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar: var(--color-neutral-200);
+  --sidebar-foreground: var(--color-neutral-500);
   --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-primary-foreground: var(--color-neutral-900);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
@@ -103,6 +119,20 @@
   --on-inverse-popover: oklch(0.22 0 0);
   --on-inverse-popover-fg: oklch(0.97 0 0);
   --on-inverse-popover-border: oklch(1 0 0 / 0.14);
+  --canvas: oklch(0.985 0 0);
+  --surface: oklch(1 0 0);
+  --surface-field: oklch(1 0 0);
+  --surface-muted: oklch(0.97 0 0);
+  --surface-subtle: oklch(0.985 0 0 / 0.88);
+  --surface-inverse: oklch(0.205 0 0);
+  --surface-overlay: oklch(1 0 0 / 0.9);
+  --surface-overlay-soft: oklch(1 0 0 / 0.45);
+  --surface-overlay-inverse: oklch(0.145 0 0 / 0.9);
+  --scrim: rgb(0 0 0 / 0.7);
+  --surface-warning-soft: rgb(255 251 235 / 0.8);
+  --surface-success-soft: rgb(236 253 245 / 0.8);
+  --surface-danger-soft: rgb(254 242 242 / 0.8);
+  --surface-info-soft: rgb(239 246 255 / 0.8);
 }
 
 .dark {
@@ -137,15 +167,31 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --canvas: oklch(0.145 0 0);
+  --surface: oklch(0.205 0 0);
+  --surface-field: oklch(0.269 0 0);
+  --surface-muted: oklch(0.269 0 0);
+  --surface-subtle: oklch(0.145 0 0 / 0.7);
+  --surface-inverse: oklch(0.985 0 0);
+  --surface-overlay: oklch(0.145 0 0 / 0.9);
+  --surface-overlay-soft: oklch(1 0 0 / 0.05);
+  --surface-overlay-inverse: oklch(0.145 0 0 / 0.92);
+  --scrim: rgb(0 0 0 / 0.7);
+  --surface-warning-soft: rgb(69 26 3 / 0.3);
+  --surface-success-soft: rgb(5 46 22 / 0.3);
+  --surface-danger-soft: rgb(69 10 10 / 0.3);
+  --surface-info-soft: rgb(23 37 84 / 0.3);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
+
   html {
     @apply font-sans;
   }

@@ -240,6 +240,7 @@ export function ProjectsPanel(props: {
     Record<string, string | null>
   >({});
   const detailByItemIdRef = useRef<Record<string, ProjectItemDetailData>>({});
+  const latestItemsRequestKeyRef = useRef<string | null>(null);
   const [itemDetailLoadingId, setItemDetailLoadingId] = useState<string | null>(null);
   const [itemDetailError, setItemDetailError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -310,16 +311,21 @@ export function ProjectsPanel(props: {
     setProjects(data.projects ?? []);
   }
 
-  async function refreshSelectedItems(id: string) {
+  const refreshSelectedItems = useCallback(async (id: string) => {
+    const requestKey = `${props.registryOwner}:${id}:${Date.now()}`;
+    latestItemsRequestKeyRef.current = requestKey;
     setItemsLoading(true);
     try {
       const res = await fetch(`/api/projects/${id}/items`, { cache: "no-store" });
       const data = (await res.json()) as { items: ProjectItemRow[] };
+      if (latestItemsRequestKeyRef.current !== requestKey) return;
       setProjectItems(data.items ?? []);
     } finally {
-      setItemsLoading(false);
+      if (latestItemsRequestKeyRef.current === requestKey) {
+        setItemsLoading(false);
+      }
     }
-  }
+  }, [props.registryOwner]);
 
   useEffect(() => {
     detailByItemIdRef.current = detailByItemId;
@@ -375,12 +381,19 @@ export function ProjectsPanel(props: {
   useEffect(() => {
     if (!isProjectDetail || !selectedId) return;
     if (props.initialProjectItems != null && props.initialProjectId === selectedId) {
+      latestItemsRequestKeyRef.current = null;
       setProjectItems(props.initialProjectItems);
       setItemsLoading(false);
       return;
     }
     refreshSelectedItems(selectedId).catch(() => {});
-  }, [selectedId, isProjectDetail, props.initialProjectId, props.initialProjectItems]);
+  }, [
+    selectedId,
+    isProjectDetail,
+    props.initialProjectId,
+    props.initialProjectItems,
+    refreshSelectedItems,
+  ]);
 
   useEffect(() => {
     if (!selectedProjectItem || !selectedProjectDetail) return;
@@ -476,9 +489,15 @@ export function ProjectsPanel(props: {
 
   useEffect(() => {
     if (props.initialProjectId) {
+      latestItemsRequestKeyRef.current = null;
       setSelectedId(props.initialProjectId);
+      setProjectItems(props.initialProjectItems ?? []);
+      setItemsLoading(props.initialProjectItems == null);
+      setSelectedItemId(null);
+      setSelectedPath(null);
+      setItemDetailError(null);
     }
-  }, [props.initialProjectId]);
+  }, [props.initialProjectId, props.initialProjectItems]);
 
   useEffect(() => {
     if (!moveOpen) return;
@@ -696,7 +715,7 @@ export function ProjectsPanel(props: {
   }
 
   return (
-    <section className={props.className ?? ""}>
+    <section className={props.className ?? "h-full"}>
       <PublishProjectsToShell projects={projects} />
       <Dialog
         open={shareOpen}
@@ -944,17 +963,17 @@ export function ProjectsPanel(props: {
       ) : null}
 
       {isProjectDetail ? (
-        <div className="min-h-[calc(100vh-4.5rem)]">
+        <div className="h-full min-h-0">
           {!selectedId ? (
-            <div className="flex min-h-[calc(100vh-4.5rem)] items-center justify-center text-sm text-zinc-500">
+            <div className="flex h-full min-h-0 items-center justify-center text-sm text-zinc-500">
               Loading project…
             </div>
           ) : itemsLoading ? (
-            <div className="flex min-h-[calc(100vh-4.5rem)] items-center justify-center text-sm text-zinc-500">
+            <div className="flex h-full min-h-0 items-center justify-center text-sm text-zinc-500">
               Loading resources…
             </div>
           ) : projectItems.length === 0 ? (
-            <div className="flex min-h-[calc(100vh-4.5rem)] items-center justify-center px-6 text-center">
+            <div className="flex h-full min-h-0 items-center justify-center px-6 text-center">
               <div>
                 <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
                 No resources in this project yet
@@ -965,9 +984,9 @@ export function ProjectsPanel(props: {
               </div>
             </div>
           ) : (
-            <div className="grid min-h-[calc(100vh-4.5rem)] lg:grid-cols-[320px_minmax(0,1fr)]">
-              <section className="min-h-0 border-b border-zinc-200/80 lg:border-r lg:border-b-0 dark:border-zinc-800">
-                <div className="space-y-1 overflow-auto p-2 lg:h-[calc(100vh-7.5rem)]">
+            <div className="grid h-full min-h-0 lg:grid-cols-[320px_minmax(0,1fr)]">
+              <section className="flex min-h-0 flex-col border-b border-zinc-200/80 lg:border-r lg:border-b-0 dark:border-zinc-800">
+                <div className="min-h-0 flex-1 space-y-1 overflow-auto p-2">
                   {projectItems.map((it) => {
                     const active = it.itemId === selectedItemId;
                     const typeIcon = getProjectItemTypeIcon(it.type);
@@ -1004,7 +1023,7 @@ export function ProjectsPanel(props: {
                 </div>
               </section>
 
-              <section className="min-h-0 overflow-hidden">
+              <section className="flex min-h-0 flex-col overflow-hidden">
                 {(() => {
                   const selectedItem = projectItems.find((it) => it.itemId === selectedItemId) ?? null;
                   const selectedDetail = selectedItemId ? detailByItemId[selectedItemId] : null;
@@ -1304,13 +1323,13 @@ export function ProjectsPanel(props: {
                         </div>
                       ) : null}
                       {!selectedItem ? (
-                        <div className="flex h-[calc(100vh-7.5rem)] items-center justify-center text-sm text-zinc-500">
+                        <div className="flex flex-1 min-h-0 items-center justify-center text-sm text-zinc-500">
                           Select a resource to preview.
                         </div>
                       ) : (
                         <>
                         <div
-                          className={`relative isolate h-[calc(100vh-10.5rem)] ${detailTab !== "preview" ? "hidden" : ""}`}
+                          className={`relative isolate min-h-0 flex-1 ${detailTab !== "preview" ? "hidden" : ""}`}
                           aria-hidden={detailTab !== "preview"}
                         >
                           {previewSlotsToRender.map((slot) => {
@@ -1328,12 +1347,20 @@ export function ProjectsPanel(props: {
                                     defaultStoryId: slotDetail.previewDefaultStoryId,
                                   })
                                 : null;
-                            const src = buildStoryPreviewPageUrl({
-                              owner: props.registryOwner,
-                              name: slot.name,
-                              project: slot.projectKey,
-                              storyId: slotStoryId,
-                            });
+                            const src =
+                              slotDetail && slotDetail.previewStories.length > 1
+                                ? buildMultiStoryPreviewPageUrl({
+                                    owner: props.registryOwner,
+                                    name: slot.name,
+                                    project: slot.projectKey,
+                                    storyId: slotStoryId,
+                                  })
+                                : buildStoryPreviewPageUrl({
+                                    owner: props.registryOwner,
+                                    name: slot.name,
+                                    project: slot.projectKey,
+                                    storyId: slotStoryId,
+                                  });
                             return (
                               <div
                                 key={`${slot.itemId}:${slot.projectKey ?? ""}`}
@@ -1361,7 +1388,7 @@ export function ProjectsPanel(props: {
                           })}
                         </div>
                         <div
-                          className={`grid h-[calc(100vh-10.5rem)] min-h-0 grid-cols-[220px_minmax(0,1fr)] ${detailTab !== "code" ? "hidden" : ""}`}
+                          className={`grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] ${detailTab !== "code" ? "hidden" : ""}`}
                           aria-hidden={detailTab !== "code"}
                         >
                           <div className="min-h-0 overflow-auto border-r border-zinc-200/80 p-2 dark:border-zinc-800">

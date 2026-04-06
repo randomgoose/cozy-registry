@@ -67,7 +67,6 @@ function Sidebar({
     <aside
       data-state={open ? "open" : "closed"}
       className={cn(
-        "border-r border-zinc-200 bg-white text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100",
         "transition-[width] duration-200",
         // Keep a clickable rail in collapsed state so it can always be reopened
         open ? "w-64" : "w-16",
@@ -160,8 +159,8 @@ function SidebarMenuButton({
       className={cn(
         "rounded-md text-sm",
         isActive
-          ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
-          : "text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/60",
+          ? "bg-sidebar text-sidebar-primary-foreground hover:bg-sidebar"
+          : "text-sidebar-foreground",
         className,
       )}
     >

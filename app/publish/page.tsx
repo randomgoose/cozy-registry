@@ -282,8 +282,8 @@ export default function PublishPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
-      <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="min-h-screen bg-canvas">
+      <header className="border-b border-zinc-200 bg-surface dark:border-zinc-800">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <Link
             href="/"
@@ -296,7 +296,7 @@ export default function PublishPage() {
 
       <main className="mx-auto max-w-5xl px-6 py-10">
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <section className="rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <section className="rounded-[28px] border border-zinc-200 bg-surface p-6 shadow-sm dark:border-zinc-800">
             <div className="border-b border-zinc-200 pb-6 dark:border-zinc-800">
               <p className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-700 dark:text-amber-300">
                 Publish to Cozy registry
@@ -326,7 +326,7 @@ export default function PublishPage() {
                     placeholder="hero-section"
                     required
                     pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                    className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:ring-amber-500/10"
+                    className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-surface-field px-4 py-3 text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:text-zinc-100 dark:focus:ring-amber-500/10"
                   />
                   <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
                     将自动规范为小写与连字符。预览 slug：{" "}
@@ -352,7 +352,7 @@ export default function PublishPage() {
                     id="type"
                     value={type}
                     onChange={(e) => setType(e.target.value as CanonicalRegistryItemType)}
-                    className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:ring-amber-500/10"
+                    className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-surface-field px-4 py-3 text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:text-zinc-100 dark:focus:ring-amber-500/10"
                   >
                     <option value={REGISTRY_BLOCK_TYPE}>Block (模块)</option>
                     <option value={REGISTRY_UI_TYPE}>UI (组件)</option>
@@ -376,7 +376,7 @@ export default function PublishPage() {
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="Hero Section"
                     required
-                    className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:ring-amber-500/10"
+                    className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-surface-field px-4 py-3 text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:text-zinc-100 dark:focus:ring-amber-500/10"
                   />
                   {!titleIsValid && title.trim().length > 0 && (
                     <p className="mt-2 text-xs text-red-600 dark:text-red-400">
@@ -398,7 +398,7 @@ export default function PublishPage() {
                     onChange={(e) =>
                       setVisibility(e.target.value as "public" | "private")
                     }
-                    className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:ring-amber-500/10"
+                    className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-surface-field px-4 py-3 text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:text-zinc-100 dark:focus:ring-amber-500/10"
                   >
                     <option value="public">公开 - 所有人可访问</option>
                     <option value="private">私有 - 仅本人（需 Bearer Token）可访问</option>
@@ -433,7 +433,7 @@ export default function PublishPage() {
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="说明用途、适用页面和接入时机，例如：适合活动页首屏的大块 hero。"
                   rows={3}
-                  className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:ring-amber-500/10"
+                  className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-surface-field px-4 py-3 text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:text-zinc-100 dark:focus:ring-amber-500/10"
                 />
                 {descriptionTooLong && (
                   <p className="mt-2 text-xs text-red-600 dark:text-red-400">
@@ -442,7 +442,7 @@ export default function PublishPage() {
                 )}
               </div>
 
-              <div className="rounded-2xl border border-amber-200/80 bg-amber-50/50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+              <div className="rounded-2xl border border-amber-200/80 bg-surface-warning-soft p-4 dark:border-amber-900/40">
                 <label
                   htmlFor="registry-deps"
                   className="block text-sm font-medium text-zinc-800 dark:text-zinc-200"
@@ -451,7 +451,7 @@ export default function PublishPage() {
                 </label>
                 <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                   其它 registry 条目请写在这里（每行或逗号分隔），例如{" "}
-                  <code className="rounded bg-zinc-200/80 px-1 dark:bg-zinc-800">
+                  <code className="rounded bg-surface-muted px-1">
                     @you/theme
                   </code>
                   。未声明则不会出现在依赖图中；与 npm 包无关。
@@ -463,7 +463,7 @@ export default function PublishPage() {
                   onChange={(e) => setRegistryDepsText(e.target.value)}
                   placeholder={"@acme/theme\n@acme/button@1.0.0"}
                   rows={3}
-                  className="mt-2 block w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-100 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:ring-amber-500/10"
+                  className="mt-2 block w-full rounded-xl border border-zinc-300 bg-surface-field px-3 py-2 font-mono text-xs text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-100 dark:border-zinc-600 dark:text-zinc-100 dark:focus:ring-amber-500/10"
                 />
                 <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
                   <input
@@ -494,7 +494,7 @@ export default function PublishPage() {
                     <button
                       type="button"
                       onClick={applyTemplate}
-                      className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-surface-muted dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                     >
                       插入模板
                     </button>
@@ -507,7 +507,7 @@ export default function PublishPage() {
                   placeholder={contentPlaceholder}
                   required={!hasTokensJson}
                   rows={18}
-                  className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-zinc-50 px-4 py-3 font-mono text-sm text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:ring-amber-500/10"
+                  className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-canvas px-4 py-3 font-mono text-sm text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:text-zinc-100 dark:focus:ring-amber-500/10"
                 />
                 <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
                   {isTheme
@@ -542,7 +542,7 @@ export default function PublishPage() {
 }
 // 或粘贴 Figma Variables 导出的 JSON`}
                     rows={10}
-                    className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-zinc-50 px-4 py-3 font-mono text-xs text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:ring-amber-500/10"
+                    className="mt-2 block w-full rounded-2xl border border-zinc-300 bg-canvas px-4 py-3 font-mono text-xs text-zinc-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-100 dark:border-zinc-600 dark:text-zinc-100 dark:focus:ring-amber-500/10"
                   />
                   <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
                     若填写此项，将自动生成 <code>theme.css</code> 和 <code>tokens.json</code> 一并发布；无需手写 CSS。
@@ -551,13 +551,13 @@ export default function PublishPage() {
               )}
 
               {error && (
-                <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300">
+                <div className="rounded-2xl border border-red-200 bg-surface-danger-soft p-4 text-sm text-red-700 dark:border-red-900/60 dark:text-red-300">
                   {error}
                 </div>
               )}
 
               {status === "success" && stubReview && (
-                <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+                <div className="space-y-3 rounded-2xl border border-amber-200 bg-surface-warning-soft p-4 text-sm text-amber-950 dark:border-amber-900/50 dark:text-amber-100">
                   <p className="font-medium">发布成功</p>
                   <p className="text-amber-900/90 dark:text-amber-200/90">
                     源码中检测到 Cozy stub 路径，以下 ref{" "}
@@ -582,7 +582,7 @@ export default function PublishPage() {
               )}
 
               {status === "success" && !stubReview && (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300">
+                <div className="rounded-2xl border border-emerald-200 bg-surface-success-soft p-4 text-sm text-emerald-700 dark:border-emerald-900/60 dark:text-emerald-300">
                   发布成功，正在跳转到详情页。你也可以先{" "}
                   <Link href="/" className="font-medium underline">
                     返回列表
@@ -602,7 +602,7 @@ export default function PublishPage() {
           </section>
 
           <aside className="space-y-4">
-            <div className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="rounded-[28px] border border-zinc-200 bg-surface p-5 shadow-sm dark:border-zinc-800">
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
                 发布前检查
               </h2>
@@ -616,7 +616,7 @@ export default function PublishPage() {
               </ul>
             </div>
 
-            <div className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="rounded-[28px] border border-zinc-200 bg-surface p-5 shadow-sm dark:border-zinc-800">
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
                 当前状态
               </h2>
@@ -662,7 +662,7 @@ export default function PublishPage() {
               </dl>
             </div>
 
-            <div className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="rounded-[28px] border border-zinc-200 bg-surface p-5 shadow-sm dark:border-zinc-800">
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
                 还没登录？
               </h2>

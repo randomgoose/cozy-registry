@@ -30,7 +30,7 @@ export function HomeUserMenu({ fullName, username }: HomeUserMenuProps) {
         render={
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 data-[popup-open]:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:data-[popup-open]:bg-zinc-200"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-surface-inverse px-2.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 data-[popup-open]:bg-zinc-800 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:data-[popup-open]:bg-zinc-200"
           />
         }
       >
@@ -41,7 +41,7 @@ export function HomeUserMenu({ fullName, username }: HomeUserMenuProps) {
       <DropdownMenuContent
         align="end"
         sideOffset={8}
-        className="w-56 overflow-hidden rounded-2xl border border-white/60 bg-white/85 p-2 shadow-[0_20px_40px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/88 dark:shadow-[0_24px_44px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]"
+        className="w-56 overflow-hidden rounded-2xl border border-white/60 bg-surface-overlay p-2 shadow-[0_20px_40px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl dark:border-white/10 dark:shadow-[0_24px_44px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]"
       >
         <div className="px-2 py-1.5">
           <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">

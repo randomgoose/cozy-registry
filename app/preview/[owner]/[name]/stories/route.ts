@@ -147,6 +147,11 @@ export async function GET(
     project,
     version: effectiveVersion,
     stories,
+    files: (item.files ?? []) as Array<{
+      path: string;
+      content: string;
+      type?: string;
+    }>,
   });
 
   return new NextResponse(html, {

@@ -710,6 +710,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       project: normalizedProjectKey,
       version: payload.version,
       stories: getPreviewStoriesFromMeta(itemMeta),
+      files: shadcnItem.files ?? [],
     });
     const storiesHtmlPath = buildRegistryPreviewArtifactPath({
       owner: payload.owner,

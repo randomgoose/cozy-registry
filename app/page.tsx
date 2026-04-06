@@ -65,8 +65,8 @@ export default async function Home({ searchParams }: HomePageProps) {
   if (dbError) {
     const hasEnv = !!(process.env.DATABASE_URL || process.env.POSTGRES_URL);
     return (
-      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
-        <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="min-h-screen bg-canvas">
+        <header className="border-b border-zinc-200 bg-surface dark:border-zinc-800">
           <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
             <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
               Cozy Registry
@@ -74,7 +74,7 @@ export default async function Home({ searchParams }: HomePageProps) {
           </div>
         </header>
         <main className="mx-auto max-w-2xl px-6 py-16">
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-800 dark:bg-amber-900/20">
+          <div className="rounded-xl border border-amber-200 bg-surface-warning-soft p-6 dark:border-amber-800">
             <h2 className="font-semibold text-amber-800 dark:text-amber-200">
               {hasEnv ? "Database connection failed" : "Database not configured"}
             </h2>
@@ -91,11 +91,11 @@ export default async function Home({ searchParams }: HomePageProps) {
                     /api/health
                   </a>{" "}
                   for details, and confirm you have run{" "}
-                  <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
+                  <code className="rounded bg-surface-warning-soft px-1">
                     pnpm db:push
                   </code>{" "}
                   and{" "}
-                  <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
+                  <code className="rounded bg-surface-warning-soft px-1">
                     pnpm db:seed
                   </code>
                   .
@@ -103,15 +103,15 @@ export default async function Home({ searchParams }: HomePageProps) {
               ) : (
                 <>
                   Set{" "}
-                  <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
+                  <code className="rounded bg-surface-warning-soft px-1">
                     DATABASE_URL
                   </code>{" "}
                   in your Vercel project env, redeploy, then run{" "}
-                  <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
+                  <code className="rounded bg-surface-warning-soft px-1">
                     pnpm db:push
                   </code>{" "}
                   and{" "}
-                  <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">
+                  <code className="rounded bg-surface-warning-soft px-1">
                     pnpm db:seed
                   </code>
                   .
@@ -167,7 +167,7 @@ export default async function Home({ searchParams }: HomePageProps) {
             ) : (
               <Link
                 href="/sign-in"
-                className="rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                className="rounded-lg bg-surface-inverse px-2.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 Login
               </Link>
@@ -190,13 +190,13 @@ export default async function Home({ searchParams }: HomePageProps) {
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
               href={session ? "/me" : "/sign-up"}
-              className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
+              className="rounded-full bg-surface-inverse px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
               {session ? "View my registry" : "Sign up"}
             </Link>
             <Link
               href="/docs"
-              className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800/70"
+              className="rounded-full border border-zinc-300 bg-surface px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-canvas dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800/70"
             >
               Read docs
             </Link>

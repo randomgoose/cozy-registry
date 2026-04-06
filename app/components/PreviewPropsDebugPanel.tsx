@@ -192,7 +192,7 @@ export function PreviewPropsDebugPanel(props: {
 
   if (!values) {
     return (
-      <div className="pointer-events-auto absolute right-3 top-3 z-20 w-[min(100%-1.5rem,220px)] rounded-xl border border-white/20 bg-zinc-950/90 p-3 text-xs text-on-inverse-muted-fg shadow-lg backdrop-blur-md dark:bg-zinc-950/92">
+      <div className="pointer-events-auto absolute right-3 top-3 z-20 w-[min(100%-1.5rem,220px)] rounded-xl border border-white/20 bg-surface-overlay-inverse p-3 text-xs text-on-inverse-muted-fg shadow-lg backdrop-blur-md">
         <p className="font-medium text-on-inverse-fg">Props debug</p>
         <p className="mt-2 leading-relaxed">Adjust props after the preview loads.</p>
       </div>
@@ -201,7 +201,7 @@ export function PreviewPropsDebugPanel(props: {
 
   return (
     <div
-      className="pointer-events-auto absolute right-3 top-3 z-20 max-h-[min(70dvh,420px)] w-[min(100%-1.5rem,240px)] overflow-y-auto overscroll-contain rounded-xl border border-white/20 bg-zinc-950/90 p-3 shadow-lg backdrop-blur-md dark:border-zinc-700/80 dark:bg-zinc-950/92"
+      className="pointer-events-auto absolute right-3 top-3 z-20 max-h-[min(70dvh,420px)] w-[min(100%-1.5rem,240px)] overflow-y-auto overscroll-contain rounded-xl border border-white/20 bg-surface-overlay-inverse p-3 shadow-lg backdrop-blur-md dark:border-zinc-700/80"
       onClick={(e) => e.stopPropagation()}
     >
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-on-inverse-muted-fg">
