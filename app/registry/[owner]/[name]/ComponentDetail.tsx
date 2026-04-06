@@ -51,6 +51,8 @@ type PreviewArtifactStatusPayload = {
   artifactStatus: PreviewArtifactStatus;
   artifactCapability?: PreviewArtifactCapability | null;
   compatibleExternalDependencies?: string[];
+  resolvedThemeResourceRef?: string | null;
+  resolvedThemeSource?: "resource-override" | "project-default" | "none" | null;
   lastError?: {
     code?: string | null;
     message?: string | null;
@@ -326,6 +328,13 @@ export function ComponentDetail({
       : artifactStatus?.artifactStatus === "failed"
         ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
         : null;
+  const resolvedThemeLabel = artifactStatus?.resolvedThemeResourceRef
+    ? artifactStatus.resolvedThemeSource === "resource-override"
+      ? `Theme override: ${artifactStatus.resolvedThemeResourceRef}`
+      : `Project theme: ${artifactStatus.resolvedThemeResourceRef}`
+    : artifactStatus?.resolvedThemeSource === "none"
+      ? "No resolved theme"
+      : null;
 
   function handleVersionChange(e: ChangeEvent<HTMLSelectElement>) {
     const v = e.target.value;
@@ -729,6 +738,11 @@ export function ComponentDetail({
                   className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${artifactStatusTone}`}
                 >
                   {artifactStatusLabel}
+                </span>
+              ) : null}
+              {resolvedThemeLabel ? (
+                <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                  {resolvedThemeLabel}
                 </span>
               ) : null}
             </div>

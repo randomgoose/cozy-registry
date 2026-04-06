@@ -11,97 +11,8 @@ import {
   getPreviewStoriesFromMeta,
 } from "@/lib/preview-stories";
 import { buildStoryPreviewPageUrl } from "@/lib/story-preview-urls";
-import { PREVIEW_MSG_SET_THEME_PATCH } from "@/lib/preview-messages";
 
 const CACHE_NONE = "no-store";
-
-function injectThemePatchBridge(html: string) {
-  const script = `<script>
-(function () {
-  var COZY_PREVIEW_SET_THEME_PATCH = ${JSON.stringify(PREVIEW_MSG_SET_THEME_PATCH)};
-  var currentThemePatch = {};
-
-  function normalizeThemePatch(input) {
-    if (!input || typeof input !== "object" || Array.isArray(input)) return {};
-    var next = {};
-    Object.entries(input).forEach(function (entry) {
-      var rawKey = entry[0];
-      var rawValue = entry[1];
-      if (typeof rawValue !== "string") return;
-      var key = String(rawKey || "").trim();
-      var value = rawValue.trim();
-      if (!key || !value) return;
-      next[key.indexOf("--") === 0 ? key : "--" + key] = value;
-    });
-    return next;
-  }
-
-  function applyThemePatchToDocument(patch) {
-    var root = document.documentElement;
-    var currentKeys = Object.keys(currentThemePatch);
-    var nextKeys = Object.keys(patch);
-    currentKeys.forEach(function (key) {
-      if (nextKeys.indexOf(key) === -1) {
-        root.style.removeProperty(key);
-      }
-    });
-    nextKeys.forEach(function (key) {
-      root.style.setProperty(key, patch[key]);
-    });
-    currentThemePatch = patch;
-    try {
-      console.info("[preview-theme-patch:stories-apply]", {
-        href: window.location.href,
-        patch: patch,
-      });
-    } catch {}
-  }
-
-  function postThemePatchToFrame(iframe) {
-    if (!iframe || !iframe.contentWindow) return;
-    try {
-      console.info("[preview-theme-patch:stories-forward]", {
-        href: window.location.href,
-        target: iframe.getAttribute("data-base-src"),
-        patch: currentThemePatch,
-      });
-      iframe.contentWindow.postMessage(
-        { type: COZY_PREVIEW_SET_THEME_PATCH, patch: currentThemePatch },
-        window.location.origin,
-      );
-    } catch {}
-  }
-
-  window.addEventListener("message", function (event) {
-    if (event.source !== window.parent) return;
-    if (event.origin !== window.location.origin && event.origin !== "null") return;
-    var data = event.data;
-    if (!data || typeof data !== "object") return;
-    if (data.type !== COZY_PREVIEW_SET_THEME_PATCH) return;
-    try {
-      console.info("[preview-theme-patch:stories-receive]", {
-        href: window.location.href,
-        patch: data.patch,
-      });
-    } catch {}
-    applyThemePatchToDocument(normalizeThemePatch(data.patch));
-    document.querySelectorAll("[data-preview-iframe]").forEach(function (iframe) {
-      postThemePatchToFrame(iframe);
-    });
-  });
-
-  document.querySelectorAll("[data-preview-iframe]").forEach(function (iframe) {
-    iframe.addEventListener("load", function () {
-      postThemePatchToFrame(iframe);
-    });
-  });
-})();
-</script>`;
-
-  return html.includes("</body>")
-    ? html.replace("</body>", `${script}</body>`)
-    : `${html}${script}`;
-}
 
 function resolveSelectedPreviewStoryId(input: {
   requestedStoryId: string | null;
@@ -213,7 +124,7 @@ export async function GET(
               next: { revalidate: 600 },
             });
             if (htmlRes.ok) {
-              return new NextResponse(injectThemePatchBridge(await htmlRes.text()), {
+              return new NextResponse(await htmlRes.text(), {
                 headers: {
                   "Content-Type": "text/html; charset=utf-8",
                   "Cache-Control": CACHE_NONE,

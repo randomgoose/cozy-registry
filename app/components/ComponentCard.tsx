@@ -106,6 +106,8 @@ type PreviewArtifactStatusPayload = {
   artifactStatus: PreviewArtifactStatus;
   artifactCapability?: PreviewArtifactCapability | null;
   compatibleExternalDependencies?: string[];
+  resolvedThemeResourceRef?: string | null;
+  resolvedThemeSource?: "resource-override" | "project-default" | "none" | null;
   lastError?: {
     code?: string | null;
     message?: string | null;
@@ -870,6 +872,13 @@ export function ComponentCard({
       : artifactStatus?.artifactStatus === "failed"
         ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
         : null;
+  const resolvedThemeLabel = artifactStatus?.resolvedThemeResourceRef
+    ? artifactStatus.resolvedThemeSource === "resource-override"
+      ? `Theme override: ${artifactStatus.resolvedThemeResourceRef}`
+      : `Project theme: ${artifactStatus.resolvedThemeResourceRef}`
+    : artifactStatus?.resolvedThemeSource === "none"
+      ? "No resolved theme"
+      : null;
 
   const handlePreviewPropChange = useCallback((propName: string, value: unknown) => {
     setLivePreviewProps((prev) => (prev ? { ...prev, [propName]: value } : null));
@@ -1455,6 +1464,11 @@ export function ComponentCard({
                           >
                             {artifactStatusLabel}
                           </span>
+                          {resolvedThemeLabel ? (
+                            <p className="max-w-xl rounded-2xl bg-white/88 px-3 py-2 text-xs text-zinc-600 shadow-sm ring-1 ring-black/5 backdrop-blur dark:bg-zinc-950/80 dark:text-zinc-300 dark:ring-white/10">
+                              {resolvedThemeLabel}
+                            </p>
+                          ) : null}
                           {artifactStatusMessage ? (
                             <p className="max-w-xl rounded-2xl bg-white/88 px-3 py-2 text-xs text-zinc-600 shadow-sm ring-1 ring-black/5 backdrop-blur dark:bg-zinc-950/80 dark:text-zinc-300 dark:ring-white/10">
                               {artifactStatusMessage}

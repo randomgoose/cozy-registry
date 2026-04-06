@@ -75,6 +75,8 @@ type PreviewArtifactStatusPayload = {
   artifactStatus: PreviewArtifactStatus;
   artifactCapability?: PreviewArtifactCapability | null;
   compatibleExternalDependencies?: string[];
+  resolvedThemeResourceRef?: string | null;
+  resolvedThemeSource?: "resource-override" | "project-default" | "none" | null;
   lastError?: {
     code?: string | null;
     message?: string | null;
@@ -216,6 +218,7 @@ export function ProjectsPanel(props: {
   const [createOpen, setCreateOpen] = useState(false);
   const [createStep, setCreateStep] = useState<1 | 2>(1);
   const [newTitle, setNewTitle] = useState("");
+  const [newDefaultThemeResourceRef, setNewDefaultThemeResourceRef] = useState("");
   const [createdProject, setCreatedProject] = useState<CreatedProject | null>(null);
   const [inviteInput, setInviteInput] = useState("");
   const [inviteRole, setInviteRole] = useState<"viewer" | "editor" | "admin">("viewer");
@@ -591,6 +594,10 @@ export function ProjectsPanel(props: {
         body: JSON.stringify({
           title: newTitle.trim(),
           visibility: "private",
+          defaultThemeResourceRef:
+            newDefaultThemeResourceRef.trim().length > 0
+              ? newDefaultThemeResourceRef.trim()
+              : null,
         }),
       });
       if (!res.ok) {
@@ -674,6 +681,7 @@ export function ProjectsPanel(props: {
   function resetCreateWizard() {
     setCreateStep(1);
     setNewTitle("");
+    setNewDefaultThemeResourceRef("");
     setCreatedProject(null);
     setInviteInput("");
     setInviteError(null);
@@ -937,6 +945,21 @@ export function ProjectsPanel(props: {
                       className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                       autoFocus
                     />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                      Default theme resource
+                    </label>
+                    <input
+                      value={newDefaultThemeResourceRef}
+                      onChange={(e) => setNewDefaultThemeResourceRef(e.target.value)}
+                      placeholder="@indeed-cozy/ds/theme"
+                      className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    />
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Optional. Applied automatically to preview and docs when resources in this project do not declare their own theme override.
+                    </p>
                   </div>
 
                   <DialogFooter className="flex flex-row flex-wrap justify-end gap-2 pt-2">
@@ -1269,6 +1292,13 @@ export function ProjectsPanel(props: {
                       : artifactStatus?.artifactStatus === "failed"
                         ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
                         : null;
+                  const resolvedThemeLabel = artifactStatus?.resolvedThemeResourceRef
+                    ? artifactStatus.resolvedThemeSource === "resource-override"
+                      ? `Theme override: ${artifactStatus.resolvedThemeResourceRef}`
+                      : `Project theme: ${artifactStatus.resolvedThemeResourceRef}`
+                    : artifactStatus?.resolvedThemeSource === "none"
+                      ? "No resolved theme"
+                      : null;
                   const storiesPreviewHref =
                     selectedItem && selectedDetail?.previewStories.length
                       ? buildMultiStoryPreviewPageUrl({
@@ -1300,6 +1330,11 @@ export function ProjectsPanel(props: {
                                 >
                                   {artifactStatusLabel}
                                 </span>
+                                {resolvedThemeLabel ? (
+                                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                    {resolvedThemeLabel}
+                                  </span>
+                                ) : null}
                                 {artifactStatusMessage ? (
                                   <span className="text-xs text-zinc-500 dark:text-zinc-400">
                                     {artifactStatusMessage}

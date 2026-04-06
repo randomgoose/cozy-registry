@@ -141,13 +141,6 @@ const PreviewFrameInner = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
         draftThemePatch && Object.keys(draftThemePatch).length > 0
           ? draftThemePatch
           : {};
-      try {
-        console.info("[preview-theme-patch:parent-send]", {
-          title,
-          src,
-          patch,
-        });
-      } catch {}
       w.postMessage(
         { type: PREVIEW_MSG_SET_THEME_PATCH, patch },
         window.location.origin,

@@ -63,7 +63,6 @@ import {
   readDependencyDecisionsFromMeta,
   readDeclaredThirdPartyDependenciesFromMeta,
 } from "@/lib/third-party-dependency-governance";
-import { PREVIEW_MSG_SET_THEME_PATCH } from "@/lib/preview-messages";
 
 function escapeHtml(s: string): string {
   return s
@@ -241,66 +240,6 @@ function buildPreviewStatePageHtml(input: {
     </main>
   </body>
 </html>`;
-}
-
-function buildThemePatchBridgeScript() {
-  return `<script>
-(function () {
-  var COZY_PREVIEW_SET_THEME_PATCH = ${JSON.stringify(PREVIEW_MSG_SET_THEME_PATCH)};
-  var currentThemePatch = {};
-
-  function normalizeThemePatch(input) {
-    if (!input || typeof input !== "object" || Array.isArray(input)) return {};
-    var next = {};
-    Object.entries(input).forEach(function (entry) {
-      var rawKey = entry[0];
-      var rawValue = entry[1];
-      if (typeof rawValue !== "string") return;
-      var key = String(rawKey || "").trim();
-      var value = rawValue.trim();
-      if (!key || !value) return;
-      next[key.indexOf("--") === 0 ? key : "--" + key] = value;
-    });
-    return next;
-  }
-
-  function applyThemePatch(patch) {
-    var root = document.documentElement;
-    var currentKeys = Object.keys(currentThemePatch);
-    var nextKeys = Object.keys(patch);
-    currentKeys.forEach(function (key) {
-      if (nextKeys.indexOf(key) === -1) {
-        root.style.removeProperty(key);
-      }
-    });
-    nextKeys.forEach(function (key) {
-      root.style.setProperty(key, patch[key]);
-    });
-    currentThemePatch = patch;
-    try {
-      console.info("[preview-theme-patch:single-story-apply]", {
-        href: window.location.href,
-        patch: patch,
-      });
-    } catch {}
-  }
-
-  window.addEventListener("message", function (event) {
-    if (event.source !== window.parent) return;
-    if (event.origin !== window.location.origin && event.origin !== "null") return;
-    var data = event.data;
-    if (!data || typeof data !== "object") return;
-    if (data.type !== COZY_PREVIEW_SET_THEME_PATCH) return;
-    try {
-      console.info("[preview-theme-patch:single-story-receive]", {
-        href: window.location.href,
-        patch: data.patch,
-      });
-    } catch {}
-    applyThemePatch(normalizeThemePatch(data.patch));
-  });
-})();
-</script>`;
 }
 
 const DEMO_PROPS: Record<string, unknown> = {
@@ -1352,7 +1291,6 @@ ${versionToolbarHtml}
       : buildCss != null && buildCss !== ""
         ? `\n    <style>${escapeHtmlCss(buildCss)}</style>`
         : "";
-  const themePatchBridgeScript = `\n${buildThemePatchBridgeScript()}`;
 
   console.info(
     "[preview] request",
@@ -1391,7 +1329,7 @@ ${importMapJson}
   <body class="${previewMode === "thumbnail" ? "min-h-screen overflow-hidden bg-transparent" : "min-h-screen bg-white"}" style="${previewMode === "thumbnail" ? "background:transparent;" : ""}${toolbarBodyPadding}">
 ${versionToolbarHtml}
     <div id="root"></div>
-${themePatchBridgeScript}${themeDebugScript}${depsDebugScript}${diagnosticsPanel}
+${themeDebugScript}${depsDebugScript}${diagnosticsPanel}
     <script type="module">
 ${buildCode}
     </script>
