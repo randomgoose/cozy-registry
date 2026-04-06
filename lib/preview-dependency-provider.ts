@@ -155,45 +155,16 @@ export async function resolvePreviewDependencies(params: {
     });
   }
 
-  const remainingExternals: PreviewCompatibleExternal[] = [];
   for (const ext of compatibleExternals) {
-    if (!ext.requestedVersion || !isExactVersion(ext.requestedVersion)) {
-      remainingExternals.push(ext);
-      continue;
-    }
-
-    const providerResolution = await ensureProviderResolution({
-      appRequire,
+    diagnostics.push({
       packageName: ext.packageName,
-      requestedVersion: ext.requestedVersion,
-      hostNodePaths,
-      allowRegistryFetch: true,
+      requestedVersion: ext.requestedVersion ?? "",
+      resolutionSource: "provider",
+      code: "COMPATIBLE_EXTERNAL_IMPORTMAP",
+      providerMode: "compatible-external",
+      message:
+        "Compatible-external dependency will stay external and load via import map/runtime fallback.",
     });
-
-    if (providerResolution) {
-      resolutions.push(providerResolution);
-      nodePathSet.add(providerResolution.moduleSearchPath);
-      diagnostics.push({
-        packageName: ext.packageName,
-        requestedVersion: ext.requestedVersion,
-        resolutionSource: "provider",
-        code: "COMPATIBLE_EXTERNAL_MATERIALIZED",
-        providerMode: "compatible-external",
-        message:
-          "Compatible-external dependency was materialized into the provider and will be bundled.",
-      });
-    } else {
-      remainingExternals.push(ext);
-      diagnostics.push({
-        packageName: ext.packageName,
-        requestedVersion: ext.requestedVersion,
-        resolutionSource: "provider",
-        code: "COMPATIBLE_EXTERNAL_FALLBACK",
-        providerMode: "compatible-external",
-        message:
-          "Compatible-external dependency could not be materialized; will use esm.sh import map fallback.",
-      });
-    }
   }
 
   return {
@@ -201,7 +172,7 @@ export async function resolvePreviewDependencies(params: {
     resolutions,
     plan: {
       managedPackages: resolutions,
-      compatibleExternals: remainingExternals,
+      compatibleExternals,
       diagnostics,
     },
     diagnostics,
@@ -233,7 +204,7 @@ async function tryResolveFromProvider(input: {
       source: "provider-cache",
       packageRoot,
       packageJsonPath,
-      moduleSearchPath: path.dirname(packageRoot),
+      moduleSearchPath: inferModuleSearchPath(packageJsonPath),
     };
   } catch {
     return null;
@@ -324,7 +295,7 @@ async function resolveFromHost(input: {
     source: "host-fallback",
     packageRoot: path.dirname(packageJsonPath),
     packageJsonPath,
-    moduleSearchPath: path.dirname(path.dirname(packageJsonPath)),
+    moduleSearchPath: inferModuleSearchPath(packageJsonPath),
   };
 }
 
@@ -677,5 +648,20 @@ async function findNearestPackageJson(fromPath: string): Promise<string | null> 
       if (parent === current) return null;
       current = parent;
     }
+  }
+}
+
+function inferModuleSearchPath(packageJsonPath: string) {
+  let current = path.dirname(packageJsonPath);
+
+  while (true) {
+    const parent = path.dirname(current);
+    if (path.basename(parent) === "node_modules") {
+      return parent;
+    }
+    if (parent === current) {
+      return path.dirname(path.dirname(packageJsonPath));
+    }
+    current = parent;
   }
 }

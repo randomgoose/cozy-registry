@@ -95,4 +95,31 @@ describe("preview-build", () => {
     expect(result.code).toContain("dialog");
     expect(result.code).not.toContain(`from "@/lib/utils"`);
   });
+
+  it("externalizes scoped preview dependencies for compatible artifacts", async () => {
+    const result = await buildPreviewBundle(
+      {
+        name: "dropdown-card",
+        version: "1.0.0",
+        files: {
+          "index.tsx": `
+            import React from "react";
+            import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+
+            export default function DropdownCard() {
+              return <DropdownMenu.Root />;
+            }
+          `,
+        },
+        dependencies: ["@radix-ui/react-dropdown-menu"],
+      },
+      {},
+      { externalizeDependencies: true, bundleReact: false },
+    );
+
+    if (!result.ok) {
+      throw new Error(result.error.message);
+    }
+    expect(result.code).toContain(`from "@radix-ui/react-dropdown-menu"`);
+  });
 });

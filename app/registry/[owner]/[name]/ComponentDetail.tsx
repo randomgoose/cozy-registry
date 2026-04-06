@@ -746,46 +746,61 @@ export function ComponentDetail({
                 </span>
               ) : null}
             </div>
-            <Link
-              href={previewHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
-            >
-              Open in new tab
-            </Link>
-          </div>
-          <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-            {previewReady ? (
-              <PreviewFrame
-                title={`${title} preview`}
-                src={previewHref}
-                className="h-[420px] w-full"
-                loadImmediately
-                fitMode="actual"
-                alignY="center"
-              />
-            ) : (
-              <div
-                className="flex h-[420px] w-full flex-col items-center justify-center gap-3 bg-[linear-gradient(180deg,rgba(250,250,249,0.96),rgba(244,244,245,0.98))] dark:bg-[linear-gradient(180deg,rgba(24,24,27,0.96),rgba(9,9,11,0.98))]"
-                aria-busy="true"
-                aria-live="polite"
+            {!isTheme ? (
+              <Link
+                href={previewHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300"
               >
-                <div
-                  className="h-9 w-9 animate-spin rounded-full border-2 border-zinc-300/80 border-t-zinc-800 dark:border-zinc-600 dark:border-t-zinc-100"
-                  aria-hidden
-                />
-                <p className="text-xs font-medium tracking-wide text-zinc-500 dark:text-zinc-400">
-                  Building preview…
-                </p>
-              </div>
-            )}
+                Open in new tab
+              </Link>
+            ) : null}
           </div>
-          {artifactStatusMessage ? (
-            <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-              {artifactStatusMessage}
-            </p>
-          ) : null}
+          {isTheme ? (
+            <ThemeTokenEditor
+              owner={owner}
+              name={name}
+              title={title}
+              code={code}
+              isOwner={isOwner}
+              canSave={canEditTheme}
+            />
+          ) : (
+            <>
+              <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                {previewReady ? (
+                  <PreviewFrame
+                    title={`${title} preview`}
+                    src={previewHref}
+                    className="h-[420px] w-full"
+                    loadImmediately
+                    fitMode="actual"
+                    alignY="center"
+                  />
+                ) : (
+                  <div
+                    className="flex h-[420px] w-full flex-col items-center justify-center gap-3 bg-[linear-gradient(180deg,rgba(250,250,249,0.96),rgba(244,244,245,0.98))] dark:bg-[linear-gradient(180deg,rgba(24,24,27,0.96),rgba(9,9,11,0.98))]"
+                    aria-busy="true"
+                    aria-live="polite"
+                  >
+                    <div
+                      className="h-9 w-9 animate-spin rounded-full border-2 border-zinc-300/80 border-t-zinc-800 dark:border-zinc-600 dark:border-t-zinc-100"
+                      aria-hidden
+                    />
+                    <p className="text-xs font-medium tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Building preview…
+                    </p>
+                  </div>
+                )}
+              </div>
+              {artifactStatusMessage ? (
+                <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                  {artifactStatusMessage}
+                </p>
+              ) : null}
+            </>
+          )}
         </section>
 
         {versions.length > 0 && (
@@ -899,17 +914,6 @@ export function ComponentDetail({
             )}
           </div>
         </section>
-
-        {isTheme && (
-          <ThemeTokenEditor
-            owner={owner}
-            name={name}
-            title={title}
-            code={code}
-            isOwner={isOwner}
-            canSave={canEditTheme}
-          />
-        )}
 
         <section>
           <div className="mb-2 flex items-center justify-between">

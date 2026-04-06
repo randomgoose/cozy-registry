@@ -510,15 +510,15 @@ function toRequireCompatibleReact(mod: unknown, fallbackReact: unknown) {
 }
 
 async function loadHostReactDomServer(appRequire: NodeJS.Require) {
-  const importCandidates = [
+  const requireCandidates = [
     "react-dom/server.node",
     "react-dom/server",
     "react-dom/server.edge",
     "react-dom/server.browser",
   ] as const;
-  for (const spec of importCandidates) {
+  for (const spec of requireCandidates) {
     try {
-      const mod = (await import(spec)) as {
+      const mod = appRequire(spec) as {
         renderToString?: (node: unknown) => string;
         renderToStaticMarkup?: (node: unknown) => string;
       };
@@ -533,15 +533,15 @@ async function loadHostReactDomServer(appRequire: NodeJS.Require) {
     }
   }
 
-  const requireCandidates = [
+  const importCandidates = [
     "react-dom/server.node",
     "react-dom/server",
     "react-dom/server.edge",
     "react-dom/server.browser",
   ] as const;
-  for (const spec of requireCandidates) {
+  for (const spec of importCandidates) {
     try {
-      const mod = appRequire(spec) as {
+      const mod = (await import(spec)) as {
         renderToString?: (node: unknown) => string;
         renderToStaticMarkup?: (node: unknown) => string;
       };

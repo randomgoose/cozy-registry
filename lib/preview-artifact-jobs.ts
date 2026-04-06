@@ -18,6 +18,7 @@ import {
   evaluateThirdPartyDependencies,
   excludeExplicitRegistryDependencies,
   getDependencyProviderMode,
+  getCompatibleArtifactDependencyDisplayNames,
   getDependencyDisplayName,
   getRejectedDependencyDecisions,
   getRuntimePreviewDependencies,
@@ -623,17 +624,17 @@ export async function processPreviewArtifactJob(jobId: string) {
       decisions: dependencyDecisions,
     });
 
-    const allExternalsMaterialized =
-      resolvedPreviewDependencies.plan.compatibleExternals.length === 0;
-    const canFullyBundle =
-      artifactCapability === "managed-artifact" || allExternalsMaterialized;
+    const canFullyBundle = artifactCapability === "managed-artifact";
 
     const buildResult = await buildPreviewBundle(
       {
         name: payload.name,
         version: payload.version,
         files,
-        dependencies: getRuntimePreviewDependencies(dependencyDecisions),
+        dependencies:
+          artifactCapability === "compatible-artifact"
+            ? getCompatibleArtifactDependencyDisplayNames(dependencyDecisions)
+            : getRuntimePreviewDependencies(dependencyDecisions),
         previewExport,
       },
       previewProps,

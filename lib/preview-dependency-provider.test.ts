@@ -182,10 +182,39 @@ describe("preview-dependency-provider", () => {
     });
     expect(result.diagnostics).toEqual([]);
     expect(result.nodePaths).toContain(
-      path.join(tmpRoot, "@base-ui__react", "1.3.0", "node_modules", "@base-ui"),
+      path.join(tmpRoot, "@base-ui__react", "1.3.0", "node_modules"),
     );
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
+    },
+    15000,
+  );
+
+  it(
+    "returns node_modules root for scoped compatible-external packages materialized from registry",
+    async () => {
+      const tmpRoot = await fs.mkdtemp(
+        path.join(os.tmpdir(), "cozy-preview-provider-radix-test-"),
+      );
+      process.env[providerRootEnv] = tmpRoot;
+
+      const decisions = evaluateThirdPartyDependencies({
+        discovered: ["@radix-ui/react-dropdown-menu"],
+        declared: [{ name: "@radix-ui/react-dropdown-menu", version: "2.1.15" }],
+      });
+
+      const result = await resolvePreviewDependencies({ decisions });
+
+      expect(result.plan.compatibleExternals).toEqual([
+        {
+          packageName: "@radix-ui/react-dropdown-menu",
+          requestedVersion: "2.1.15",
+          importMapTarget: "@radix-ui/react-dropdown-menu",
+        },
+      ]);
+      expect(result.nodePaths).toContain(path.join(process.cwd(), "node_modules"));
+
+      await fs.rm(tmpRoot, { recursive: true, force: true });
     },
     15000,
   );

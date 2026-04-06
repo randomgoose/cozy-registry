@@ -200,6 +200,51 @@ function downloadTextFile(filename: string, content: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
+function renderTokenPreview(row: ThemeTokenRow) {
+  switch (row.type) {
+    case "color":
+      return (
+        <div className="flex items-center gap-2">
+          <span
+            className="inline-flex h-6 w-6 shrink-0 rounded-md border border-zinc-200 shadow-inner dark:border-zinc-700"
+            style={{ background: row.value }}
+            aria-hidden="true"
+          />
+          <span className="truncate font-mono text-xs text-zinc-600 dark:text-zinc-300">
+            {row.value}
+          </span>
+        </div>
+      );
+    case "fontFamily":
+      return (
+        <div className="truncate rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">
+          <span style={{ fontFamily: row.value }}>Ag Cozy</span>
+        </div>
+      );
+    case "dimension":
+      return (
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-2 min-w-8 rounded-full bg-zinc-400 dark:bg-zinc-500" />
+          <span className="font-mono text-xs text-zinc-600 dark:text-zinc-300">
+            {row.value}
+          </span>
+        </div>
+      );
+    case "number":
+      return (
+        <span className="rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+          {row.value}
+        </span>
+      );
+    default:
+      return (
+        <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+          {row.value}
+        </span>
+      );
+  }
+}
+
 export function ThemeTokenEditor({
   owner,
   name,
@@ -383,10 +428,11 @@ export function ThemeTokenEditor({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[28%]">Token</TableHead>
-                <TableHead className="w-[34%]">Value</TableHead>
-                <TableHead className="w-[18%]">Type</TableHead>
-                <TableHead className="w-[20%] text-right">
+                <TableHead className="w-[24%]">Token</TableHead>
+                <TableHead className="w-[28%]">Value</TableHead>
+                <TableHead className="w-[16%]">Type</TableHead>
+                <TableHead className="w-[20%]">Preview</TableHead>
+                <TableHead className="w-[12%] text-right">
                   {isOwner ? "Actions" : "Notes"}
                 </TableHead>
               </TableRow>
@@ -446,6 +492,7 @@ export function ThemeTokenEditor({
                       </span>
                     )}
                   </TableCell>
+                  <TableCell>{renderTokenPreview(row)}</TableCell>
                   <TableCell className="text-right">
                     {isOwner ? (
                       <Button
