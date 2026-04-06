@@ -1,4 +1,5 @@
 import type { PreviewStory } from "@/lib/preview-stories";
+import { codeToHtml } from "shiki";
 import {
   buildMultiStoryPreviewPageUrl,
   buildStoryPreviewPageUrl,
@@ -40,6 +41,30 @@ type PreviewFile = {
   type?: string;
 };
 
+function detectCodeLanguage(path: string | null | undefined): string {
+  const value = path?.toLowerCase() ?? "";
+  if (value.endsWith(".tsx")) return "tsx";
+  if (value.endsWith(".ts")) return "typescript";
+  if (value.endsWith(".jsx")) return "jsx";
+  if (value.endsWith(".js")) return "javascript";
+  if (value.endsWith(".css")) return "css";
+  if (value.endsWith(".json")) return "json";
+  if (value.endsWith(".html")) return "html";
+  if (value.endsWith(".md") || value.endsWith(".mdx")) return "markdown";
+  return "text";
+}
+
+async function highlightCodeBlock(content: string, language: string) {
+  try {
+    return await codeToHtml(content, {
+      lang: language,
+      theme: "github-light",
+    });
+  } catch {
+    return `<pre class="shiki-fallback"><code>${escapeHtmlCode(content)}</code></pre>`;
+  }
+}
+
 function findStoryCodeFile(
   story: PreviewStory,
   files: PreviewFile[],
@@ -68,17 +93,7 @@ function findStoryCodeFile(
   return preferredTsx ?? codeFiles[0] ?? null;
 }
 
-function buildCodeBlockHtml(content: string): string {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-  return lines
-    .map((line, index) => {
-      const displayLine = line.length > 0 ? escapeHtmlCode(line) : "&nbsp;";
-      return `<div class="code-line"><span class="line-no">${index + 1}</span><span class="line-code">${displayLine}</span></div>`;
-    })
-    .join("");
-}
-
-export function buildMultiStoryPreviewHtml(input: {
+export async function buildMultiStoryPreviewHtml(input: {
   owner: string;
   name: string;
   title: string;
@@ -104,8 +119,9 @@ export function buildMultiStoryPreviewHtml(input: {
     })
     .join("");
 
-  const sections = input.stories
-    .map((story) => {
+  const sections = (
+    await Promise.all(
+      input.stories.map(async (story) => {
       const previewHref = buildStoryPreviewPageUrl({
         owner: input.owner,
         name: input.name,
@@ -130,8 +146,17 @@ export function buildMultiStoryPreviewHtml(input: {
               .join("")}</div>`
           : "";
       const codeFile = findStoryCodeFile(story, files);
-      const codeHtml = codeFile
-        ? buildCodeBlockHtml(codeFile.content)
+      const storyCode = story.code?.trim() ? story.code : null;
+      const sourcePath =
+        story.sourcePath?.trim() || codeFile?.path || "Story source";
+      const sourceContent = storyCode ?? codeFile?.content ?? null;
+      const codeLanguage =
+        story.codeLanguage?.trim() || detectCodeLanguage(sourcePath);
+      const codeHtml = sourceContent
+        ? await highlightCodeBlock(sourceContent, codeLanguage)
+        : "";
+      const codePanelHtml = sourceContent
+        ? codeHtml
         : `<div class="code-empty">No source snippet available for this story yet.</div>`;
 
       return `
@@ -170,29 +195,46 @@ export function buildMultiStoryPreviewHtml(input: {
               <div class="story-code-meta">
                 <span class="story-code-label">Code</span>
                 ${
-                  codeFile
-                    ? `<span class="story-code-path">${escapeHtml(codeFile.path)}</span>`
+                  sourceContent
+                    ? `<span class="story-code-path">${escapeHtml(sourcePath)}</span>`
                     : ""
                 }
               </div>
-              <button
-                type="button"
-                class="copy-button"
-                data-copy-button="${escapeHtml(story.id)}"
-                data-copy-b64="${codeFile ? encodeCopyPayload(codeFile.content) : ""}"
-                aria-label="Copy source for ${escapeHtml(story.title)}"
-              >
-                ${COPY_BUTTON_INNER_HTML}
-              </button>
+              ${
+                sourceContent
+                  ? `<div class="story-code-actions">
+                      <button
+                        type="button"
+                        class="toggle-button"
+                        data-toggle-button="${escapeHtml(story.id)}"
+                        data-collapsed-label="Expand"
+                        data-expanded-label="Collapse"
+                        aria-expanded="false"
+                      >
+                        Expand
+                      </button>
+                      <button
+                        type="button"
+                        class="copy-button"
+                        data-copy-button="${escapeHtml(story.id)}"
+                        data-copy-b64="${encodeCopyPayload(sourceContent)}"
+                        aria-label="Copy source for ${escapeHtml(story.title)}"
+                      >
+                        ${COPY_BUTTON_INNER_HTML}
+                      </button>
+                    </div>`
+                  : ""
+              }
             </div>
-            <div class="story-code-scroll">
-              <pre class="story-code"><code>${codeHtml}</code></pre>
+            <div class="story-code-scroll" data-code-scroll="${escapeHtml(story.id)}">
+              <div class="story-code">${codePanelHtml}</div>
             </div>
           </div>
         </section>
       `;
-    })
-    .join("");
+      }),
+    )
+  ).join("");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -404,30 +446,47 @@ export function buildMultiStoryPreviewHtml(input: {
         border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
         background: var(--accent-soft);
       }
+      .story-code-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .toggle-button,
+      .copy-button {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 8px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
       .story-code-scroll {
         overflow: auto;
+        max-height: 360px;
+        transition: max-height 180ms ease;
+      }
+      .story-code-scroll[data-expanded="true"] {
+        max-height: none;
       }
       .story-code {
         margin: 0;
-        padding: 14px 0;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 13px;
         line-height: 1.7;
       }
-      .code-line {
-        display: grid;
-        grid-template-columns: 56px minmax(0, 1fr);
-        gap: 12px;
-        padding: 0 16px;
-        white-space: pre;
+      .story-code pre {
+        margin: 0;
+        padding: 16px;
+        overflow: auto;
+        background: transparent !important;
       }
-      .line-no {
-        user-select: none;
-        text-align: right;
-        color: color-mix(in srgb, var(--muted) 84%, transparent);
-      }
-      .line-code {
-        overflow-x: auto;
+      .story-code code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       }
       .code-empty {
         padding: 16px;
@@ -552,6 +611,21 @@ export function buildMultiStoryPreviewHtml(input: {
                 button.innerHTML = initialHtml;
               }, 1500);
             }
+          });
+        });
+
+        document.querySelectorAll("[data-toggle-button]").forEach(function (button) {
+          button.addEventListener("click", function () {
+            var storyId = button.getAttribute("data-toggle-button");
+            if (!storyId) return;
+            var target = document.querySelector('[data-code-scroll="' + storyId + '"]');
+            if (!target) return;
+            var expanded = target.getAttribute("data-expanded") === "true";
+            target.setAttribute("data-expanded", expanded ? "false" : "true");
+            button.setAttribute("aria-expanded", expanded ? "false" : "true");
+            button.textContent = expanded
+              ? button.getAttribute("data-collapsed-label") || "Expand"
+              : button.getAttribute("data-expanded-label") || "Collapse";
           });
         });
 

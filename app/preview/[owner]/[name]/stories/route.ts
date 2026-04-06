@@ -139,7 +139,7 @@ export async function GET(
     }
   }
 
-  const html = buildMultiStoryPreviewHtml({
+  const html = await buildMultiStoryPreviewHtml({
     owner,
     name,
     title: item.title,

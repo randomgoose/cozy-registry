@@ -5,6 +5,9 @@ export type PreviewStory = {
   props?: Record<string, unknown>;
   description?: string;
   tags?: string[];
+  code?: string;
+  codeLanguage?: string;
+  sourcePath?: string;
 };
 
 export function getPreviewStoriesFromMeta(meta: unknown): PreviewStory[] {
@@ -30,6 +33,20 @@ export function getPreviewStoriesFromMeta(meta: unknown): PreviewStory[] {
       tags: Array.isArray(rec.tags)
         ? rec.tags.filter((t): t is string => typeof t === "string")
         : undefined,
+      code:
+        typeof rec.code === "string" && rec.code.trim().length > 0
+          ? rec.code
+          : typeof rec.sourceCode === "string" && rec.sourceCode.trim().length > 0
+            ? rec.sourceCode
+            : undefined,
+      codeLanguage:
+        typeof rec.codeLanguage === "string" && rec.codeLanguage.trim().length > 0
+          ? rec.codeLanguage.trim()
+          : undefined,
+      sourcePath:
+        typeof rec.sourcePath === "string" && rec.sourcePath.trim().length > 0
+          ? rec.sourcePath.trim()
+          : undefined,
     });
   }
   const seen = new Set<string>();

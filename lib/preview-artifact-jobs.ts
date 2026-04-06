@@ -702,7 +702,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       );
     }
 
-    const storiesHtml = buildMultiStoryPreviewHtml({
+    const storiesHtml = await buildMultiStoryPreviewHtml({
       owner: payload.owner,
       name: payload.name,
       title: item.title,
