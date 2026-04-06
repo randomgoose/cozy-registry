@@ -3,6 +3,7 @@ import { getProjectScopeContext } from "@/lib/project-scope";
 import { listProjectsForOwner, listProjectsForScope } from "@/lib/project-list";
 import { createRegistryProject } from "@/lib/registry-project-create";
 import { createServerTimingLogger } from "@/lib/server-timing";
+import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 
 export async function POST(request: Request) {
   const { userId, activeOrganizationId } = await getProjectScopeContext(request);
@@ -19,10 +20,26 @@ export async function POST(request: Request) {
         title?: string;
         description?: string | null;
         visibility?: "public" | "private";
+        defaultThemeResourceRef?: string | null;
       }
     | null;
   if (!body?.title?.trim()) {
     return NextResponse.json({ error: "Missing required field: title" }, { status: 400 });
+  }
+
+  const defaultThemeResourceRef =
+    typeof body.defaultThemeResourceRef === "string" &&
+    body.defaultThemeResourceRef.trim().length > 0
+      ? body.defaultThemeResourceRef.trim()
+      : null;
+  if (
+    defaultThemeResourceRef &&
+    !parseRegistryDependencyRef(defaultThemeResourceRef)
+  ) {
+    return NextResponse.json(
+      { error: "defaultThemeResourceRef must be a valid registry ref" },
+      { status: 400 },
+    );
   }
 
   const result = await createRegistryProject({
@@ -31,6 +48,7 @@ export async function POST(request: Request) {
     description: body.description ?? null,
     slug: body.slug != null ? String(body.slug) : null,
     visibility: body.visibility,
+    defaultThemeResourceRef,
     sessionActiveOrganizationId: activeOrganizationId ?? null,
   });
 

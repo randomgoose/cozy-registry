@@ -32,6 +32,7 @@ import { getWritableOrganizationTargetForUser } from "@/lib/publish-target";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
 import { publishFailureCategoryForCode } from "@/lib/registry-publish-failure";
 import { resolveCanonicalRegistryProjectForWrite } from "@/lib/registry-project-access";
+import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 
 type Params = { params: Promise<{ owner: string; name: string }> };
 
@@ -48,6 +49,9 @@ type VersionRequestBody = {
   applyStubInference?: unknown;
   dependencies?: unknown;
   project?: string | null;
+  previewStories?: unknown;
+  previewDefaultStoryId?: string | null;
+  themeResourceRef?: string | null;
 };
 
 /** 获取组件的版本列表 + 当前版本 */
@@ -147,6 +151,21 @@ export async function POST(request: Request, { params }: Params) {
       {
         error: normalizedRegistryDependencies.error,
         code: "REGDEP_INVALID_FORMAT",
+        failureCategory: publishFailureCategoryForCode("REGDEP_INVALID_FORMAT"),
+      },
+      { status: 400 },
+    );
+  }
+  const themeResourceRef =
+    typeof body.themeResourceRef === "string" &&
+    body.themeResourceRef.trim().length > 0
+      ? body.themeResourceRef.trim()
+      : null;
+  if (themeResourceRef && !parseRegistryDependencyRef(themeResourceRef)) {
+    return NextResponse.json(
+      {
+        error: "themeResourceRef must be a valid registry ref",
+        code: "THEME_RESOURCE_REF_INVALID",
         failureCategory: publishFailureCategoryForCode("REGDEP_INVALID_FORMAT"),
       },
       { status: 400 },
@@ -445,6 +464,13 @@ export async function POST(request: Request, { params }: Params) {
       registryDependencies: contract.value.registryDependenciesToWrite,
       previewProps: contract.value.previewProps,
       previewExport: contract.value.previewExport,
+      previewStories: body.previewStories,
+      previewDefaultStoryId:
+        typeof body.previewDefaultStoryId === "string" &&
+        body.previewDefaultStoryId.trim().length > 0
+          ? body.previewDefaultStoryId.trim()
+          : undefined,
+      themeResourceRef,
     });
     return NextResponse.json({
       version: result.version,

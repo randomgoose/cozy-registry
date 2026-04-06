@@ -59,3 +59,5 @@ Source of truth: yes
 - [Preview Artifact Capability Model Spec](../20-engineering/preview-artifact-capability-model-spec.md)：`managed-artifact / compatible-artifact / runtime-only` 的能力分层与实现方向。
 - [Preview Artifact Retrospective](../20-engineering/preview-artifact-retrospective.md)：从重运行时装配迁移到重构建阶段 artifact 的设计复盘、经验与后续原则。
 - [Project-Scoped Registry Identity Spec](../20-engineering/project-scoped-registry-identity-spec.md)：将 registry 正式身份从 `owner + name` 升级到 `owner + project + name` 的系统方案。
+- [Project Resource Relationship Spec](../20-engineering/project-resource-relationship-spec.md)：将 project 升级为默认设计上下文边界，先从 `defaultThemeResourceRef` 与 resource-level theme override 做起。
+- [Live Style Preview And Committed Artifact Spec](../20-engineering/live-style-preview-and-committed-artifact-spec.md)：将 runtime 样式覆盖与 committed artifact 重建拆成两条协同链路，服务轻量调样式体验。

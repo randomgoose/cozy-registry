@@ -1,6 +1,7 @@
 /** postMessage types between registry preview iframe and parent (must match preview-entry runtime). */
 export const PREVIEW_MSG_INITIAL_PROPS = "cozy-preview-initial-props";
 export const PREVIEW_MSG_SET_PROPS = "cozy-preview-set-props";
+export const PREVIEW_MSG_SET_THEME_PATCH = "cozy-preview-set-theme-patch";
 export const PREVIEW_MSG_RUNTIME_ERROR = "cozy-preview-runtime-error";
 
 export type PreviewInitialPropsMessage = {
@@ -11,6 +12,11 @@ export type PreviewInitialPropsMessage = {
 export type PreviewSetPropsMessage = {
   type: typeof PREVIEW_MSG_SET_PROPS;
   props: Record<string, unknown>;
+};
+
+export type PreviewSetThemePatchMessage = {
+  type: typeof PREVIEW_MSG_SET_THEME_PATCH;
+  patch: Record<string, string>;
 };
 
 export type PreviewRuntimeErrorMessage = {

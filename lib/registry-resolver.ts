@@ -145,6 +145,7 @@ export async function resolveRegistryDependencies(params: {
   version: string | null;
   requestUserId?: string | null;
   memo?: RegistryResolverMemo;
+  extraRootRegistryDependencies?: string[] | null;
 }): Promise<{
   /** Includes the root item as the last element. */
   ordered: ResolvedRegistryDependencyNode[];
@@ -193,7 +194,10 @@ export async function resolveRegistryDependencies(params: {
       throw new RegistryDependencyNotFoundError(ref);
     }
 
-    const deps = (item.registryDependencies ?? []) as string[];
+    const deps =
+      stack.length === 1 && Array.isArray(params.extraRootRegistryDependencies)
+        ? params.extraRootRegistryDependencies
+        : ((item.registryDependencies ?? []) as string[]);
     for (const raw of deps) {
       const parsed = parseRegistryDependencyRef(raw);
       if (!parsed) continue;

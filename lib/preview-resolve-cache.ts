@@ -18,15 +18,21 @@ const previewResolveCache = new Map<string, PreviewResolvedCacheEntry>();
 
 export function buildPreviewResolveCacheKey(input: {
   owner: string;
+  projectKey?: string | null;
   name: string;
   version: string;
   requestUserId: string | null;
+  registryDependencies?: string[] | null;
 }) {
   return JSON.stringify([
     input.owner,
+    input.projectKey ?? "",
     input.name,
     input.version,
     input.requestUserId ?? "",
+    Array.isArray(input.registryDependencies)
+      ? [...input.registryDependencies].sort()
+      : [],
   ]);
 }
 
@@ -73,4 +79,3 @@ export function clearPreviewResolveCache() {
 export function getPreviewResolveCacheSize() {
   return previewResolveCache.size;
 }
-

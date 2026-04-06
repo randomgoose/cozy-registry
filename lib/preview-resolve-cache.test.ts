@@ -13,21 +13,46 @@ describe("preview-resolve-cache", () => {
     vi.useRealTimers();
   });
 
-  it("builds a stable key from owner/name/version/user", () => {
+  it("builds a stable key from owner/project/name/version/user/deps", () => {
     const first = buildPreviewResolveCacheKey({
       owner: "alice",
+      projectKey: "ds",
       name: "dialog",
       version: "1.2.0",
       requestUserId: "user-1",
+      registryDependencies: ["@alice/ds/theme"],
     });
     const second = buildPreviewResolveCacheKey({
       owner: "alice",
+      projectKey: "ds",
       name: "dialog",
       version: "1.2.0",
       requestUserId: "user-1",
+      registryDependencies: ["@alice/ds/theme"],
     });
 
     expect(first).toBe(second);
+  });
+
+  it("changes the key when project-scoped theme dependencies differ", () => {
+    const first = buildPreviewResolveCacheKey({
+      owner: "alice",
+      projectKey: "ds",
+      name: "dialog",
+      version: "1.2.0",
+      requestUserId: "user-1",
+      registryDependencies: ["@alice/ds/theme"],
+    });
+    const second = buildPreviewResolveCacheKey({
+      owner: "alice",
+      projectKey: "ds",
+      name: "dialog",
+      version: "1.2.0",
+      requestUserId: "user-1",
+      registryDependencies: ["@alice/marketing/theme"],
+    });
+
+    expect(first).not.toBe(second);
   });
 
   it("expires entries after ttl", () => {
@@ -62,4 +87,3 @@ describe("preview-resolve-cache", () => {
     expect(getPreviewResolveCacheSize()).toBeLessThanOrEqual(64);
   });
 });
-

@@ -14,6 +14,7 @@ import {
 import {
   PREVIEW_MSG_RUNTIME_ERROR,
   PREVIEW_MSG_SET_PROPS,
+  PREVIEW_MSG_SET_THEME_PATCH,
 } from "@/lib/preview-messages";
 
 type Size = { width: number; height: number };
@@ -42,6 +43,8 @@ export type PreviewFrameProps = {
    * When true, skip the intersection gate and load the iframe immediately.
    */
   loadImmediately?: boolean;
+  /** Optional runtime CSS variable patch for live style preview. */
+  draftThemePatch?: Record<string, string> | null;
 };
 
 type PreviewRuntimeErrorPayload = {
@@ -66,6 +69,7 @@ const PreviewFrameInner = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
       className,
       interactive = false,
       loadImmediately = false,
+      draftThemePatch = null,
     } = props;
     const containerRef = useRef<HTMLDivElement | null>(null);
     const srcRef = useRef(src);
@@ -126,6 +130,29 @@ const PreviewFrameInner = forwardRef<PreviewFrameHandle, PreviewFrameProps>(
       }),
       [],
     );
+
+    useEffect(() => {
+      if (!isFullyLoaded) return;
+      const w = (
+        frontRef.current === 0 ? iframe0Ref : iframe1Ref
+      ).current?.contentWindow;
+      if (!w) return;
+      const patch =
+        draftThemePatch && Object.keys(draftThemePatch).length > 0
+          ? draftThemePatch
+          : {};
+      try {
+        console.info("[preview-theme-patch:parent-send]", {
+          title,
+          src,
+          patch,
+        });
+      } catch {}
+      w.postMessage(
+        { type: PREVIEW_MSG_SET_THEME_PATCH, patch },
+        window.location.origin,
+      );
+    }, [draftThemePatch, isFullyLoaded]);
 
     useEffect(() => {
       function onPreviewMessage(ev: MessageEvent) {

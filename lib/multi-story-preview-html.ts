@@ -1,5 +1,6 @@
 import type { PreviewStory } from "@/lib/preview-stories";
 import { codeToHtml } from "shiki";
+import { PREVIEW_MSG_SET_THEME_PATCH } from "@/lib/preview-messages";
 import {
   buildMultiStoryPreviewPageUrl,
   buildStoryPreviewPageUrl,
@@ -563,9 +564,11 @@ export async function buildMultiStoryPreviewHtml(input: {
     </div>
     <script>
       (function () {
+        var COZY_PREVIEW_SET_THEME_PATCH = ${JSON.stringify(PREVIEW_MSG_SET_THEME_PATCH)};
         var params = new URLSearchParams(window.location.search);
         var theme = params.get("theme");
         var story = params.get("story");
+        var currentThemePatch = {};
 
         function withTheme(href) {
           if (!theme) return href;
@@ -574,10 +577,55 @@ export async function buildMultiStoryPreviewHtml(input: {
           return url.pathname + url.search + url.hash;
         }
 
+        function normalizeThemePatch(input) {
+          if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+          var next = {};
+          Object.entries(input).forEach(function (entry) {
+            var rawKey = entry[0];
+            var rawValue = entry[1];
+            if (typeof rawValue !== "string") return;
+            var key = String(rawKey || "").trim();
+            var value = rawValue.trim();
+            if (!key || !value) return;
+            next[key.indexOf("--") === 0 ? key : "--" + key] = value;
+          });
+          return next;
+        }
+
+        function applyThemePatchToDocument(patch) {
+          var root = document.documentElement;
+          var currentKeys = Object.keys(currentThemePatch);
+          var nextKeys = Object.keys(patch);
+          currentKeys.forEach(function (key) {
+            if (nextKeys.indexOf(key) === -1) {
+              root.style.removeProperty(key);
+            }
+          });
+          nextKeys.forEach(function (key) {
+            root.style.setProperty(key, patch[key]);
+          });
+          currentThemePatch = patch;
+        }
+
+        function postThemePatchToFrame(iframe) {
+          if (!iframe || !iframe.contentWindow) return;
+          try {
+            iframe.contentWindow.postMessage(
+              { type: COZY_PREVIEW_SET_THEME_PATCH, patch: currentThemePatch },
+              window.location.origin,
+            );
+          } catch {
+            // ignore
+          }
+        }
+
         document.querySelectorAll("[data-preview-iframe]").forEach(function (iframe) {
           var baseSrc = iframe.getAttribute("data-base-src");
           if (!baseSrc) return;
           iframe.setAttribute("src", withTheme(baseSrc));
+          iframe.addEventListener("load", function () {
+            postThemePatchToFrame(iframe);
+          });
         });
 
         document.querySelectorAll("[data-base-href]").forEach(function (link) {
@@ -660,6 +708,19 @@ export async function buildMultiStoryPreviewHtml(input: {
             url.pathname + url.search + (storyId ? "#story-" + storyId : ""),
           );
         }
+
+        window.addEventListener("message", function (event) {
+          if (event.source !== window.parent) return;
+          if (event.origin !== window.location.origin && event.origin !== "null") return;
+          var data = event.data;
+          if (!data || typeof data !== "object") return;
+          if (data.type !== COZY_PREVIEW_SET_THEME_PATCH) return;
+          var nextPatch = normalizeThemePatch(data.patch);
+          applyThemePatchToDocument(nextPatch);
+          document.querySelectorAll("[data-preview-iframe]").forEach(function (iframe) {
+            postThemePatchToFrame(iframe);
+          });
+        });
 
         if (story) {
           var initialTarget = document.getElementById("story-" + story);

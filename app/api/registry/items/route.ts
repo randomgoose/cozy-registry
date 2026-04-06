@@ -31,6 +31,7 @@ import { resolvePublishTargetForUser } from "@/lib/publish-target";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
 import { publishFailureCategoryForCode } from "@/lib/registry-publish-failure";
 import { resolveCanonicalRegistryProjectForWrite } from "@/lib/registry-project-access";
+import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 
 export async function POST(request: Request) {
   try {
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
       organizationId?: string | null;
       dependencies?: unknown;
       project?: string | null;
+      themeResourceRef?: string | null;
     };
 
     const hasFiles =
@@ -103,6 +105,21 @@ export async function POST(request: Request) {
           error: normalizedDeclaredDependencies.error,
           code: "DEPENDENCIES_INVALID_FORMAT",
           failureCategory: publishFailureCategoryForCode("DEPENDENCIES_INVALID_FORMAT"),
+        },
+        { status: 400 },
+      );
+    }
+    const themeResourceRef =
+      typeof body.themeResourceRef === "string" &&
+      body.themeResourceRef.trim().length > 0
+        ? body.themeResourceRef.trim()
+        : null;
+    if (themeResourceRef && !parseRegistryDependencyRef(themeResourceRef)) {
+      return NextResponse.json(
+        {
+          error: "themeResourceRef must be a valid registry ref",
+          code: "THEME_RESOURCE_REF_INVALID",
+          failureCategory: publishFailureCategoryForCode("REGDEP_INVALID_FORMAT"),
         },
         { status: 400 },
       );
@@ -418,6 +435,7 @@ export async function POST(request: Request) {
       registryDependencies: depsToWrite,
       previewProps: contract.value.previewProps,
       previewExport: contract.value.previewExport,
+      themeResourceRef,
       requestUserId: userId,
     });
 

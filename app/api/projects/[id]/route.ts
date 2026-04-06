@@ -8,6 +8,7 @@ import {
   getUserProjectRole,
 } from "@/lib/project-permissions";
 import { registryProjects } from "@/lib/db/schema";
+import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 
 function isKebab(s: string): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s);
@@ -38,6 +39,7 @@ export async function PATCH(
         title?: string;
         description?: string | null;
         visibility?: "public" | "private";
+        defaultThemeResourceRef?: string | null;
       }
     | null;
 
@@ -49,6 +51,23 @@ export async function PATCH(
     return NextResponse.json({ error: "slug must be kebab-case" }, { status: 400 });
   }
 
+  const defaultThemeResourceRef =
+    typeof body.defaultThemeResourceRef === "string" &&
+    body.defaultThemeResourceRef.trim().length > 0
+      ? body.defaultThemeResourceRef.trim()
+      : body.defaultThemeResourceRef === null
+        ? null
+        : undefined;
+  if (
+    defaultThemeResourceRef &&
+    !parseRegistryDependencyRef(defaultThemeResourceRef)
+  ) {
+    return NextResponse.json(
+      { error: "defaultThemeResourceRef must be a valid registry ref" },
+      { status: 400 },
+    );
+  }
+
   const [updated] = await db
     .update(registryProjects)
     .set({
@@ -57,6 +76,9 @@ export async function PATCH(
       ...(body.description !== undefined ? { description: body.description } : {}),
       ...(body.visibility != null
         ? { visibility: body.visibility === "public" ? "public" : "private" }
+        : {}),
+      ...(defaultThemeResourceRef !== undefined
+        ? { defaultThemeResourceRef }
         : {}),
       updatedAt: new Date(),
     })

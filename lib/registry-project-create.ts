@@ -15,6 +15,7 @@ export type CreateRegistryProjectParams = {
   description?: string | null;
   slug?: string | null;
   visibility?: "public" | "private";
+  defaultThemeResourceRef?: string | null;
   /**
    * Cookie session: active workspace org. When set, the project is created under this org
    * (same as POST /api/projects with a browser session). Ignores publishScope / targetRef.
@@ -122,6 +123,7 @@ export async function createRegistryProject(
         organizationId: activeOrganizationId,
         ownerUserId,
         namespaceKey: slug,
+        defaultThemeResourceRef: params.defaultThemeResourceRef ?? null,
         slug,
         title,
         description: params.description ?? null,

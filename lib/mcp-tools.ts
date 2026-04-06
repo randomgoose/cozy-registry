@@ -480,6 +480,12 @@ export function createRegistryMcpServer(request?: Request) {
           .enum(["public", "private"])
           .optional()
           .describe("Defaults to private."),
+        defaultThemeResourceRef: z
+          .string()
+          .optional()
+          .describe(
+            "Optional project default theme registry ref, e.g. @indeed-cozy/ds/theme. Used as the default render context for UI resources in this project.",
+          ),
         publishScope: z
           .enum(["personal", "organization", "team"])
           .optional()
@@ -522,6 +528,7 @@ export function createRegistryMcpServer(request?: Request) {
         description: args.description ?? null,
         slug: args.slug ?? null,
         visibility: args.visibility,
+        defaultThemeResourceRef: args.defaultThemeResourceRef ?? null,
         publishScope: args.publishScope,
         targetRef: args.targetRef ?? null,
         organizationSlug: args.organizationSlug ?? null,
@@ -2453,6 +2460,12 @@ ${fileContent}
         .describe(
           "Optional default story id stored in meta.previewDefaultStoryId.",
         ),
+      themeResourceRef: z
+        .string()
+        .optional()
+        .describe(
+          "Optional resource-level theme override stored in meta.themeResourceRef, e.g. @indeed-cozy/ds/theme. Overrides the project default theme for preview/docs rendering.",
+        ),
       /**
        * 单文件模式：入口 TSX/CSS 源码（向后兼容）。
        * 当 files 存在时会被忽略。
@@ -3044,6 +3057,7 @@ ${fileContent}
             previewExport: contract.value.previewExport,
             previewStories: args.previewStories,
             previewDefaultStoryId: args.previewDefaultStoryId,
+            themeResourceRef: args.themeResourceRef,
             registryDependencies: contract.value.registryDependenciesToWrite,
           });
           const defaultStoryIdForVersion =
@@ -3111,6 +3125,7 @@ ${fileContent}
           previewExport: contract.value.previewExport,
           previewStories: args.previewStories,
           previewDefaultStoryId: args.previewDefaultStoryId,
+          themeResourceRef: args.themeResourceRef,
           registryDependencies: contract.value.registryDependenciesToWrite,
         });
         const defaultStoryIdForVersion =
@@ -3332,6 +3347,7 @@ ${fileContent}
         previewExport: contract.value.previewExport,
         previewStories: args.previewStories,
         previewDefaultStoryId: args.previewDefaultStoryId,
+        themeResourceRef: args.themeResourceRef,
         requestUserId: userId,
       });
 

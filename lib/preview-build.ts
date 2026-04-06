@@ -7,6 +7,7 @@ import {
   PREVIEW_MSG_INITIAL_PROPS,
   PREVIEW_MSG_RUNTIME_ERROR,
   PREVIEW_MSG_SET_PROPS,
+  PREVIEW_MSG_SET_THEME_PATCH,
 } from "@/lib/preview-messages";
 import type { PreviewDependencyResolutionDiagnostic } from "@/lib/preview-dependency-provider";
 import { resolveBundleRootAliasImport } from "@/lib/module-specifiers";
@@ -264,6 +265,7 @@ import * as Mod from "./index";
 
 const COZY_PREVIEW_INITIAL = ${JSON.stringify(PREVIEW_MSG_INITIAL_PROPS)};
 const COZY_PREVIEW_SET = ${JSON.stringify(PREVIEW_MSG_SET_PROPS)};
+const COZY_PREVIEW_SET_THEME_PATCH = ${JSON.stringify(PREVIEW_MSG_SET_THEME_PATCH)};
 const COZY_PREVIEW_RUNTIME_ERROR = ${JSON.stringify(PREVIEW_MSG_RUNTIME_ERROR)};
 const DEBUG_ENABLED = ${JSON.stringify(debugEnabled)};
 
@@ -461,20 +463,69 @@ function App() {
   const mode = ${JSON.stringify(mode)};
   const isThumbnail = mode === "thumbnail";
   const [props, setProps] = React.useState<Record<string, unknown>>(INITIAL_PROPS);
+  const [themePatch, setThemePatch] = React.useState<Record<string, string>>({});
+  const appliedThemeKeysRef = React.useRef<string[]>([]);
 
   React.useEffect(() => {
     if (isThumbnail) return;
     function onMessage(ev: MessageEvent) {
       if (ev.source !== window.parent) return;
       if (!ev.data || typeof ev.data !== "object") return;
-      if ((ev.data as { type?: string }).type !== COZY_PREVIEW_SET) return;
-      const next = (ev.data as { props?: unknown }).props;
-      if (!next || typeof next !== "object" || Array.isArray(next)) return;
-      setProps(next as Record<string, unknown>);
+      const data = ev.data as { type?: string; props?: unknown; patch?: unknown };
+      if (data.type === COZY_PREVIEW_SET) {
+        const next = data.props;
+        if (!next || typeof next !== "object" || Array.isArray(next)) return;
+        setProps(next as Record<string, unknown>);
+        return;
+      }
+      if (data.type === COZY_PREVIEW_SET_THEME_PATCH) {
+        const next = data.patch;
+        if (!next || typeof next !== "object" || Array.isArray(next)) {
+          setThemePatch({});
+          return;
+        }
+        const normalized = Object.fromEntries(
+          Object.entries(next).filter(function(entry) {
+            return typeof entry[0] === "string" && typeof entry[1] === "string";
+          }).map(function(entry) {
+            var key = entry[0].trim();
+            return [key.startsWith("--") ? key : "--" + key, entry[1].trim()];
+          }),
+        );
+        setThemePatch(normalized);
+      }
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [isThumbnail]);
+
+  React.useEffect(() => {
+    if (isThumbnail) return;
+    const root = document.documentElement;
+    const nextEntries = Object.entries(themePatch).filter(function(entry) {
+      return entry[0] && entry[1];
+    });
+    const nextKeys = nextEntries.map(function(entry) {
+      return entry[0];
+    });
+
+    for (const key of appliedThemeKeysRef.current) {
+      if (!nextKeys.includes(key)) {
+        root.style.removeProperty(key);
+      }
+    }
+    for (const [key, value] of nextEntries) {
+      root.style.setProperty(key, value);
+    }
+    appliedThemeKeysRef.current = nextKeys;
+
+    return () => {
+      for (const key of appliedThemeKeysRef.current) {
+        root.style.removeProperty(key);
+      }
+      appliedThemeKeysRef.current = [];
+    };
+  }, [isThumbnail, themePatch]);
 
   React.useEffect(() => {
     if (isThumbnail) return;

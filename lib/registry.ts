@@ -1083,6 +1083,8 @@ export async function createRegistryItemVersion(params: {
   previewStories?: unknown;
   /** 可选：default story id in meta.previewDefaultStoryId */
   previewDefaultStoryId?: string | null;
+  /** 可选：resource-level theme override stored in meta.themeResourceRef */
+  themeResourceRef?: string | null;
 }) {
   const ownerRefForScopedLookup =
     params.organizationId != null
@@ -1233,6 +1235,9 @@ export async function createRegistryItemVersion(params: {
         if (params.previewDefaultStoryId !== undefined) {
           next.previewDefaultStoryId = params.previewDefaultStoryId;
         }
+        if (params.themeResourceRef !== undefined) {
+          next.themeResourceRef = params.themeResourceRef;
+        }
         if (thumbnail) {
           next.thumbnail = thumbnail;
         }
@@ -1286,6 +1291,7 @@ export async function createRegistryItemVersion(params: {
         params.previewExport !== undefined ||
         params.previewStories !== undefined ||
         params.previewDefaultStoryId !== undefined ||
+        params.themeResourceRef !== undefined ||
         thumbnail)
         ? {
             meta: {
@@ -1308,6 +1314,9 @@ export async function createRegistryItemVersion(params: {
                 : {}),
               ...(params.previewDefaultStoryId !== undefined
                 ? { previewDefaultStoryId: params.previewDefaultStoryId }
+                : {}),
+              ...(params.themeResourceRef !== undefined
+                ? { themeResourceRef: params.themeResourceRef }
                 : {}),
               ...(thumbnail ? { thumbnail } : {}),
             } as Record<string, unknown>,
@@ -1584,6 +1593,8 @@ export async function createRegistryItem(data: {
   previewStories?: unknown;
   /** 可选：default story id（meta.previewDefaultStoryId） */
   previewDefaultStoryId?: string | null;
+  /** 可选：resource-level theme override stored in meta.themeResourceRef */
+  themeResourceRef?: string | null;
   /** 用于预热 preview artifact 的访问身份。组织私有资源需要它才能被 worker 读取。 */
   requestUserId?: string | null;
 }) {
@@ -1655,6 +1666,9 @@ export async function createRegistryItem(data: {
         ...(data.previewDefaultStoryId !== undefined
           ? { previewDefaultStoryId: data.previewDefaultStoryId }
           : {}),
+        ...(data.themeResourceRef !== undefined
+          ? { themeResourceRef: data.themeResourceRef }
+          : {}),
         ...(thumbnail ? { thumbnail } : {}),
       },
       currentVersion: INITIAL_VERSION,
@@ -1723,6 +1737,9 @@ export async function createRegistryItem(data: {
           : {}),
         ...(data.previewDefaultStoryId !== undefined
           ? { previewDefaultStoryId: data.previewDefaultStoryId }
+          : {}),
+        ...(data.themeResourceRef !== undefined
+          ? { themeResourceRef: data.themeResourceRef }
           : {}),
         ...(thumbnail ? { thumbnail } : {}),
       },

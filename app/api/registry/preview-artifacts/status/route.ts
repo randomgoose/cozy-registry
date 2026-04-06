@@ -19,6 +19,7 @@ import {
 import { pickPreviewStory } from "@/lib/preview-stories";
 import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-governance";
 import { getCompatibleArtifactDependencyDisplayNames } from "@/lib/third-party-dependency-governance";
+import { resolveThemeRelationshipForResource } from "@/lib/project-resource-relationships";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -63,6 +64,18 @@ export async function GET(request: Request) {
     item.meta && typeof item.meta === "object"
       ? (item.meta as Record<string, unknown>)
       : undefined;
+  const resolvedThemeRelationship =
+    item.type === "registry:theme"
+      ? {
+          resolvedThemeResourceRef: null,
+          resolvedThemeSource: "none" as const,
+        }
+      : await resolveThemeRelationshipForResource({
+          owner,
+          projectKey: project ?? item.canonicalProjectKey ?? null,
+          meta: item.meta,
+          requestUserId: userId,
+        });
   const { selectedStory } = pickPreviewStory(itemMetaForStory, requestedStoryId);
   const resolvedStoryId = selectedStory?.id ?? null;
   /** Must match `GET /preview/...` artifact row key (`pickPreviewStory` + same URL story param). */
@@ -177,6 +190,8 @@ export async function GET(request: Request) {
     mode,
     storyId: resolvedStoryId,
     compatibleExternalDependencies,
+    resolvedThemeResourceRef: resolvedThemeRelationship.resolvedThemeResourceRef,
+    resolvedThemeSource: resolvedThemeRelationship.resolvedThemeSource,
     artifactKey: artifact.artifactKey,
     artifactUrl: artifact.jsUrl,
     cssUrl: artifact.cssUrl,
