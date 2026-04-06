@@ -235,11 +235,6 @@ export function ProjectsPanel(props: {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<"preview" | "code">("preview");
-  const [projectThemeDraft, setProjectThemeDraft] = useState("");
-  const [projectThemeSaving, setProjectThemeSaving] = useState(false);
-  const [projectThemeMessage, setProjectThemeMessage] = useState<string | null>(null);
-  const [projectThemeError, setProjectThemeError] = useState<string | null>(null);
-  const [draftThemePatchText, setDraftThemePatchText] = useState("");
   const [detailByItemId, setDetailByItemId] = useState<Record<string, ProjectItemDetailData>>({});
   const [artifactStatusByItemId, setArtifactStatusByItemId] = useState<
     Record<string, PreviewArtifactStatusPayload | null>
@@ -285,38 +280,6 @@ export function ProjectsPanel(props: {
     () => projects.filter((project) => project.id !== selectedId),
     [projects, selectedId],
   );
-  const draftThemePatchState = useMemo(() => {
-    const text = draftThemePatchText.trim();
-    if (!text) {
-      return {
-        patch: null as Record<string, string> | null,
-        error: null as string | null,
-      };
-    }
-    try {
-      const parsed = JSON.parse(text) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return { patch: null, error: "Patch must be a JSON object" };
-      }
-      const normalized: Record<string, string> = {};
-      for (const [rawKey, rawValue] of Object.entries(parsed)) {
-        if (typeof rawValue !== "string") {
-          return {
-            patch: null,
-            error: `Value for ${rawKey} must be a string`,
-          };
-        }
-        const key = rawKey.trim();
-        const value = rawValue.trim();
-        if (!key || !value) continue;
-        normalized[key.startsWith("--") ? key : `--${key}`] = value;
-      }
-      return { patch: normalized, error: null };
-    } catch {
-      return { patch: null, error: "Invalid JSON patch" };
-    }
-  }, [draftThemePatchText]);
-
   /**
    * `warmPreviewSlots` updates in useLayoutEffect — one frame behind `selectedProjectItem`.
    * Without merging the current selection here, no slot matches `isActive` and the preview area is blank.
@@ -492,16 +455,6 @@ export function ProjectsPanel(props: {
   useEffect(() => {
     setDetailTab("preview");
   }, [selectedItemId]);
-
-  useEffect(() => {
-    setProjectThemeDraft(selectedProject?.defaultThemeResourceRef ?? "");
-    setProjectThemeMessage(null);
-    setProjectThemeError(null);
-  }, [selectedId, selectedProject?.defaultThemeResourceRef]);
-
-  useEffect(() => {
-    setDraftThemePatchText("");
-  }, [selectedId, selectedItemId]);
 
   useEffect(() => {
     setWarmPreviewSlots([]);
@@ -765,50 +718,6 @@ export function ProjectsPanel(props: {
       setItemActionError(error instanceof Error ? error.message : "Failed to move resource");
     } finally {
       setItemActionPending(null);
-    }
-  }
-
-  async function saveProjectThemeSettings() {
-    if (!selectedId || !selectedProject || !canEditProject) return;
-    setProjectThemeSaving(true);
-    setProjectThemeError(null);
-    setProjectThemeMessage(null);
-    try {
-      const response = await fetch(`/api/projects/${selectedId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          defaultThemeResourceRef:
-            projectThemeDraft.trim().length > 0 ? projectThemeDraft.trim() : null,
-        }),
-      });
-      const data = (await response.json().catch(() => null)) as
-        | {
-            error?: string;
-            project?: {
-              defaultThemeResourceRef?: string | null;
-            };
-          }
-        | null;
-      if (!response.ok) {
-        throw new Error(data?.error ?? "Failed to update project settings");
-      }
-      const nextThemeRef = data?.project?.defaultThemeResourceRef ?? null;
-      setProjects((current) =>
-        current.map((project) =>
-          project.id === selectedId
-            ? { ...project, defaultThemeResourceRef: nextThemeRef }
-            : project,
-        ),
-      );
-      setProjectThemeDraft(nextThemeRef ?? "");
-      setProjectThemeMessage("Saved");
-    } catch (error) {
-      setProjectThemeError(
-        error instanceof Error ? error.message : "Failed to update project settings",
-      );
-    } finally {
-      setProjectThemeSaving(false);
     }
   }
 
@@ -1099,93 +1008,21 @@ export function ProjectsPanel(props: {
           ) : (
             <div className="flex h-full min-h-0 flex-col">
               <div className="border-b border-zinc-200/80 px-4 py-4 dark:border-zinc-800">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <p className="truncate text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-                      {selectedProject?.title ?? props.initialProjectTitle ?? "Project"}
-                    </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                      <span>
-                        Slug{" "}
-                        <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                          {selectedProject?.slug ?? props.initialProjectSlug ?? "unknown"}
-                        </code>
-                      </span>
-                      <span>·</span>
-                      <span>{selectedProject?.visibility ?? props.initialProjectVisibility ?? "private"}</span>
-                      <span>·</span>
-                      <span className="font-mono">{selectedProject?.namespaceKey ?? "project"}</span>
-                    </div>
-                  </div>
-                  <div className="w-full max-w-xl rounded-2xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/50">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                          Default theme resource
-                        </p>
-                        <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                          Applied automatically to preview and docs when a resource has no explicit theme override.
-                        </p>
-                      </div>
-                      {!canEditProject ? (
-                        <span className="rounded-full bg-zinc-200 px-2 py-1 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                          Read only
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                      <input
-                        value={projectThemeDraft}
-                        onChange={(event) => {
-                          setProjectThemeDraft(event.target.value);
-                          setProjectThemeMessage(null);
-                          setProjectThemeError(null);
-                        }}
-                        disabled={!canEditProject || projectThemeSaving}
-                        placeholder="@indeed-cozy/ds/theme"
-                        className="min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-                      />
-                      {canEditProject ? (
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setProjectThemeDraft("");
-                              setProjectThemeMessage(null);
-                              setProjectThemeError(null);
-                            }}
-                            disabled={projectThemeSaving || projectThemeDraft.trim().length === 0}
-                            className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                          >
-                            Clear
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void saveProjectThemeSettings()}
-                            disabled={
-                              projectThemeSaving ||
-                              projectThemeDraft.trim() === (selectedProject?.defaultThemeResourceRef ?? "")
-                            }
-                            className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                          >
-                            {projectThemeSaving ? "Saving..." : "Save"}
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="mt-2 flex min-h-5 flex-wrap items-center gap-2 text-xs">
-                      {projectThemeError ? (
-                        <span className="text-red-600 dark:text-red-400">{projectThemeError}</span>
-                      ) : projectThemeMessage ? (
-                        <span className="text-emerald-600 dark:text-emerald-400">{projectThemeMessage}</span>
-                      ) : null}
-                      <span className="text-zinc-500 dark:text-zinc-400">
-                        Current default:{" "}
-                        <code className="font-mono text-[11px] text-zinc-700 dark:text-zinc-300">
-                          {selectedProject?.defaultThemeResourceRef ?? "none"}
-                        </code>
-                      </span>
-                    </div>
+                <div className="min-w-0">
+                  <p className="truncate text-lg font-semibold text-zinc-950 dark:text-zinc-50">
+                    {selectedProject?.title ?? props.initialProjectTitle ?? "Project"}
+                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    <span>
+                      Slug{" "}
+                      <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                        {selectedProject?.slug ?? props.initialProjectSlug ?? "unknown"}
+                      </code>
+                    </span>
+                    <span>·</span>
+                    <span>{selectedProject?.visibility ?? props.initialProjectVisibility ?? "private"}</span>
+                    <span>·</span>
+                    <span className="font-mono">{selectedProject?.namespaceKey ?? "project"}</span>
                   </div>
                 </div>
               </div>
@@ -1377,65 +1214,6 @@ export function ProjectsPanel(props: {
                                     Open stories page
                                   </Link>
                                 ) : null}
-                              </div>
-                            ) : null}
-                            {detailTab === "preview" ? (
-                              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-950/40">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <div>
-                                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                                      Live style preview
-                                    </p>
-                                    <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                                      Apply a local CSS variable patch to this preview without rebuilding the committed artifact.
-                                    </p>
-                                  </div>
-                                  <span
-                                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                                      draftThemePatchState.patch
-                                        ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
-                                        : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                                    }`}
-                                  >
-                                    {draftThemePatchState.patch ? "Draft preview" : "Published preview"}
-                                  </span>
-                                </div>
-                                <textarea
-                                  value={draftThemePatchText}
-                                  onChange={(event) => setDraftThemePatchText(event.target.value)}
-                                  rows={4}
-                                  spellCheck={false}
-                                  placeholder={JSON.stringify(
-                                    {
-                                      "--background": "oklch(0.99 0 0)",
-                                      "--primary": "oklch(0.64 0.2 254)",
-                                    },
-                                    null,
-                                    2,
-                                  )}
-                                  className="mt-3 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 font-mono text-xs text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-                                />
-                                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                                  <div className="min-h-4 text-zinc-500 dark:text-zinc-400">
-                                    {draftThemePatchState.error ? (
-                                      <span className="text-red-600 dark:text-red-400">
-                                        {draftThemePatchState.error}
-                                      </span>
-                                    ) : draftThemePatchState.patch ? (
-                                      <span>Draft patch applied only in this page session.</span>
-                                    ) : (
-                                      <span>No live patch. Preview is showing the published artifact context.</span>
-                                    )}
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => setDraftThemePatchText("")}
-                                    disabled={draftThemePatchText.trim().length === 0}
-                                    className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                                  >
-                                    Reset draft
-                                  </button>
-                                </div>
                               </div>
                             ) : null}
                           </div>
@@ -1659,11 +1437,6 @@ export function ProjectsPanel(props: {
                                   alignY="top"
                                   fitMode="actual"
                                   loadImmediately
-                                  draftThemePatch={
-                                    isActive && detailTab === "preview" && !draftThemePatchState.error
-                                      ? draftThemePatchState.patch
-                                      : null
-                                  }
                                 />
                               </div>
                             );

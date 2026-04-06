@@ -3,6 +3,10 @@ import type { PreviewCompatibleExternal } from "@/lib/preview-dependency-provide
 export const PREVIEW_REACT_VERSION = "19.2.3";
 
 function getSelfHostedReactBaseUrl(): string | null {
+  const enabled =
+    process.env.COZY_USE_SELF_HOSTED_PREVIEW_REACT?.trim().toLowerCase() === "true";
+  if (!enabled) return null;
+
   const supabaseUrl =
     process.env.SUPABASE_URL ??
     process.env.NEXT_PUBLIC_SUPABASE_URL ??
