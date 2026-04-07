@@ -60,6 +60,43 @@ Source of truth: yes
 - preview artifact 已通过对象存储 public URL + 长缓存头静态分发，并继续朝 CDN 优先分发收敛
 - API key 支持集合、类型和 owner 范围限制
 
+## 近期两条主线的收口状态
+
+### 预览构建动态决策
+
+当前已经收住的部分：
+
+- 依赖治理、执行、交付三层已经分开：
+  - governance：`tier` / `previewCapability` / `providerMode`
+  - execution：`managed-artifact` / `compatible-artifact` / `runtime-only`
+  - delivery：`compatible-remote` / `compatible-bundled`
+- `soft-allowed + explicit version` 已可以进入 `compatible-artifact`
+- worker 已具备 best-effort `compatible-bundled` materialization 路径
+- manifest、`preview.html`、preview route 已能消费 compatible delivery metadata
+
+当前尚未完全收口的部分：
+
+- `compatible-bundled` 仍处于逐步验证阶段，还不是所有高频 compatible 依赖的默认稳定路径
+- preview 首屏性能仍保留少量 dynamic assembly / external request 成本
+- `stories.html` 虽已进入 artifact-first 主路径，但完整 docs-style 静态交付仍在继续演进
+
+### 项目样式管理
+
+当前已经收住的部分：
+
+- project 支持 `defaultThemeResourceRef`
+- resource 支持 `meta.themeResourceRef` override
+- preview、artifact build、multi-story preview、status API 已共享同一套 theme resolution helper
+- UI 已能展示 `resolvedThemeResourceRef` 与 `resolvedThemeSource`
+- runtime `live style preview` 已可作为 session-local patch 覆盖已提交 artifact
+- artifact worker 现在也会把 resolved theme CSS 带入 `preview.html`
+
+当前尚未完全收口的部分：
+
+- install protocol 还未正式消费 project-level resolved theme relationship
+- theme 资源的长期 canonical format 仍待从 CSS-first 逐步演进到更结构化的 token 模型
+- theme 变化与关联 artifact freshness 的强一致策略还未完全定案
+
 ## 工程与优化 backlog
 
 - [项目优化与健康状况（非测试）](../20-engineering/project-optimization.md)：CI、安全、可观测性、性能与后续优先级。
@@ -76,8 +113,10 @@ Source of truth: yes
 - [Preview Artifact Retrospective](../20-engineering/preview-artifact-retrospective.md)：从重运行时装配迁移到重构建阶段 artifact 的设计复盘、经验与后续原则。
 - [Project-Scoped Registry Identity Spec](../20-engineering/project-scoped-registry-identity-spec.md)：将 registry 正式身份从 `owner + name` 升级到 `owner + project + name` 的系统方案。
 - [Project Resource Relationship Spec](../20-engineering/project-resource-relationship-spec.md)：将 project 升级为默认设计上下文边界，先从 `defaultThemeResourceRef` 与 resource-level theme override 做起。
+- [Component Style Organization Model Spec](../20-engineering/component-style-organization-model-spec.md)：定义组件局部样式与 design-context style 的正式分层，并评估 Tailwind、同目录 CSS、mixed mode、CSS Modules 等在本项目中的实际支持度。
 - [Live Style Preview And Committed Artifact Spec](../20-engineering/live-style-preview-and-committed-artifact-spec.md)：将 runtime 样式覆盖与 committed artifact 重建拆成两条协同链路，服务轻量调样式体验。
 - [Vercel React Best Practices For My App](../20-engineering/vercel-react-best-practices-for-my-app.md)：将 Vercel React/Next.js 性能规则映射到当前仓库的具体文件与优化动作。
 - [Preview Delivery And CDN Plan](../20-engineering/preview-delivery-and-cdn-plan.md)：梳理 preview artifact 当前的对象存储 / CDN 分发现状、剩余瓶颈与后续提速方向。
 - [Dependency Execution Strategy Heuristic Spec](../20-engineering/dependency-execution-strategy-heuristic-spec.md)：在治理边界内按依赖复杂度与平台交付能力自动选择构建策略，并把平台控制缓存/CDN 纳入 compatible delivery。
 - [Compatible Bundled Delivery Spec](../20-engineering/compatible-bundled-delivery-spec.md)：将 compatible externals 从远端多模块拉取优化为平台控制的单文件/少量 chunk 交付。
+- [AI Misreasoning Guardrails Log](../20-engineering/ai-misreasoning-guardrails-log.md)：持续记录 AI 因为工具描述、错误语义或系统 contract 不清而产生的误判，并追踪 guardrail 补点。

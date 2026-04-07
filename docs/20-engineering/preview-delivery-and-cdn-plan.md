@@ -332,7 +332,27 @@ CDN 只有在 artifact 已 ready 且可命中时才真正带来收益。
 - 对象存储 URL 是否通过真正 CDN 分发
 - compatible mode 下 external 依赖请求数仍偏高
 
-## 13. Related Docs
+## 13. Current Delivery Status Snapshot
+
+截至当前实现，这条线已经收住的部分：
+
+- preview 交付已经形成明确分层：
+  - `managed-artifact`
+  - `compatible-artifact`
+  - `runtime-only`
+- compatible artifact 的 delivery 已进一步分成：
+  - `compatible-remote`
+  - `compatible-bundled`
+- worker 已具备 best-effort compatible bundling 路径
+- manifest、`preview.html`、preview route 已能消费 compatible delivery metadata，并在 bundled metadata 存在时优先使用平台控制 URL
+
+仍在继续收口的部分：
+
+- `compatible-bundled` 还处于逐步验证阶段，还需要更多真实高频包命中验证
+- preview 首屏性能仍受 external request fan-out 与少量 route fallback 影响
+- 多 story / docs-style story 浏览页虽然已经进入 artifact-first 主路径，但还未完全演进到 fully static docs artifact 模式
+
+## 14. Related Docs
 
 - [Preview Artifact Retrospective](./preview-artifact-retrospective.md)
 - [Preview Dependency Provider Refactor Spec](./preview-dependency-provider-refactor-spec.md)

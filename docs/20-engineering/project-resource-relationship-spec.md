@@ -330,7 +330,26 @@ project 应被视为：
 
 第一阶段从 `defaultThemeResourceRef` 做起，是最小、最真实、最能立刻提升 preview / docs / install 一致性的切口。
 
-## 17. Related Docs
+## 17. Current Implementation Status
+
+截至当前实现，已经落地的部分：
+
+- `registry_projects.defaultThemeResourceRef`
+- resource-level `meta.themeResourceRef` override
+- 统一的 theme resolution helper
+- preview route、artifact build、multi-story preview page、status API 共享同一套 resolution order
+- UI 已可见：
+  - `resolvedThemeResourceRef`
+  - `resolvedThemeSource`
+- artifact worker 已开始把 resolved theme CSS 带入 `preview.html`
+
+仍未完全收口的部分：
+
+- install protocol 还未正式消费 project-level resolved theme relationship
+- theme 更新与关联 artifact freshness 的强一致策略还未完全定案
+- theme resource 的长期 canonical format 仍待从 CSS-first 逐步演进到更结构化的 token model
+
+## 18. Related Docs
 
 - [Project-Scoped Registry Identity Spec](./project-scoped-registry-identity-spec.md)
 - [Registry Dependency Management Spec](./registry-dependency-management-spec.md)

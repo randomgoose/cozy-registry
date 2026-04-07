@@ -84,4 +84,16 @@ describe("preview-artifact-html", () => {
       "https://esm.sh/recharts?external=react,react-dom,react-dom/client&bundle",
     );
   });
+
+  it("inlines resolved theme CSS into the preview artifact html", () => {
+    const html = buildArtifactPreviewHtml({
+      jsUrl: "https://cdn.example.com/preview.js",
+      themeCss: ":root { --color-primary: #ff00aa; }",
+      compatibleExternals: [],
+      mode: "default",
+      bundledReact: true,
+    });
+
+    expect(html).toContain("<style>:root { --color-primary: #ff00aa; }</style>");
+  });
 });

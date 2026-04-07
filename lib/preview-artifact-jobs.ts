@@ -33,12 +33,21 @@ import {
   getPreviewStoriesFromMeta,
   pickPreviewStory,
 } from "@/lib/preview-stories";
+import {
+  collectThemeCssFromResolvedGraph,
+  createRegistryResolverMemo,
+  resolveRegistryDependencies,
+} from "@/lib/registry-resolver";
 import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
 import { isBarePackageSpecifier } from "@/lib/module-specifiers";
 import { buildMultiStoryPreviewHtml } from "@/lib/multi-story-preview-html";
 import { buildArtifactPreviewHtml } from "@/lib/preview-artifact-html";
 import { resolveCompatibleExternalDelivery } from "@/lib/preview-compatible-delivery";
 import { maybeMaterializeCompatibleBundles } from "@/lib/compatible-bundle-materializer";
+import {
+  mergeRegistryDependenciesWithResolvedTheme,
+  resolveThemeRelationshipForResource,
+} from "@/lib/project-resource-relationships";
 
 /** 公开存储路径按 artifactKey 固定为 preview.js，长期 Cache-Control 会留下陈旧内容；用内容哈希 bust 浏览器/CDN。 */
 function publicAssetUrlWithContentBust(url: string, body: string): string {
@@ -750,6 +759,41 @@ export async function processPreviewArtifactJob(jobId: string) {
         entries: resolvedCompatibleExternals,
         upload: true,
       });
+    const projectKeyForRelationships = normalizedProjectKey ?? item.canonicalProjectKey ?? null;
+    const resolvedThemeRelationship =
+      item.type === "registry:theme"
+        ? {
+            resolvedThemeResourceRef: null,
+            resolvedThemeSource: "none" as const,
+          }
+        : await resolveThemeRelationshipForResource({
+            owner: payload.owner,
+            projectKey: projectKeyForRelationships,
+            meta: item.meta,
+            requestUserId: payload.requestUserId,
+          });
+    const effectiveRegistryDependencies = mergeRegistryDependenciesWithResolvedTheme(
+      (item.registryDependencies ?? []) as string[],
+      resolvedThemeRelationship.resolvedThemeResourceRef,
+    );
+    let resolvedThemeCss = "";
+    let themeSources: string[] = [];
+    if (effectiveRegistryDependencies.length > 0 && item.type !== "registry:theme") {
+      const resolvedGraph = await resolveRegistryDependencies({
+        owner: payload.owner,
+        projectKey: projectKeyForRelationships,
+        name: payload.name,
+        version: payload.version,
+        requestUserId: payload.requestUserId,
+        memo: createRegistryResolverMemo(),
+        extraRootRegistryDependencies: effectiveRegistryDependencies,
+      });
+      const resolvedTheme = collectThemeCssFromResolvedGraph(
+        resolvedGraph.ordered,
+      );
+      resolvedThemeCss = resolvedTheme.css;
+      themeSources = resolvedTheme.sources;
+    }
     const dependencyPlan = {
       ...resolvedPreviewDependencies.plan,
       compatibleExternals: compatibleExternalsForArtifact,
@@ -767,6 +811,10 @@ export async function processPreviewArtifactJob(jobId: string) {
       jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
       storiesHtmlUrl: storiesHtmlUrlForClients,
+      resolvedThemeResourceRef:
+        resolvedThemeRelationship.resolvedThemeResourceRef,
+      resolvedThemeSource: resolvedThemeRelationship.resolvedThemeSource,
+      themeSources,
       dependencyPlan,
       dependencyResolutionDiagnostics:
         buildResult.dependencyResolutionDiagnostics ?? [],
@@ -791,6 +839,7 @@ export async function processPreviewArtifactJob(jobId: string) {
     const previewHtml = buildArtifactPreviewHtml({
       jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
+      themeCss: resolvedThemeCss,
       compatibleExternals: compatibleExternalsForArtifact,
       mode,
       bundledReact: canFullyBundle,
