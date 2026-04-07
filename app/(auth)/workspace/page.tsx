@@ -1,13 +1,12 @@
 import Link from "next/link";
-import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { getCachedAuthSession } from "@/lib/auth-session";
 import { getWorkspaceContextForSession } from "@/lib/workspace-context";
 import { OrganizationsHubScopeSync } from "./OrganizationsHubScopeSync";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrganizationsHubPage() {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getCachedAuthSession();
 
   if (!session?.user?.id) {
     return (

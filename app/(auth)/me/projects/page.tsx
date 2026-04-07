@@ -1,6 +1,5 @@
-import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
+import { getCachedAuthSession } from "@/lib/auth-session";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
 import { listProjectsForScope } from "@/lib/project-list";
@@ -9,7 +8,7 @@ import { ProjectsPanel } from "../../dashboard/CollectionsPanel";
 export const dynamic = "force-dynamic";
 
 export default async function PersonalProjectsPage() {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getCachedAuthSession();
 
   if (!session?.user?.id) {
     return (

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChangeEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CodeBlock } from "./CodeBlock";
@@ -153,6 +153,7 @@ export function ComponentDetail({
       defaultStoryId: defaultPreviewStoryId,
     }),
   );
+  const [navigationPending, startNavigationTransition] = useTransition();
   const router = useRouter();
 
   // Keep selector in sync when route search params change
@@ -350,7 +351,11 @@ export function ComponentDetail({
       search.set("story", selectedStoryId.trim());
     }
     const query = search.toString();
-    router.push(`/registry/${owner}/${name}${query ? `?${query}` : ""}`);
+    const nextPath = `/registry/${owner}/${name}${query ? `?${query}` : ""}`;
+    router.prefetch(nextPath);
+    startNavigationTransition(() => {
+      router.push(nextPath);
+    });
   }
 
   function handleStoryChange(nextStoryId: string | null) {
@@ -371,7 +376,11 @@ export function ComponentDetail({
       search.set("story", normalizedNextStoryId);
     }
     const query = search.toString();
-    router.replace(`/registry/${owner}/${name}${query ? `?${query}` : ""}`);
+    const nextPath = `/registry/${owner}/${name}${query ? `?${query}` : ""}`;
+    router.prefetch(nextPath);
+    startNavigationTransition(() => {
+      router.replace(nextPath);
+    });
   }
 
   async function handleDelete() {
@@ -472,6 +481,7 @@ export function ComponentDetail({
                         aria-label="Select version"
                         value={localSelectedVersion}
                         onChange={handleVersionChange}
+                        disabled={navigationPending}
                         className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
                       >
                         {versions.map((v) => (
@@ -571,6 +581,7 @@ export function ComponentDetail({
                       const next = event.target.value.trim();
                       handleStoryChange(next.length > 0 ? next : null);
                     }}
+                    disabled={navigationPending}
                     className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
                   >
                     {previewStories.map((story) => (

@@ -1,6 +1,5 @@
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { auth } from "@/lib/auth";
+import { getCachedAuthSession } from "@/lib/auth-session";
 import { listProjectsForScope } from "@/lib/project-list";
 import { getCachedWorkspaceRouteAccess } from "@/lib/workspace-route";
 import { ProjectsPanel } from "../../../dashboard/CollectionsPanel";
@@ -10,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function WorkspaceProjectsPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug: rawSlug } = await params;
   const slug = decodeURIComponent(rawSlug);
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getCachedAuthSession();
 
   if (!session?.user?.id) {
     return (

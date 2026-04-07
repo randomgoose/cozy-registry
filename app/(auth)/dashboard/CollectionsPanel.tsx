@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import {
   ArtboardToolIcon,
   ComponentIcon,
@@ -9,7 +10,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PublishProjectsToShell } from "@/app/(auth)/dashboard/ProjectsShellCache";
-import { CodeBlock } from "@/app/registry/[owner]/[name]/CodeBlock";
 import { PreviewFrame } from "@/app/components/PreviewFrame";
 import {
   Dialog,
@@ -43,6 +43,17 @@ import {
   buildStoryPreviewArtifactStatusQuery,
   buildStoryPreviewPageUrl,
 } from "@/lib/story-preview-urls";
+import {
+  getClientCachedValue,
+  invalidateClientCachedValue,
+} from "@/lib/client-cache";
+
+const CodeBlock = dynamic(
+  () => import("@/app/registry/[owner]/[name]/CodeBlock").then((mod) => mod.CodeBlock),
+  {
+    loading: () => <div className="text-xs text-zinc-500 dark:text-zinc-400">Loading code…</div>,
+  },
+);
 
 type Project = ProjectListItem;
 
@@ -306,20 +317,38 @@ export function ProjectsPanel(props: {
     return deduped;
   }, [currentProjectNamespaceKey, selectedProjectItem, warmPreviewSlots]);
 
-  async function refreshProjects() {
-    const res = await fetch("/api/projects", { cache: "no-store" });
-    if (!res.ok) throw new Error("Failed to load projects");
-    const data = (await res.json()) as { projects: Project[] };
-    setProjects(data.projects ?? []);
-  }
+  const projectsCacheKey = useMemo(
+    () => `projects:${props.registryOwner}:${props.isOrgScope ? "org" : "personal"}`,
+    [props.isOrgScope, props.registryOwner],
+  );
 
-  const refreshSelectedItems = useCallback(async (id: string) => {
+  const refreshProjects = useCallback(async (options: { force?: boolean } = {}) => {
+    const data = await getClientCachedValue(
+      projectsCacheKey,
+      async () => {
+        const res = await fetch("/api/projects", { cache: "no-store" });
+        if (!res.ok) throw new Error("Failed to load projects");
+        return (await res.json()) as { projects: Project[] };
+      },
+      { ttlMs: 15_000, force: options.force },
+    );
+    setProjects(data.projects ?? []);
+  }, [projectsCacheKey]);
+
+  const refreshSelectedItems = useCallback(async (id: string, options: { force?: boolean } = {}) => {
     const requestKey = `${props.registryOwner}:${id}:${Date.now()}`;
     latestItemsRequestKeyRef.current = requestKey;
     setItemsLoading(true);
     try {
-      const res = await fetch(`/api/projects/${id}/items`, { cache: "no-store" });
-      const data = (await res.json()) as { items: ProjectItemRow[] };
+      const data = await getClientCachedValue(
+        `project-items:${id}`,
+        async () => {
+          const res = await fetch(`/api/projects/${id}/items`, { cache: "no-store" });
+          if (!res.ok) throw new Error("Failed to load project items");
+          return (await res.json()) as { items: ProjectItemRow[] };
+        },
+        { ttlMs: 10_000, force: options.force },
+      );
       if (latestItemsRequestKeyRef.current !== requestKey) return;
       setProjectItems(data.items ?? []);
     } finally {
@@ -333,32 +362,37 @@ export function ProjectsPanel(props: {
     detailByItemIdRef.current = detailByItemId;
   }, [detailByItemId]);
 
-  const ensureItemDetail = useCallback(async (item: ProjectItemRow) => {
-    if (detailByItemIdRef.current[item.itemId]) return;
+  const ensureItemDetail = useCallback(async (item: ProjectItemRow, options: { force?: boolean } = {}) => {
+    if (!options.force && detailByItemIdRef.current[item.itemId]) return;
     setItemDetailLoadingId(item.itemId);
     setItemDetailError(null);
     try {
-      const res = await fetch(
-        `/api/r/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(item.name)}${
-          currentProjectNamespaceKey
-            ? `?project=${encodeURIComponent(currentProjectNamespaceKey)}`
-            : ""
-        }`,
-        { cache: "force-cache" },
+      const detail = await getClientCachedValue(
+        `project-item-detail:${props.registryOwner}:${currentProjectNamespaceKey ?? "root"}:${item.name}`,
+        async () => {
+          const res = await fetch(
+            `/api/r/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(item.name)}${
+              currentProjectNamespaceKey
+                ? `?project=${encodeURIComponent(currentProjectNamespaceKey)}`
+                : ""
+            }`,
+            { cache: "force-cache" },
+          );
+          if (!res.ok) {
+            throw new Error(`Failed to load (${res.status})`);
+          }
+          const rawData = (await res.json()) as unknown;
+          const normalized = normalizeProjectItemDetailData(rawData);
+          if (!normalized) {
+            throw new Error("Invalid detail response");
+          }
+          return normalized;
+        },
+        { ttlMs: 30_000, force: options.force },
       );
-      if (!res.ok) {
-        setItemDetailError(`Failed to load (${res.status})`);
-        return;
-      }
-      const rawData = (await res.json()) as unknown;
-      const detail = normalizeProjectItemDetailData(rawData);
-      if (!detail) {
-        setItemDetailError("Invalid detail response");
-        return;
-      }
       setDetailByItemId((prev) => ({ ...prev, [item.itemId]: detail }));
-    } catch {
-      setItemDetailError("Failed to load detail");
+    } catch (error) {
+      setItemDetailError(error instanceof Error ? error.message : "Failed to load detail");
     } finally {
       setItemDetailLoadingId((current) => (current === item.itemId ? null : current));
     }
@@ -378,7 +412,7 @@ export function ProjectsPanel(props: {
         setLoading(false);
       }
     })();
-  }, [props.initialProjects]);
+  }, [props.initialProjects, refreshProjects]);
 
   useEffect(() => {
     if (!isProjectDetail || !selectedId) return;
@@ -510,11 +544,17 @@ export function ProjectsPanel(props: {
     setItemActionError(null);
   }, [moveOpen, moveTargetProjects]);
 
-  async function loadStep2Members(projectId: string) {
+  async function loadStep2Members(projectId: string, options: { force?: boolean } = {}) {
     setMembersLoading(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/members`, { cache: "no-store" });
-      const data = (await res.json().catch(() => null)) as { members?: MemberRow[] } | null;
+      const data = await getClientCachedValue(
+        `project-members:${projectId}`,
+        async () => {
+          const res = await fetch(`/api/projects/${projectId}/members`, { cache: "no-store" });
+          return (await res.json().catch(() => null)) as { members?: MemberRow[] } | null;
+        },
+        { ttlMs: 10_000, force: options.force },
+      );
       setStep2Members(data?.members ?? []);
     } catch {
       setStep2Members([]);
@@ -570,8 +610,9 @@ export function ProjectsPanel(props: {
       setCreateStep(2);
       setInviteInput("");
       setInviteError(null);
-      await refreshProjects();
-      void loadStep2Members(p.id);
+        invalidateClientCachedValue("projects:");
+        await refreshProjects({ force: true });
+        void loadStep2Members(p.id, { force: true });
     } finally {
       setCreating(false);
     }
@@ -598,7 +639,8 @@ export function ProjectsPanel(props: {
         return;
       }
       setInviteInput("");
-      await loadStep2Members(selectedId);
+      invalidateClientCachedValue(`project-members:${selectedId}`);
+      await loadStep2Members(selectedId, { force: true });
     } finally {
       setInviting(false);
     }
@@ -625,7 +667,8 @@ export function ProjectsPanel(props: {
         return;
       }
       setInviteInput("");
-      await loadStep2Members(createdProject.id);
+      invalidateClientCachedValue(`project-members:${createdProject.id}`);
+      await loadStep2Members(createdProject.id, { force: true });
     } finally {
       setInviting(false);
     }
@@ -672,6 +715,7 @@ export function ProjectsPanel(props: {
       setProjectItems(remainingItems);
       setSelectedItemId(nextSelectedItem?.itemId ?? null);
       setSelectedPath(null);
+      invalidateClientCachedValue(`project-items:${selectedId}`);
       setDetailByItemId((current) => {
         const next = { ...current };
         delete next[removedItemId];
@@ -713,7 +757,13 @@ export function ProjectsPanel(props: {
       }
 
       setMoveOpen(false);
-      await Promise.all([refreshSelectedItems(selectedId), refreshProjects()]);
+      invalidateClientCachedValue(`project-items:${selectedId}`);
+      invalidateClientCachedValue(`project-items:${moveTargetProjectId}`);
+      invalidateClientCachedValue("projects:");
+      await Promise.all([
+        refreshSelectedItems(selectedId, { force: true }),
+        refreshProjects({ force: true }),
+      ]);
     } catch (error) {
       setItemActionError(error instanceof Error ? error.message : "Failed to move resource");
     } finally {

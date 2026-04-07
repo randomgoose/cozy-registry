@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getRegistryItems } from "@/lib/registry";
-import { auth } from "@/lib/auth";
+import { getCachedAuthSession } from "@/lib/auth-session";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
 import { getThumbnailFromMeta } from "@/lib/thumbnail";
@@ -26,10 +25,10 @@ type HomePageProps = {
 export default async function Home({ searchParams }: HomePageProps) {
   const resolvedSearchParams = await Promise.resolve(searchParams ?? {});
   const forceHomepage = resolvedSearchParams.home === "1";
-  let session: Awaited<ReturnType<typeof auth.api.getSession>> | null = null;
+  let session: Awaited<ReturnType<typeof getCachedAuthSession>> | null = null;
   let userHandle: string | null = null;
   try {
-    session = await auth.api.getSession({ headers: await headers() });
+    session = await getCachedAuthSession();
   } catch (err) {
     console.error("Failed to get session:", err);
   }

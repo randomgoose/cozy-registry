@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
-import { headers } from "next/headers";
 
-import { auth } from "@/lib/auth";
+import { getCachedAuthSession } from "@/lib/auth-session";
 import { createServerTimingLogger, timeAsync } from "@/lib/server-timing";
 import { getCachedWorkspaceRouteAccess } from "@/lib/workspace-route";
 import { WorkspaceScopeSync } from "./WorkspaceScopeSync";
@@ -19,7 +18,7 @@ export default async function WorkspaceSlugLayout({
   const timings = createServerTimingLogger("workspace-slug-layout");
   const { slug } = await params;
   const session = await timeAsync(timings, "sessionLookup", async () =>
-    auth.api.getSession({ headers: await headers() }),
+    getCachedAuthSession(),
   );
   if (!session?.user?.id) notFound();
   const activeOrganizationId = session.session?.activeOrganizationId ?? null;

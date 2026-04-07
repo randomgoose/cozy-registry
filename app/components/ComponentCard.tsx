@@ -1,17 +1,15 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/ui/button";
-import { PreviewPropsDebugPanel } from "./PreviewPropsDebugPanel";
-import { RegistryFileTree } from "./RegistryFileTree";
 import {
   PreviewFrame,
   type PreviewFrameHandle,
 } from "./PreviewFrame";
-import { CodeBlock } from "@/app/registry/[owner]/[name]/CodeBlock";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Copy01Icon,
@@ -45,9 +43,32 @@ import {
   getDependencyDisplayName,
   type DependencyDecision,
 } from "@/lib/dependency-diagnostics";
+import { getClientCachedValue } from "@/lib/client-cache";
 import { filterControllableProps } from "@/lib/preview-prop-controls";
 import { cn } from "@/lib/utils";
 import { extractPropsFromTsx, type PropField } from "@/lib/validate-tsx";
+
+const PreviewPropsDebugPanel = dynamic(
+  () => import("./PreviewPropsDebugPanel").then((mod) => mod.PreviewPropsDebugPanel),
+  {
+    ssr: false,
+    loading: () => <div className="text-xs text-zinc-500 dark:text-zinc-400">Loading controls…</div>,
+  },
+);
+
+const RegistryFileTree = dynamic(
+  () => import("./RegistryFileTree").then((mod) => mod.RegistryFileTree),
+  {
+    loading: () => <div className="text-xs text-zinc-500 dark:text-zinc-400">Loading files…</div>,
+  },
+);
+
+const CodeBlock = dynamic(
+  () => import("@/app/registry/[owner]/[name]/CodeBlock").then((mod) => mod.CodeBlock),
+  {
+    loading: () => <div className="text-xs text-zinc-500 dark:text-zinc-400">Loading code…</div>,
+  },
+);
 
 interface ComponentCardProps {
   itemId: string;
@@ -522,10 +543,16 @@ export function ComponentCard({
     if (collectionsLoading || collections.length > 0) return;
     setCollectionsLoading(true);
     try {
-      const res = await fetch("/api/collections", { cache: "no-store" });
-      const data = (await res.json().catch(() => null)) as
-        | { collections?: Array<{ id: string; title: string; slug: string }> }
-        | null;
+      const data = await getClientCachedValue(
+        "collections:list",
+        async () => {
+          const res = await fetch("/api/collections", { cache: "no-store" });
+          return (await res.json().catch(() => null)) as
+            | { collections?: Array<{ id: string; title: string; slug: string }> }
+            | null;
+        },
+        { ttlMs: 30_000 },
+      );
       setCollections(Array.isArray(data?.collections) ? data.collections : []);
     } finally {
       setCollectionsLoading(false);
@@ -606,20 +633,28 @@ export function ComponentCard({
         if (normalizedProject) {
           versionSearch.set("project", normalizedProject);
         }
-        const res = await fetch(
-          `/api/registry/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/versions${
-            versionSearch.size > 0 ? `?${versionSearch.toString()}` : ""
-          }`,
-          { signal: controller.signal, cache: "no-store" },
+        const data = await getClientCachedValue(
+          `registry-item-versions:${owner}:${project?.trim() ?? "root"}:${name}`,
+          async () => {
+            const res = await fetch(
+              `/api/registry/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/versions${
+                versionSearch.size > 0 ? `?${versionSearch.toString()}` : ""
+              }`,
+              { signal: controller.signal, cache: "no-store" },
+            );
+            if (!res.ok) {
+              return {
+                currentVersion: undefined,
+                versions: undefined,
+              };
+            }
+            return (await res.json()) as {
+              currentVersion?: string;
+              versions?: { version: string }[];
+            };
+          },
+          { ttlMs: 30_000 },
         );
-        if (!res.ok) {
-          if (!cancelled) setVersionMeta(null);
-          return;
-        }
-        const data = (await res.json()) as {
-          currentVersion?: string;
-          versions?: { version: string }[];
-        };
         if (cancelled) return;
         setVersionMeta({
           currentVersion:
@@ -657,24 +692,25 @@ export function ComponentCard({
       setDetailError(null);
       setDetailData(null);
       try {
-        const res = await fetch(registryItemJsonUrl(owner, name, project, vParam), {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!res.ok) {
-          if (!cancelled) {
-            setDetailError(`Failed to load (${res.status})`);
-          }
-          return;
-        }
-        const rawData = (await res.json()) as unknown;
-        const data = normalizeExpandedDetailData(rawData);
-        if (!data) {
-          if (!cancelled) {
-            setDetailError("Invalid detail response");
-          }
-          return;
-        }
+        const data = await getClientCachedValue(
+          `registry-item-detail:${owner}:${project?.trim() ?? "root"}:${name}:${vParam ?? "latest"}`,
+          async () => {
+            const res = await fetch(registryItemJsonUrl(owner, name, project, vParam), {
+              cache: "no-store",
+              signal: controller.signal,
+            });
+            if (!res.ok) {
+              throw new Error(`Failed to load (${res.status})`);
+            }
+            const rawData = (await res.json()) as unknown;
+            const normalized = normalizeExpandedDetailData(rawData);
+            if (!normalized) {
+              throw new Error("Invalid detail response");
+            }
+            return normalized;
+          },
+          { ttlMs: 30_000 },
+        );
         if (!cancelled) {
           detailLoadedKeyRef.current = itemKey;
           setDetailData(data);
@@ -703,7 +739,9 @@ export function ComponentCard({
           error instanceof DOMException && error.name === "AbortError";
         if (isAbort) return;
         if (!cancelled) {
-          setDetailError("Failed to load or timed out");
+          setDetailError(
+            error instanceof Error ? error.message : "Failed to load or timed out",
+          );
         }
       } finally {
         window.clearTimeout(timeoutId);

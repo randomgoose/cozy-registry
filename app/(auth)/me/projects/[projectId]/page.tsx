@@ -1,7 +1,6 @@
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
+import { getCachedAuthSession } from "@/lib/auth-session";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
 import { listProjectItems } from "@/lib/project-items";
@@ -17,7 +16,7 @@ export default async function PersonalProjectDetailPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getCachedAuthSession();
 
   if (!session?.user?.id) {
     return (

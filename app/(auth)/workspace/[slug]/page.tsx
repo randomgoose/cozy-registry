@@ -1,7 +1,6 @@
-import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { auth } from "@/lib/auth";
+import { getCachedAuthSession } from "@/lib/auth-session";
 import { getRegistryItemsByOrganizationId } from "@/lib/registry";
 import { ComponentCard } from "@/app/components/ComponentCard";
 import { getThumbnailFromMeta } from "@/lib/thumbnail";
@@ -19,7 +18,7 @@ export default async function WorkspaceItemsPage({ params }: { params: Promise<{
   const { slug: rawSlug } = await params;
   const slug = decodeURIComponent(rawSlug);
   const session = await timeAsync(timings, "sessionLookup", async () =>
-    auth.api.getSession({ headers: await headers() }),
+    getCachedAuthSession(),
   );
 
   if (!session?.user?.id) {

@@ -1,9 +1,8 @@
 import type { ReactNode } from "react";
-import { headers } from "next/headers";
 import { unstable_cache } from "next/cache";
 import { eq } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { getCachedAuthSession } from "@/lib/auth-session";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
 import { createServerTimingLogger, timeAsync } from "@/lib/server-timing";
@@ -35,7 +34,7 @@ const getCachedWorkspaceContext = unstable_cache(
 export default async function AuthLayout({ children }: { children: ReactNode }) {
   const timings = createServerTimingLogger("auth-layout");
   const session = await timeAsync(timings, "sessionLookup", async () =>
-    auth.api.getSession({ headers: await headers() }),
+    getCachedAuthSession(),
   );
   const email = session?.user?.email ?? null;
   const fullName =

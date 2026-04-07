@@ -1,7 +1,6 @@
-import { headers } from "next/headers";
 import Link from "next/link";
 import { eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
+import { getCachedAuthSession } from "@/lib/auth-session";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
 import { getRegistryItemsByUserId } from "@/lib/registry";
@@ -16,7 +15,7 @@ function normalizeVisibility(value: string): "public" | "private" {
 }
 
 export default async function PersonalItemsPage() {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getCachedAuthSession();
 
   if (!session?.user?.id) {
     return (

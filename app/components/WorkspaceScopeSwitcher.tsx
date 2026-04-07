@@ -123,6 +123,7 @@ export function WorkspaceScopeSwitcher({
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [optimisticOrganizationId, setOptimisticOrganizationId] = useState<string | null | undefined>(undefined);
+  const [switchPending, setSwitchPending] = useState(false);
   const [pending, startTransition] = useTransition();
   const [createOpen, setCreateOpen] = useState(false);
   const [orgName, setOrgName] = useState("");
@@ -133,9 +134,6 @@ export function WorkspaceScopeSwitcher({
       : workspace.organizations.find((org) => org.id === optimisticOrganizationId) ?? null;
 
   const activePrimaryLabel = effectiveActiveOrganization?.name ?? "Personal";
-  const activeSecondaryLabel = effectiveActiveOrganization
-    ? `@${effectiveActiveOrganization.slug}`
-    : "Your own registry";
   const activeAvatarName = effectiveActiveOrganization?.name ?? personalName ?? "Personal";
   const activeAvatarImage = effectiveActiveOrganization
     ? effectiveActiveOrganization.logo
@@ -157,31 +155,36 @@ export function WorkspaceScopeSwitcher({
     }
   }
 
-  function syncScopeInBackground(organizationId: string | null) {
-    void postJson("/api/auth/organization/set-active", { organizationId }).catch((nextError) => {
-      const message =
-        nextError instanceof Error
-          ? nextError.message
-          : "Failed to switch workspace";
-      setOptimisticOrganizationId(undefined);
-      setSwitchError(message);
-      toast.error(message);
-      router.refresh();
-    });
+  function syncScopeBeforeNavigation(organizationId: string | null, nextPath: string) {
+    setSwitchPending(true);
+    router.prefetch(nextPath);
+
+    void postJson("/api/auth/organization/set-active", { organizationId })
+      .then(() => {
+        startTransition(() => {
+          router.push(nextPath);
+        });
+      })
+      .catch((nextError) => {
+        const message =
+          nextError instanceof Error
+            ? nextError.message
+            : "Failed to switch workspace";
+        setOptimisticOrganizationId(undefined);
+        setSwitchError(message);
+        toast.error(message);
+      })
+      .finally(() => {
+        setSwitchPending(false);
+      });
   }
 
   function switchToPersonal() {
     if (!workspace.activeOrganization && optimisticOrganizationId == null) return;
-    startTransition(async () => {
-      try {
-        setSwitchError(null);
-        setOptimisticOrganizationId(null);
-        router.push(personalPathForSection(inferNavSection(pathname)));
-        syncScopeInBackground(null);
-      } catch {
-        setOptimisticOrganizationId(undefined);
-      }
-    });
+    const nextPath = personalPathForSection(inferNavSection(pathname));
+    setSwitchError(null);
+    setOptimisticOrganizationId(null);
+    syncScopeBeforeNavigation(null, nextPath);
   }
 
   function switchToOrganization(organizationId: string) {
@@ -189,16 +192,10 @@ export function WorkspaceScopeSwitcher({
     const slug = org?.slug;
     if (!slug) return;
     if (workspace.activeOrganization?.id === organizationId && optimisticOrganizationId !== null) return;
-    startTransition(async () => {
-      try {
-        setSwitchError(null);
-        setOptimisticOrganizationId(organizationId);
-        router.push(workspacePathForSlug(slug, inferNavSection(pathname)));
-        syncScopeInBackground(organizationId);
-      } catch {
-        setOptimisticOrganizationId(undefined);
-      }
-    });
+    const nextPath = workspacePathForSlug(slug, inferNavSection(pathname));
+    setSwitchError(null);
+    setOptimisticOrganizationId(organizationId);
+    syncScopeBeforeNavigation(organizationId, nextPath);
   }
 
   function createOrganization() {
@@ -299,7 +296,7 @@ export function WorkspaceScopeSwitcher({
           render={
             <button
               type="button"
-              disabled={pending}
+              disabled={pending || switchPending}
               className="inline-flex w-full items-center justify-between rounded-2xl px-2 text-left transition-colors hover:cursor-pointer disabled:cursor-wait disabled:opacity-70"
             />
           }
@@ -327,6 +324,7 @@ export function WorkspaceScopeSwitcher({
           <DropdownMenuItem
             className="rounded-xl px-3 py-2 text-sm text-zinc-700 focus:bg-black/[0.06] focus:text-zinc-950 dark:text-zinc-300 dark:focus:bg-black/30 dark:focus:text-zinc-50"
             onClick={switchToPersonal}
+            disabled={switchPending}
           >
             <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
@@ -356,6 +354,7 @@ export function WorkspaceScopeSwitcher({
                 key={organization.id}
                 className="rounded-xl px-3 py-2 text-sm text-zinc-700 focus:bg-black/[0.06] focus:text-zinc-950 dark:text-zinc-300 dark:focus:bg-black/30 dark:focus:text-zinc-50"
                 onClick={() => switchToOrganization(organization.id)}
+                disabled={switchPending}
               >
                 <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">

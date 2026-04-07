@@ -1,6 +1,5 @@
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { auth } from "@/lib/auth";
+import { getCachedAuthSession } from "@/lib/auth-session";
 import { listProjectItems } from "@/lib/project-items";
 import { listProjectsForScope } from "@/lib/project-list";
 import { getProjectIfAccessible, getUserProjectRole, roleCanEditProject } from "@/lib/project-permissions";
@@ -16,7 +15,7 @@ export default async function WorkspaceProjectDetailPage({
 }) {
   const { slug: rawSlug, projectId } = await params;
   const slug = decodeURIComponent(rawSlug);
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getCachedAuthSession();
 
   if (!session?.user?.id) {
     return (
