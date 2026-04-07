@@ -20,6 +20,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { extractPropsFromTsx } from "@/lib/validate-tsx";
 import {
   Table,
@@ -287,7 +295,9 @@ export function ProjectsPanel(props: {
   const [shareOpen, setShareOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
-  const [itemActionPending, setItemActionPending] = useState<"remove" | "move" | null>(null);
+  const [itemActionPending, setItemActionPending] = useState<
+    "remove" | "move" | "set-default-theme-ref" | null
+  >(null);
   const [itemActionError, setItemActionError] = useState<string | null>(null);
   const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
   const [warmPreviewSlots, setWarmPreviewSlots] = useState<WarmPreviewSlot[]>([]);
@@ -724,6 +734,25 @@ export function ProjectsPanel(props: {
     setCreateOpen(false);
   }
 
+  function selectProjectItem(itemId: string) {
+    setSelectedItemId(itemId);
+    setSelectedPath(null);
+    setItemDetailError(null);
+  }
+
+  function openMoveDialogForItem(itemId: string) {
+    selectProjectItem(itemId);
+    setItemActionError(null);
+    setMoveTargetProjectId("");
+    setMoveOpen(true);
+  }
+
+  function openRemoveDialogForItem(itemId: string) {
+    selectProjectItem(itemId);
+    setItemActionError(null);
+    setRemoveOpen(true);
+  }
+
   async function handleRemoveSelectedItem() {
     if (!selectedId || !selectedItemId) return;
     const removedItemId = selectedItemId;
@@ -799,6 +828,41 @@ export function ProjectsPanel(props: {
       ]);
     } catch (error) {
       setItemActionError(error instanceof Error ? error.message : "Failed to move resource");
+    } finally {
+      setItemActionPending(null);
+    }
+  }
+
+  async function handleSetProjectDefaultThemeRef(item: ProjectItemRow) {
+    if (!selectedId) return;
+    const nextDefaultThemeRef = `@${props.registryOwner}/${item.name}`;
+    setItemActionPending("set-default-theme-ref");
+    setItemActionError(null);
+    try {
+      const response = await fetch(`/api/projects/${selectedId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ defaultThemeResourceRef: nextDefaultThemeRef }),
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? "Failed to set project default theme");
+      }
+
+      setProjects((prev) =>
+        prev.map((project) =>
+          project.id === selectedId
+            ? { ...project, defaultThemeResourceRef: nextDefaultThemeRef }
+            : project,
+        ),
+      );
+      invalidateClientCachedValue(projectsCacheKey);
+      invalidateClientCachedValue("projects:");
+    } catch (error) {
+      setItemActionError(error instanceof Error ? error.message : "Failed to set project default theme");
+      if (typeof window !== "undefined") {
+        window.alert(error instanceof Error ? error.message : "Failed to set project default theme");
+      }
     } finally {
       setItemActionPending(null);
     }
@@ -1116,34 +1180,78 @@ export function ProjectsPanel(props: {
                   {projectItems.map((it) => {
                     const active = it.itemId === selectedItemId;
                     const typeIcon = getProjectItemTypeIcon(it.type);
+                    const isThemeResource = normalizeRegistryItemType(it.type) === REGISTRY_THEME_TYPE;
+                    const candidateDefaultThemeRef = `@${props.registryOwner}/${it.name}`;
+                    const isCurrentProjectDefaultTheme =
+                      selectedProject?.defaultThemeResourceRef === candidateDefaultThemeRef;
                     return (
-                      <button
+                      <ContextMenu
                         key={it.itemId}
-                        type="button"
-                        onClick={() => {
-                          setSelectedItemId(it.itemId);
-                          setSelectedPath(null);
-                          setItemDetailError(null);
+                        onOpenChange={(open) => {
+                          if (open) selectProjectItem(it.itemId);
                         }}
-                        className={`w-full rounded-lg px-3 py-2.5 text-left transition ${
-                          active
-                            ? "bg-zinc-100 text-zinc-950 dark:bg-zinc-800 dark:text-zinc-50"
-                            : "text-zinc-700 hover:bg-zinc-100/80 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                        }`}
                       >
-                        <div className="flex items-start gap-3">
-                          <span
-                            className={`mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg ${typeIcon.className}`}
-                            aria-hidden="true"
+                        <ContextMenuTrigger>
+                          <button
+                            type="button"
+                            onClick={() => selectProjectItem(it.itemId)}
+                            className={`w-full rounded-lg px-3 py-2.5 text-left transition ${
+                              active
+                                ? "bg-zinc-100 text-zinc-950 dark:bg-zinc-800 dark:text-zinc-50"
+                                : "text-zinc-700 hover:bg-zinc-100/80 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                            }`}
                           >
-                            <HugeiconsIcon icon={typeIcon.icon} size={18} strokeWidth={1.8} />
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{it.title}</p>
-                            <p className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">{it.name}</p>
-                          </div>
-                        </div>
-                      </button>
+                            <div className="flex items-start gap-3">
+                              <span
+                                className={`mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg ${typeIcon.className}`}
+                                aria-hidden="true"
+                              >
+                                <HugeiconsIcon icon={typeIcon.icon} size={18} strokeWidth={1.8} />
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                  {it.title}
+                                </p>
+                                <p className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">
+                                  {it.name}
+                                </p>
+                              </div>
+                            </div>
+                          </button>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-52">
+                          <ContextMenuLabel className="truncate">{it.title}</ContextMenuLabel>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            disabled={!canEditProject || itemActionPending !== null}
+                            onClick={() => openMoveDialogForItem(it.itemId)}
+                          >
+                            Move resource
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            variant="destructive"
+                            disabled={!canEditProject || itemActionPending !== null}
+                            onClick={() => openRemoveDialogForItem(it.itemId)}
+                          >
+                            Remove resource
+                          </ContextMenuItem>
+                          {isThemeResource ? (
+                            <>
+                              <ContextMenuSeparator />
+                              <ContextMenuItem
+                                disabled={
+                                  !canEditProject || itemActionPending !== null || isCurrentProjectDefaultTheme
+                                }
+                                onClick={() => handleSetProjectDefaultThemeRef(it)}
+                              >
+                                {isCurrentProjectDefaultTheme
+                                  ? "Already project default source ref"
+                                  : "Set as project default source ref"}
+                              </ContextMenuItem>
+                            </>
+                          ) : null}
+                        </ContextMenuContent>
+                      </ContextMenu>
                     );
                   })}
                 </div>
