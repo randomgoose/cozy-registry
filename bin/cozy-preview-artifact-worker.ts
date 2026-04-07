@@ -33,7 +33,28 @@ async function main() {
 async function runOnce() {
   const job = await claimPendingPreviewArtifactJob();
   if (!job) return false;
-  await processPreviewArtifactJob(job.id);
+  try {
+    await processPreviewArtifactJob(job.id);
+  } catch (error) {
+    if (error && typeof error === "object") {
+      const record = error as { message?: string; stack?: string };
+      process.stderr.write(
+        `${JSON.stringify(
+          {
+            message: record.message ?? String(error),
+            stack: record.stack,
+            jobId: job.id,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    } else {
+      process.stderr.write(
+        `${JSON.stringify({ message: String(error), jobId: job.id }, null, 2)}\n`,
+      );
+    }
+  }
   return true;
 }
 

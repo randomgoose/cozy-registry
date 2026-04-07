@@ -76,6 +76,7 @@ async function main() {
       ownerHandle: user.handle,
       organizationSlug: organization.slug,
       version: registryItemVersions.version,
+      createdBy: registryItemVersions.createdBy,
     })
     .from(registryPreviewArtifacts)
     .innerJoin(registryItems, eq(registryPreviewArtifacts.itemId, registryItems.id))
@@ -127,16 +128,16 @@ async function main() {
     await enqueuePreviewArtifactJob({
       itemId: row.itemId,
       itemVersionId: row.itemVersionId,
-      payload: {
-        owner,
-        project: row.canonicalProjectKey ?? null,
-        name: row.itemName,
-        version: row.version ?? row.currentVersion ?? "0.1.0",
-        mode: row.mode === "thumbnail" ? "thumbnail" : "default",
-        storyId: row.storyId?.trim() || null,
-        requestUserId: row.ownerUserId ?? null,
-      },
-    });
+        payload: {
+          owner,
+          project: row.canonicalProjectKey ?? null,
+          name: row.itemName,
+          version: row.version ?? row.currentVersion ?? "0.1.0",
+          mode: row.mode === "thumbnail" ? "thumbnail" : "default",
+          storyId: row.storyId?.trim() || null,
+          requestUserId: row.ownerUserId ?? row.createdBy ?? null,
+        },
+      });
 
     process.stdout.write(`${JSON.stringify({ requeued: true, ...payload })}\n`);
     requeued += 1;
