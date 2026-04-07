@@ -1,4 +1,8 @@
 import type { PreviewCompatibleExternal } from "@/lib/preview-dependency-provider";
+import {
+  buildCompatibleRemoteSourceUrl,
+  getCompatibleExternalImportUrl,
+} from "@/lib/preview-compatible-delivery";
 
 export const PREVIEW_REACT_VERSION = "19.2.3";
 
@@ -38,8 +42,6 @@ function buildImportMap(input: {
   isDev: boolean;
   bundledReact: boolean;
 }): Record<string, string> {
-  const reactExternal = "?external=react,react-dom,react-dom/client";
-
   const imports: Record<string, string> = {};
 
   if (!input.bundledReact) {
@@ -61,9 +63,12 @@ function buildImportMap(input: {
   for (const ext of input.compatibleExternals) {
     const target = ext.importMapTarget?.trim();
     if (!target || target in imports) continue;
-    const base = `https://esm.sh/${target}`;
-    const joiner = base.includes("?") ? "&" : "?";
-    imports[target] = `${base}${joiner}${reactExternal.slice(1)}&bundle`;
+    imports[target] =
+      getCompatibleExternalImportUrl(ext) ||
+      buildCompatibleRemoteSourceUrl({
+        importMapTarget: target,
+        isDev: input.isDev,
+      });
   }
 
   return imports;

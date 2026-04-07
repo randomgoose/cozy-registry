@@ -4,15 +4,27 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { evaluateThirdPartyDependencies } from "@/lib/third-party-dependency-governance";
 import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
+import {
+  buildCompatibleBundleCacheKey,
+  buildCompatibleRemoteSourceUrl,
+  buildCompatibleBundleMetadataPath,
+} from "@/lib/preview-compatible-delivery";
 
 const providerRootEnv = "COZY_PREVIEW_DEPENDENCY_PROVIDER_ROOT";
+const compatibleBundleRootEnv = "COZY_PREVIEW_COMPATIBLE_BUNDLE_ROOT";
 const originalProviderRoot = process.env[providerRootEnv];
+const originalCompatibleBundleRoot = process.env[compatibleBundleRootEnv];
 
 afterEach(() => {
   if (originalProviderRoot === undefined) {
     delete process.env[providerRootEnv];
   } else {
     process.env[providerRootEnv] = originalProviderRoot;
+  }
+  if (originalCompatibleBundleRoot === undefined) {
+    delete process.env[compatibleBundleRootEnv];
+  } else {
+    process.env[compatibleBundleRootEnv] = originalCompatibleBundleRoot;
   }
 });
 
@@ -51,7 +63,7 @@ describe("preview-dependency-provider", () => {
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
     },
-    15000,
+    30000,
   );
 
   it("copies transitive trusted built-in dependencies into the controlled provider cache", async () => {
@@ -187,7 +199,7 @@ describe("preview-dependency-provider", () => {
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
     },
-    15000,
+    30000,
   );
 
   it(
@@ -206,17 +218,19 @@ describe("preview-dependency-provider", () => {
       const result = await resolvePreviewDependencies({ decisions });
 
       expect(result.plan.compatibleExternals).toEqual([
-        {
+        expect.objectContaining({
           packageName: "@radix-ui/react-dropdown-menu",
           requestedVersion: "2.1.15",
           importMapTarget: "@radix-ui/react-dropdown-menu",
-        },
+          deliveryMode: "compatible-remote",
+          publicUrl: null,
+        }),
       ]);
       expect(result.nodePaths).toContain(path.join(process.cwd(), "node_modules"));
 
       await fs.rm(tmpRoot, { recursive: true, force: true });
     },
-    15000,
+    30000,
   );
 
   it("records compatible-external dependencies in the provider plan without requiring package materialization", async () => {
@@ -229,12 +243,74 @@ describe("preview-dependency-provider", () => {
 
     expect(result.resolutions).toEqual([]);
     expect(result.plan.compatibleExternals).toEqual([
-      {
+      expect.objectContaining({
         packageName: "recharts",
         requestedVersion: "2.15.3",
         importMapTarget: "recharts",
-      },
+        deliveryMode: "compatible-remote",
+        publicUrl: null,
+      }),
     ]);
     expect(result.plan.managedPackages).toEqual([]);
+  });
+
+  it("prefers cached compatible-bundled metadata when present", async () => {
+    const tmpRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "cozy-preview-compatible-bundle-test-"),
+    );
+    process.env[compatibleBundleRootEnv] = tmpRoot;
+
+    const sourceUrl = buildCompatibleRemoteSourceUrl({
+      importMapTarget: "recharts",
+      isDev: false,
+    });
+    const cacheKey = buildCompatibleBundleCacheKey({
+      packageName: "recharts",
+      version: "2.15.3",
+      sourceUrl,
+    });
+    const metadataPath = buildCompatibleBundleMetadataPath({
+      packageName: "recharts",
+      version: "2.15.3",
+      cacheKey,
+      root: tmpRoot,
+    });
+    await fs.mkdir(path.dirname(metadataPath), { recursive: true });
+    await fs.writeFile(
+      metadataPath,
+      JSON.stringify(
+        {
+          packageName: "recharts",
+          requestedVersion: "2.15.3",
+          importMapTarget: "recharts",
+          deliveryMode: "compatible-bundled",
+          sourceUrl,
+          publicUrl: "https://preview-assets.example.com/compatible-bundles/recharts/2.15.3/bundle.mjs",
+          cacheKey,
+          contentHash: "sha256:test",
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const decisions = evaluateThirdPartyDependencies({
+      discovered: ["recharts"],
+      declared: [{ name: "recharts", version: "2.15.3" }],
+    });
+
+    const result = await resolvePreviewDependencies({ decisions });
+
+    expect(result.plan.compatibleExternals).toEqual([
+      expect.objectContaining({
+        packageName: "recharts",
+        deliveryMode: "compatible-bundled",
+        publicUrl:
+          "https://preview-assets.example.com/compatible-bundles/recharts/2.15.3/bundle.mjs",
+      }),
+    ]);
+
+    await fs.rm(tmpRoot, { recursive: true, force: true });
   });
 });

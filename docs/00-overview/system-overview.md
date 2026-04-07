@@ -1,6 +1,6 @@
 Status: active
 Owner: engineering
-Last updated: 2025-02-14
+Last updated: 2026-04-07
 Source of truth: yes
 
 # System Overview
@@ -28,20 +28,36 @@ Source of truth: yes
    Web 页面和 `/api/registry` 从数据库读取 item
    `/api/r/...` 输出 shadcn 风格条目 JSON
 
-3. 预览
+3. 预览构建
    服务端将源码 bundle 写入临时目录
    用 `esbuild` 构建预览产物
-   浏览器在 iframe 中加载运行时 HTML 和产物
+   worker 会生成并上传静态 preview artifact，例如：
+   - `preview.js`
+   - `preview.css`
+   - `manifest.json`
+   - `preview.html`
+   - 可选的 `stories.html`
 
-4. AI 使用
+4. 预览分发与运行
+   Web 页面优先命中 ready artifact
+   `/preview/...` route 逐步收敛为 artifact-first 的薄控制层
+   浏览器在 iframe 中加载静态 preview HTML 与产物，而不是每次请求时重新拼装页面
+
+5. AI 使用
    AI 客户端通过 `/api/mcp` 或本地 `mcp-server.ts` 调用 `list_components` / `get_component` / `publish_component`
 
 ## 当前实现特点
 
 - owner 既支持 handle，也兼容 legacy `userId`
-- 资产是源码分发，不是编译产物分发
+- 资产发布仍以源码与版本快照为中心，但 preview 已进入“构建后分发 artifact”的主路径
 - 同时支持 `registry:block`、`registry:ui`、`registry:theme`
-- theme 支持作为独立 registry item，并可通过 `registryDependencies` 递归注入
+- theme 支持作为独立 registry item，并可通过 `registryDependencies` 与 project-level relationship 参与 preview / docs 渲染
+- registry 正式身份已升级为 `owner + project + name`，同时兼容 legacy `owner + name`
+- preview 第三方依赖已形成多层模型：
+  - governance layer：决定依赖是否允许、属于哪种政策边界
+  - execution layer：在允许前提下选择 `managed-artifact` / `compatible-artifact` / `runtime-only`
+  - delivery layer：逐步从 `compatible-remote` 演进到平台控制的 `compatible-bundled`
+- preview artifact 已通过对象存储 public URL + 长缓存头静态分发，并继续朝 CDN 优先分发收敛
 - API key 支持集合、类型和 owner 范围限制
 
 ## 工程与优化 backlog
@@ -61,3 +77,7 @@ Source of truth: yes
 - [Project-Scoped Registry Identity Spec](../20-engineering/project-scoped-registry-identity-spec.md)：将 registry 正式身份从 `owner + name` 升级到 `owner + project + name` 的系统方案。
 - [Project Resource Relationship Spec](../20-engineering/project-resource-relationship-spec.md)：将 project 升级为默认设计上下文边界，先从 `defaultThemeResourceRef` 与 resource-level theme override 做起。
 - [Live Style Preview And Committed Artifact Spec](../20-engineering/live-style-preview-and-committed-artifact-spec.md)：将 runtime 样式覆盖与 committed artifact 重建拆成两条协同链路，服务轻量调样式体验。
+- [Vercel React Best Practices For My App](../20-engineering/vercel-react-best-practices-for-my-app.md)：将 Vercel React/Next.js 性能规则映射到当前仓库的具体文件与优化动作。
+- [Preview Delivery And CDN Plan](../20-engineering/preview-delivery-and-cdn-plan.md)：梳理 preview artifact 当前的对象存储 / CDN 分发现状、剩余瓶颈与后续提速方向。
+- [Dependency Execution Strategy Heuristic Spec](../20-engineering/dependency-execution-strategy-heuristic-spec.md)：在治理边界内按依赖复杂度与平台交付能力自动选择构建策略，并把平台控制缓存/CDN 纳入 compatible delivery。
+- [Compatible Bundled Delivery Spec](../20-engineering/compatible-bundled-delivery-spec.md)：将 compatible externals 从远端多模块拉取优化为平台控制的单文件/少量 chunk 交付。

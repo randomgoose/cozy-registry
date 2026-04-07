@@ -189,6 +189,23 @@ export function buildRegistryPreviewArtifactPath(params: {
     .join("/");
 }
 
+export function buildCompatibleBundleStoragePath(params: {
+  packageName: string;
+  version: string;
+  cacheKey: string;
+  filename: "bundle.mjs" | "metadata.json";
+}) {
+  return [
+    "compatible-bundles",
+    params.packageName,
+    params.version,
+    params.cacheKey,
+    params.filename,
+  ]
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
+
 export async function uploadPublicAsset(params: UploadAssetParams) {
   const provider = getPublicStorageProvider();
   return provider.uploadPublicAsset(params);

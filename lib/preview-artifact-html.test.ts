@@ -56,4 +56,32 @@ describe("preview-artifact-html", () => {
       "https://example.supabase.co/storage/v1/object/public/registry-preview-artifacts/preview-react-bundles/19.2.3/react.mjs",
     );
   });
+
+  it("prefers platform-controlled compatible delivery URLs when present", () => {
+    const html = buildArtifactPreviewHtml({
+      jsUrl: "https://cdn.example.com/preview.js",
+      compatibleExternals: [
+        {
+          packageName: "recharts",
+          requestedVersion: "2.15.3",
+          importMapTarget: "recharts",
+          deliveryMode: "compatible-bundled",
+          sourceUrl:
+            "https://esm.sh/recharts?external=react,react-dom,react-dom/client&bundle",
+          publicUrl: "https://preview-assets.example.com/npm/recharts/2.15.3/bundle.mjs",
+          cacheKey: "compatible-bundle:recharts:2.15.3:hash:react-peer",
+          contentHash: null,
+        },
+      ],
+      mode: "default",
+      bundledReact: false,
+    });
+
+    expect(html).toContain(
+      "https://preview-assets.example.com/npm/recharts/2.15.3/bundle.mjs",
+    );
+    expect(html).not.toContain(
+      "https://esm.sh/recharts?external=react,react-dom,react-dom/client&bundle",
+    );
+  });
 });

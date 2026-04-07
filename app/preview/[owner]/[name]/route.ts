@@ -63,6 +63,7 @@ import {
   readDependencyDecisionsFromMeta,
   readDeclaredThirdPartyDependenciesFromMeta,
 } from "@/lib/third-party-dependency-governance";
+import { getCompatibleExternalImportUrl } from "@/lib/preview-compatible-delivery";
 
 function escapeHtml(s: string): string {
   return s
@@ -694,6 +695,7 @@ export async function GET(
       artifactCapability === "compatible-artifact"
         ? getCompatibleArtifactDependencyDisplayNames(dependencyDecisions)
         : [];
+    let runtimeImportMapEntries: Record<string, string> | null = null;
     let manifestPlanUsed = runtimeDependencies.length > 0;
     if (!manifestPlanUsed && artifactManifestUrl) {
       try {
@@ -703,16 +705,46 @@ export async function GET(
         if (manifestRes.ok) {
           const manifestJson = (await manifestRes.json()) as {
             dependencyPlan?: {
-              compatibleExternals?: Array<{ importMapTarget?: string | null }>;
+              compatibleExternals?: Array<{
+                importMapTarget?: string | null;
+                sourceUrl?: string | null;
+                publicUrl?: string | null;
+                deliveryMode?: "compatible-remote" | "compatible-bundled" | null;
+              }>;
             };
           };
           const compatibleExternals =
             manifestJson.dependencyPlan?.compatibleExternals ?? [];
-          const compatibleTargets = compatibleExternals
-            .map((entry) => entry.importMapTarget?.trim())
-            .filter((entry): entry is string => !!entry && !entry.startsWith("react"));
-          if (compatibleTargets.length > 0) {
-            runtimeDependencies = Array.from(new Set(compatibleTargets)).sort();
+          const compatibleEntries = compatibleExternals
+            .map((entry) => {
+              const target = entry.importMapTarget?.trim();
+              if (!target || target.startsWith("react")) return null;
+              return [
+                target,
+                getCompatibleExternalImportUrl({
+                  deliveryMode:
+                    entry.deliveryMode === "compatible-bundled"
+                      ? "compatible-bundled"
+                      : "compatible-remote",
+                  publicUrl: entry.publicUrl ?? null,
+                  sourceUrl: entry.sourceUrl ?? (() => {
+                    const base = `https://esm.sh/${target}${devSuffix}`;
+                    const joiner = base.includes("?") ? "&" : "?";
+                    return `${base}${joiner}external=react,react-dom,react-dom/client&bundle`;
+                  })(),
+                }),
+              ] as const;
+            })
+            .filter(
+              (
+                entry,
+              ): entry is readonly [string, string] => !!entry && !!entry[1],
+            );
+          if (compatibleEntries.length > 0) {
+            runtimeDependencies = Array.from(
+              new Set(compatibleEntries.map(([target]) => target)),
+            ).sort();
+            runtimeImportMapEntries = Object.fromEntries(compatibleEntries);
             manifestPlanUsed = true;
           }
         }
@@ -735,13 +767,15 @@ export async function GET(
         .filter((dep) => !dep.startsWith("react"))
         .sort();
     }
-    const runtimeImportMap = Object.fromEntries(
-      runtimeDependencies.map((dep) => {
-        const base = `https://esm.sh/${dep}${devSuffix}`;
-        const joiner = base.includes("?") ? "&" : "?";
-        return [dep, `${base}${joiner}external=react,react-dom,react-dom/client`];
-      }),
-    );
+    const runtimeImportMap =
+      runtimeImportMapEntries ??
+      Object.fromEntries(
+        runtimeDependencies.map((dep) => {
+          const base = `https://esm.sh/${dep}${devSuffix}`;
+          const joiner = base.includes("?") ? "&" : "?";
+          return [dep, `${base}${joiner}external=react,react-dom,react-dom/client`];
+        }),
+      );
     const importMapJson = JSON.stringify(
       {
         imports: {

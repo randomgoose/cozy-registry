@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import { registryPreviewArtifacts } from "@/lib/db/schema";
 import { buildArtifactPreviewHtml } from "@/lib/preview-artifact-html";
 import type { PreviewCompatibleExternal } from "@/lib/preview-dependency-provider";
+import { resolveCompatibleExternalDelivery } from "@/lib/preview-compatible-delivery";
 import { uploadPublicAsset, buildRegistryPreviewArtifactPath } from "@/lib/storage";
 import { sha256 } from "@/lib/preview-build-cache";
 
@@ -37,6 +38,11 @@ type ManifestJson = {
       packageName: string;
       requestedVersion: string | null;
       importMapTarget: string;
+      deliveryMode?: "compatible-remote" | "compatible-bundled";
+      sourceUrl?: string | null;
+      publicUrl?: string | null;
+      cacheKey?: string | null;
+      contentHash?: string | null;
     }>;
   };
 };
@@ -107,6 +113,9 @@ async function main() {
 
       let compatibleExternals: PreviewCompatibleExternal[] = [];
       let manifestData: ManifestJson | null = null;
+      const mode = (artifact.mode === "thumbnail" ? "thumbnail" : "default") as
+        | "default"
+        | "thumbnail";
 
       if (artifact.manifestUrl) {
         try {
@@ -114,16 +123,37 @@ async function main() {
           if (res.ok) {
             manifestData = (await res.json()) as ManifestJson;
             compatibleExternals =
-              manifestData?.dependencyPlan?.compatibleExternals ?? [];
+              manifestData?.dependencyPlan?.compatibleExternals?.map((entry) =>
+                entry.sourceUrl || entry.deliveryMode || entry.publicUrl
+                  ? {
+                      packageName: entry.packageName,
+                      requestedVersion: entry.requestedVersion,
+                      importMapTarget: entry.importMapTarget,
+                      deliveryMode: entry.deliveryMode ?? "compatible-remote",
+                      sourceUrl:
+                        entry.sourceUrl ??
+                        resolveCompatibleExternalDelivery({
+                          packageName: entry.packageName,
+                          requestedVersion: entry.requestedVersion,
+                          importMapTarget: entry.importMapTarget,
+                          isDev: mode === "default",
+                        }).sourceUrl,
+                      publicUrl: entry.publicUrl ?? null,
+                      cacheKey: entry.cacheKey ?? null,
+                      contentHash: entry.contentHash ?? null,
+                    }
+                  : resolveCompatibleExternalDelivery({
+                      packageName: entry.packageName,
+                      requestedVersion: entry.requestedVersion,
+                      importMapTarget: entry.importMapTarget,
+                      isDev: mode === "default",
+                    }),
+              ) ?? [];
           }
         } catch {
           // proceed without manifest data
         }
       }
-
-      const mode = (artifact.mode === "thumbnail" ? "thumbnail" : "default") as
-        | "default"
-        | "thumbnail";
 
       const hasCompatibleExternals = compatibleExternals.length > 0;
       const html = buildArtifactPreviewHtml({

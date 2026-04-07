@@ -49,3 +49,10 @@ next-env.d.ts
 
 # cursor
 .cursor
+
+# local agent / skill workspace files
+.agents/
+.claude/
+.kiro/
+.windsurf/
+skills-lock.json

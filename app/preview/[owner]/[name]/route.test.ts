@@ -253,4 +253,53 @@ describe("preview route state pages", () => {
     expect(html).toContain("https://cdn.example.com/preview.js");
     expect(html).not.toContain("https://cdn.tailwindcss.com");
   });
+
+  it("prefers manifest-provided platform delivery URLs for compatible externals", async () => {
+    createSelectChain([
+      [{ id: "version-1" }],
+      [
+        {
+          status: "ready",
+          artifactCapability: "compatible-artifact",
+          jsUrl: "https://cdn.example.com/preview.js",
+          cssUrl: null,
+          manifestUrl: "https://cdn.example.com/manifest.json",
+          lastErrorMessage: null,
+        },
+      ],
+    ]);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        dependencyPlan: {
+          compatibleExternals: [
+            {
+              importMapTarget: "recharts",
+              deliveryMode: "compatible-bundled",
+              publicUrl: "https://preview-assets.example.com/npm/recharts/2.15.3/bundle.mjs",
+              sourceUrl:
+                "https://esm.sh/recharts?external=react,react-dom,react-dom/client&bundle",
+            },
+          ],
+        },
+      }),
+    });
+
+    const { GET } = await import("@/app/preview/[owner]/[name]/route");
+    const response = await GET(
+      new Request("http://localhost/preview/indeed-cozy/chart"),
+      {
+        params: Promise.resolve({ owner: "indeed-cozy", name: "chart" }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain(
+      "https://preview-assets.example.com/npm/recharts/2.15.3/bundle.mjs",
+    );
+    expect(html).not.toContain(
+      "https://esm.sh/recharts?dev&external=react,react-dom,react-dom/client",
+    );
+  });
 });

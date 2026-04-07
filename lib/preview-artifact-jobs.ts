@@ -37,6 +37,8 @@ import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
 import { isBarePackageSpecifier } from "@/lib/module-specifiers";
 import { buildMultiStoryPreviewHtml } from "@/lib/multi-story-preview-html";
 import { buildArtifactPreviewHtml } from "@/lib/preview-artifact-html";
+import { resolveCompatibleExternalDelivery } from "@/lib/preview-compatible-delivery";
+import { maybeMaterializeCompatibleBundles } from "@/lib/compatible-bundle-materializer";
 
 /** 公开存储路径按 artifactKey 固定为 preview.js，长期 Cache-Control 会留下陈旧内容；用内容哈希 bust 浏览器/CDN。 */
 function publicAssetUrlWithContentBust(url: string, body: string): string {
@@ -734,6 +736,25 @@ export async function processPreviewArtifactJob(jobId: string) {
       storiesHtml,
     );
 
+    const resolvedCompatibleExternals =
+      resolvedPreviewDependencies.plan.compatibleExternals.map((entry) =>
+        resolveCompatibleExternalDelivery({
+          packageName: entry.packageName,
+          requestedVersion: entry.requestedVersion,
+          importMapTarget: entry.importMapTarget,
+          isDev: mode === "default" && !canFullyBundle,
+        }),
+      );
+    const compatibleExternalsForArtifact =
+      await maybeMaterializeCompatibleBundles({
+        entries: resolvedCompatibleExternals,
+        upload: true,
+      });
+    const dependencyPlan = {
+      ...resolvedPreviewDependencies.plan,
+      compatibleExternals: compatibleExternalsForArtifact,
+    };
+
     const manifest = {
       schemaVersion: 1,
       owner: payload.owner,
@@ -746,7 +767,7 @@ export async function processPreviewArtifactJob(jobId: string) {
       jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
       storiesHtmlUrl: storiesHtmlUrlForClients,
-      dependencyPlan: resolvedPreviewDependencies.plan,
+      dependencyPlan,
       dependencyResolutionDiagnostics:
         buildResult.dependencyResolutionDiagnostics ?? [],
     };
@@ -770,7 +791,7 @@ export async function processPreviewArtifactJob(jobId: string) {
     const previewHtml = buildArtifactPreviewHtml({
       jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
-      compatibleExternals: resolvedPreviewDependencies.plan.compatibleExternals,
+      compatibleExternals: compatibleExternalsForArtifact,
       mode,
       bundledReact: canFullyBundle,
     });

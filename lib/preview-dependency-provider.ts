@@ -8,6 +8,10 @@ import {
   getPrebundleDependencies,
   type DependencyDecision,
 } from "@/lib/third-party-dependency-governance";
+import {
+  resolveCompatibleExternalDelivery,
+  type PreviewCompatibleExternalDelivery,
+} from "@/lib/preview-compatible-delivery";
 
 export type PreviewDependencyResolutionSource = "provider" | "host-fallback";
 
@@ -31,11 +35,7 @@ export type PreviewDependencyResolutionDiagnostic = {
   hostFallbackUsed?: boolean;
 };
 
-export type PreviewCompatibleExternal = {
-  packageName: string;
-  requestedVersion: string | null;
-  importMapTarget: string;
-};
+export type PreviewCompatibleExternal = PreviewCompatibleExternalDelivery;
 
 export type PreviewDependencyPlan = {
   managedPackages: PreviewDependencyResolution[];
@@ -94,11 +94,12 @@ export async function resolvePreviewDependencies(params: {
   const compatibleExternals: PreviewCompatibleExternal[] = compatibleExternalNames.map(
     (packageName) => {
       const decision = byName.get(packageName);
-      return {
+      return resolveCompatibleExternalDelivery({
         packageName,
         requestedVersion: decision?.requestedVersion ?? null,
         importMapTarget: packageName,
-      };
+        isDev: false,
+      });
     },
   );
 
