@@ -51,12 +51,10 @@ import {
   resolveCanonicalRegistryProjectForWrite,
 } from "@/lib/registry-project-access";
 import { createRegistryProject } from "@/lib/registry-project-create";
-import { linkRegistryItemToProject } from "@/lib/registry-project-link-item";
 import { db } from "@/lib/db";
 import {
   registryFiles,
   registryItems,
-  registryProjectItems,
   registryProjectMembers,
   registryProjects,
 } from "@/lib/db/schema";
@@ -260,18 +258,6 @@ export function createRegistryMcpServer(request?: Request) {
     return policy;
   }
 
-  async function attachPublishedItemToProject(
-    userId: string,
-    project: { id: string; slug: string },
-    itemId: string,
-  ): Promise<{ ok: true; note: string } | { ok: false; error: string }> {
-    const linked = await linkRegistryItemToProject({ userId, projectId: project.id, itemId });
-    if (!linked.ok) {
-      return { ok: false, error: linked.error };
-    }
-    return { ok: true, note: `Linked to registry project "${project.slug}".` };
-  }
-
   async function findProjectScopedRegistryItemByName(params: {
     userId: string;
     projectSlug: string;
@@ -299,11 +285,10 @@ export function createRegistryMcpServer(request?: Request) {
       .select({
         id: registryItems.id,
       })
-      .from(registryProjectItems)
-      .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
+      .from(registryItems)
       .where(
         and(
-          eq(registryProjectItems.projectId, project.id),
+          eq(registryItems.canonicalProjectId, project.id),
           eq(registryItems.name, params.name),
           ownershipClause,
         ),
@@ -333,62 +318,6 @@ export function createRegistryMcpServer(request?: Request) {
     };
 
     return { ok: true as const, item: item ?? null };
-  }
-
-  async function findRegistryItemLinkedToProjectByName(params: {
-    project: { id: string; organizationId: string | null; ownerUserId: string | null };
-    name: string;
-  }) {
-    const ownershipClause =
-      params.project.organizationId != null
-        ? eq(registryItems.organizationId, params.project.organizationId)
-        : params.project.ownerUserId != null
-          ? eq(registryItems.userId, params.project.ownerUserId)
-          : null;
-    if (!ownershipClause) {
-      return { ok: false as const, error: "Project has no resolvable owner scope." };
-    }
-
-    const [row] = await db
-      .select({
-        id: registryItems.id,
-      })
-      .from(registryProjectItems)
-      .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
-      .where(
-        and(
-          eq(registryProjectItems.projectId, params.project.id),
-          eq(registryItems.name, params.name),
-          ownershipClause,
-        ),
-      )
-      .orderBy(desc(registryItems.updatedAt))
-      .limit(1);
-
-    if (!row) {
-      return { ok: true as const, item: null };
-    }
-
-    const [itemBase] = await db
-      .select()
-      .from(registryItems)
-      .where(eq(registryItems.id, row.id))
-      .limit(1);
-    if (!itemBase) {
-      return { ok: true as const, item: null };
-    }
-    const itemFiles = await db
-      .select()
-      .from(registryFiles)
-      .where(eq(registryFiles.itemId, itemBase.id));
-
-    return {
-      ok: true as const,
-      item: {
-        ...itemBase,
-        files: itemFiles,
-      },
-    };
   }
 
   async function listRegistryProjectsForMcp() {
@@ -2906,7 +2835,7 @@ ${fileContent}
       const normalizedTheme = normalizePublishThemeArgs(args);
 
       // Project-first uniqueness:
-      // - When project slug is provided, only update an item already linked to that project.
+      // - When project slug is provided, only update an item whose canonical identity is already scoped to that project.
       // - Otherwise keep legacy owner/name behavior.
       const existing = await (async () => {
         if (!canonicalProjectForLink.project) {
@@ -2919,8 +2848,9 @@ ${fileContent}
                 userId,
               ).catch(() => null);
         }
-        const scoped = await findRegistryItemLinkedToProjectByName({
-          project: canonicalProjectForLink.project,
+        const scoped = await findProjectScopedRegistryItemByName({
+          userId,
+          projectSlug: canonicalProjectForLink.project.slug,
           name,
         });
         if (!scoped.ok) {
@@ -3044,6 +2974,9 @@ ${fileContent}
           const result = await createRegistryItemVersion({
             ownerId: orgTarget ? undefined : userId,
             organizationId: orgTarget?.id,
+            canonicalProjectId: canonicalProjectForLink.project?.id ?? null,
+            canonicalProjectKey:
+              canonicalProjectForLink.project?.namespaceKey ?? null,
             name,
             content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
             files: nextFiles,
@@ -3112,6 +3045,9 @@ ${fileContent}
         const result = await createRegistryItemVersion({
           ownerId: orgTarget ? undefined : userId,
           organizationId: orgTarget?.id,
+          canonicalProjectId: canonicalProjectForLink.project?.id ?? null,
+          canonicalProjectKey:
+            canonicalProjectForLink.project?.namespaceKey ?? null,
           name,
           content: normalizedTheme.content ?? (files ? content ?? undefined : undefined),
           files: nextFiles,
@@ -3193,23 +3129,6 @@ ${fileContent}
           },
         )}`;
 
-        if (canonicalProjectForLink.project) {
-          const attach = await attachPublishedItemToProject(
-            userId,
-            canonicalProjectForLink.project,
-            existing.id,
-          );
-          if (!attach.ok) {
-            return {
-              content: [{ type: "text" as const, text: `${baseText}${previewStatusNote}\n\n${attach.error}` }],
-              isError: true,
-            };
-          }
-          const note = attach.note ? `\n\n${attach.note}` : "";
-          return {
-            content: [{ type: "text" as const, text: `${baseText}${previewStatusNote}${note}` }],
-          };
-        }
         return {
           content: [{ type: "text" as const, text: `${baseText}${previewStatusNote}` }],
         };
@@ -3338,6 +3257,8 @@ ${fileContent}
         files: nextFiles,
         userId: orgTarget ? null : userId,
         organizationId: orgTarget?.id ?? null,
+        canonicalProjectId: canonicalProjectForLink.project?.id ?? null,
+        canonicalProjectKey: canonicalProjectForLink.project?.namespaceKey ?? null,
         visibility: visibility === "public" ? "public" : "private",
         dependencies,
         declaredDependencies: normalizedDeclaredDependencies.value,
@@ -3423,23 +3344,6 @@ ${fileContent}
         },
       )}`;
 
-      if (canonicalProjectForLink.project) {
-        const attach = await attachPublishedItemToProject(
-          userId,
-          canonicalProjectForLink.project,
-          item.id,
-        );
-        if (!attach.ok) {
-          return {
-            content: [{ type: "text" as const, text: `${baseTextCreate}${previewStatusNoteCreate}\n\n${attach.error}` }],
-            isError: true,
-          };
-        }
-        const note = attach.note ? `\n\n${attach.note}` : "";
-        return {
-          content: [{ type: "text" as const, text: `${baseTextCreate}${previewStatusNoteCreate}${note}` }],
-        };
-      }
       return {
         content: [{ type: "text" as const, text: `${baseTextCreate}${previewStatusNoteCreate}` }],
       };
