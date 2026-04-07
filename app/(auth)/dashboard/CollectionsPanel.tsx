@@ -33,6 +33,10 @@ import type { ProjectItemRow } from "@/lib/project-items";
 import type { ProjectListItem } from "@/lib/project-list";
 import type { PreviewStory } from "@/lib/preview-stories";
 import {
+  getPreviewDefaultStoryIdFromMeta,
+  getPreviewStoriesFromMeta,
+} from "@/lib/preview-stories";
+import {
   REGISTRY_BLOCK_TYPE,
   REGISTRY_THEME_TYPE,
   REGISTRY_UI_TYPE,
@@ -160,6 +164,29 @@ function normalizeProjectItemDetailData(value: unknown): ProjectItemDetailData |
   };
 }
 
+function resolveProjectItemPreviewStories(input: {
+  itemMeta: Record<string, unknown> | null | undefined;
+  detail: ProjectItemDetailData | null | undefined;
+}) {
+  const metaStories = getPreviewStoriesFromMeta(input.itemMeta);
+  const detailStories = input.detail?.previewStories ?? [];
+  const stories =
+    metaStories.length > detailStories.length ? metaStories : detailStories;
+
+  const metaDefaultStoryId = getPreviewDefaultStoryIdFromMeta(input.itemMeta);
+  const detailDefaultStoryId = input.detail?.previewDefaultStoryId ?? null;
+  const availableStoryIds = new Set(stories.map((story) => story.id));
+  const defaultStoryId =
+    (detailDefaultStoryId && availableStoryIds.has(detailDefaultStoryId)
+      ? detailDefaultStoryId
+      : null) ??
+    (metaDefaultStoryId && availableStoryIds.has(metaDefaultStoryId)
+      ? metaDefaultStoryId
+      : null);
+
+  return { stories, defaultStoryId };
+}
+
 function isCodeFile(path: string): boolean {
   return /\.(tsx?|jsx?|css|json)$/i.test(path);
 }
@@ -277,16 +304,22 @@ export function ProjectsPanel(props: {
     () => (selectedItemId ? detailByItemId[selectedItemId] ?? null : null),
     [detailByItemId, selectedItemId],
   );
+  const selectedProjectPreviewStories = useMemo(() => {
+    return resolveProjectItemPreviewStories({
+      itemMeta: selectedProjectItem?.meta ?? null,
+      detail: selectedProjectDetail,
+    });
+  }, [selectedProjectDetail, selectedProjectItem]);
   const canEditProject = props.canEditProject ?? false;
   const currentProjectNamespaceKey = selectedProject?.namespaceKey ?? null;
   const selectedProjectStoryId = useMemo(() => {
-    if (!selectedItemId || !selectedProjectDetail) return null;
+    if (!selectedItemId) return null;
     return resolveSelectedPreviewStoryId({
       currentStoryId: selectedStoryIdByItemId[selectedItemId] ?? null,
-      stories: selectedProjectDetail.previewStories,
-      defaultStoryId: selectedProjectDetail.previewDefaultStoryId,
+      stories: selectedProjectPreviewStories.stories,
+      defaultStoryId: selectedProjectPreviewStories.defaultStoryId,
     });
-  }, [selectedItemId, selectedProjectDetail, selectedStoryIdByItemId]);
+  }, [selectedItemId, selectedProjectPreviewStories, selectedStoryIdByItemId]);
   const moveTargetProjects = useMemo(
     () => projects.filter((project) => project.id !== selectedId),
     [projects, selectedId],
@@ -1187,7 +1220,7 @@ export function ProjectsPanel(props: {
                       ? "No resolved theme"
                       : null;
                   const storiesPreviewHref =
-                    selectedItem && selectedDetail?.previewStories.length
+                    selectedItem && selectedProjectPreviewStories.stories.length
                       ? buildMultiStoryPreviewPageUrl({
                           owner: props.registryOwner,
                           name: selectedItem.name,
@@ -1230,7 +1263,7 @@ export function ProjectsPanel(props: {
                               </div>
                             ) : null}
                             {detailTab === "preview" &&
-                            selectedDetail?.previewStories.length ? (
+                            selectedProjectPreviewStories.stories.length ? (
                               <div className="mt-2 flex flex-wrap items-center gap-2">
                                 <span className="text-xs text-zinc-500 dark:text-zinc-400">
                                   Story:
@@ -1248,13 +1281,13 @@ export function ProjectsPanel(props: {
                                   }}
                                   className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
                                 >
-                                  {selectedDetail.previewStories.map((story) => (
+                                  {selectedProjectPreviewStories.stories.map((story) => (
                                     <option key={story.id} value={story.id}>
                                       {story.title}
                                     </option>
                                   ))}
                                 </select>
-                                {selectedDetail.previewStories.length > 1 && storiesPreviewHref ? (
+                                {selectedProjectPreviewStories.stories.length > 1 && storiesPreviewHref ? (
                                   <Link
                                     href={storiesPreviewHref}
                                     target="_blank"
@@ -1442,18 +1475,24 @@ export function ProjectsPanel(props: {
                               selectedItem.itemId === slot.itemId &&
                               currentProjectNamespaceKey === slot.projectKey;
                             const slotDetail = detailByItemId[slot.itemId] ?? null;
+                            const slotProjectItem =
+                              projectItems.find((it) => it.itemId === slot.itemId) ?? null;
+                            const slotPreviewStories = resolveProjectItemPreviewStories({
+                              itemMeta: slotProjectItem?.meta ?? null,
+                              detail: slotDetail,
+                            });
                             const slotStoryId =
-                              slotDetail
+                              slotPreviewStories.stories.length > 0
                                 ? resolveSelectedPreviewStoryId({
                                     currentStoryId: isActive
                                       ? selectedStoryIdByItemId[slot.itemId] ?? null
                                       : null,
-                                    stories: slotDetail.previewStories,
-                                    defaultStoryId: slotDetail.previewDefaultStoryId,
+                                    stories: slotPreviewStories.stories,
+                                    defaultStoryId: slotPreviewStories.defaultStoryId,
                                   })
                                 : null;
                             const src =
-                              slotDetail && slotDetail.previewStories.length > 1
+                              slotPreviewStories.stories.length > 1
                                 ? buildMultiStoryPreviewPageUrl({
                                     owner: props.registryOwner,
                                     name: slot.name,
