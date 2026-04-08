@@ -19,6 +19,7 @@ import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-go
 import { extractPropsFromTsx } from "@/lib/validate-tsx";
 import { isBarePackageSpecifier } from "@/lib/module-specifiers";
 import { ComponentDetail } from "./ComponentDetail";
+import { readResourceThemeLayers } from "@/lib/project-resource-relationships";
 
 export const dynamic = "force-dynamic";
 
@@ -134,6 +135,7 @@ export default async function RegistryItemPage({ params, searchParams }: Props) 
       previewStories={getPreviewStoriesFromMeta(item.meta)}
       defaultPreviewStoryId={getPreviewDefaultStoryIdFromMeta(item.meta)}
       requestedPreviewStoryId={story}
+      themeResourceRefs={readResourceThemeLayers(item.meta)}
       files={files}
     />
   );

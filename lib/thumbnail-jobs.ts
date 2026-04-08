@@ -19,6 +19,7 @@ const THUMBNAIL_DEVICE_SCALE = 2;
 type ThumbnailJobPayload = {
   ownerId: string;
   ownerHandle?: string | null;
+  projectKey?: string | null;
   name: string;
   version: string;
   type: string;
@@ -28,6 +29,7 @@ export async function capturePreviewThumbnail(params: {
   owner: string;
   name: string;
   version: string;
+  projectKey?: string | null;
   strategy?: "computed" | "locator";
 }) {
   const { chromium: playwrightChromium } = await import("playwright-core");
@@ -47,6 +49,7 @@ export async function capturePreviewThumbnail(params: {
     owner: params.owner,
     name: params.name,
     version: params.version,
+    project: params.projectKey,
   });
 
   const browser = await launchThumbnailBrowser(playwrightChromium);
@@ -639,6 +642,7 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
     owner: payload.ownerHandle ?? payload.ownerId,
     name: payload.name,
     version: payload.version,
+    projectKey: payload.projectKey ?? null,
   });
 
     const path = buildRegistryAssetPath({

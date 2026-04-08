@@ -203,6 +203,9 @@ function AppShellFrame(props: {
     () => projectsCache?.projects ?? [],
     [projectsCache?.projects],
   );
+  const shellMainContentClass = isProjectDetailRoute
+    ? "h-full w-full"
+    : "mx-auto w-full max-w-[1440px] px-4 py-4 sm:px-6 lg:px-8";
   if (!show) return <>{props.children}</>;
 
   return (
@@ -264,7 +267,7 @@ function AppShellFrame(props: {
               isProjectDetailRoute ? "min-h-0 overflow-hidden" : "overflow-auto",
             )}
           >
-            {props.children}
+            <div className={shellMainContentClass}>{props.children}</div>
           </main>
         </SidebarInset>
       </div>

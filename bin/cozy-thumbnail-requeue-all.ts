@@ -4,7 +4,7 @@ import "dotenv/config";
 import process from "node:process";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { registryItems, registryItemVersions, user } from "@/lib/db/schema";
+import { organization, registryItems, registryItemVersions, user } from "@/lib/db/schema";
 import { getCurrentVersion } from "@/lib/registry";
 import { enqueueThumbnailJob } from "@/lib/thumbnail-jobs";
 
@@ -22,14 +22,18 @@ async function main() {
     .select({
       id: registryItems.id,
       userId: registryItems.userId,
+      organizationId: registryItems.organizationId,
       ownerHandle: user.handle,
+      orgSlug: organization.slug,
+      canonicalProjectKey: registryItems.canonicalProjectKey,
       name: registryItems.name,
       type: registryItems.type,
       currentVersion: registryItems.currentVersion,
       meta: registryItems.meta,
     })
     .from(registryItems)
-    .leftJoin(user, eq(registryItems.userId, user.id));
+    .leftJoin(user, eq(registryItems.userId, user.id))
+    .leftJoin(organization, eq(registryItems.organizationId, organization.id));
 
   let processed = 0;
   let skipped = 0;
@@ -66,7 +70,12 @@ async function main() {
     const payload = {
       itemId: item.id,
       itemVersionId: matchedVersion.id,
-      owner: item.ownerHandle ?? item.userId ?? "legacy",
+      owner:
+        item.ownerHandle ??
+        item.orgSlug ??
+        item.userId ??
+        item.organizationId ??
+        "legacy",
       name: item.name,
       version: currentVersion,
       type: item.type,
@@ -92,8 +101,14 @@ async function main() {
       itemId: item.id,
       itemVersionId: matchedVersion.id,
       payload: {
-        ownerId: item.userId ?? "legacy",
-        ownerHandle: item.ownerHandle ?? null,
+        ownerId:
+          item.ownerHandle ??
+          item.orgSlug ??
+          item.userId ??
+          item.organizationId ??
+          "legacy",
+        ownerHandle: item.ownerHandle ?? item.orgSlug ?? null,
+        projectKey: item.canonicalProjectKey ?? null,
         name: item.name,
         version: currentVersion,
         type: item.type,

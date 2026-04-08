@@ -205,9 +205,18 @@ export function getPreviewCapturePlan(params: {
   owner: string;
   name: string;
   version: string;
+  project?: string | null;
 }): PreviewCapturePlan {
+  const search = new URLSearchParams({
+    v: params.version,
+    thumbnail: "1",
+  });
+  if (params.project && params.project.trim().length > 0) {
+    search.set("project", params.project.trim());
+  }
+
   return {
-    previewPath: `/preview/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.name)}?v=${encodeURIComponent(params.version)}&thumbnail=1`,
+    previewPath: `/preview/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.name)}?${search.toString()}`,
     viewport: { width: 1440, height: 960 },
     output: { width: 1200, height: 900 },
     fit: "cover",

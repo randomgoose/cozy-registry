@@ -110,8 +110,20 @@ interface ComponentDetailProps {
   previewStories: PreviewStory[];
   defaultPreviewStoryId: string | null;
   requestedPreviewStoryId: string | null;
+  themeResourceRefs: string[];
   /** All files in the current version bundle */
   files: { path: string; content: string; type: string }[];
+}
+
+function parseThemeResourceRefsInput(input: string): string[] {
+  return Array.from(
+    new Set(
+      input
+        .split(/[\n,]/)
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 export function ComponentDetail({
@@ -135,6 +147,7 @@ export function ComponentDetail({
   previewStories,
   defaultPreviewStoryId,
   requestedPreviewStoryId,
+  themeResourceRefs,
   files,
 }: ComponentDetailProps) {
   const [copied, setCopied] = useState(false);
@@ -148,6 +161,10 @@ export function ComponentDetail({
     useState(selectedVersion);
   const [artifactStatus, setArtifactStatus] =
     useState<PreviewArtifactStatusPayload | null>(null);
+  const [resourceThemeLayersInput, setResourceThemeLayersInput] = useState(
+    themeResourceRefs.join("\n"),
+  );
+  const [savingThemeLayers, setSavingThemeLayers] = useState(false);
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(
     resolveSelectedPreviewStoryId({
       currentStoryId: requestedPreviewStoryId,
@@ -176,6 +193,10 @@ export function ComponentDetail({
       }),
     );
   }, [defaultPreviewStoryId, previewStories, requestedPreviewStoryId]);
+
+  useEffect(() => {
+    setResourceThemeLayersInput(themeResourceRefs.join("\n"));
+  }, [themeResourceRefs]);
 
   const [previewReady, setPreviewReady] = useState(type === "registry:theme");
 
@@ -437,6 +458,45 @@ export function ComponentDetail({
     }
   }
 
+  async function handleSaveThemeLayers() {
+    if (!isOwner || savingThemeLayers || !project) return;
+    try {
+      setSavingThemeLayers(true);
+      const payloadFiles = Object.fromEntries(
+        files.map((file) => [file.path, file.content]),
+      );
+      const response = await fetch(`/api/registry/${owner}/${name}/versions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project,
+          bump: "patch",
+          files: payloadFiles,
+          themeResourceRefs: parseThemeResourceRefsInput(resourceThemeLayersInput),
+        }),
+      });
+      const data = (await response.json().catch(() => null)) as
+        | { version?: string; error?: string }
+        | null;
+      if (!response.ok || !data?.version) {
+        window.alert(data?.error ?? "Failed to publish theme layer update");
+        return;
+      }
+      const search = new URLSearchParams();
+      search.set("project", project);
+      if (data.version !== currentVersion) {
+        search.set("v", data.version);
+      }
+      if (selectedStoryId?.trim()) {
+        search.set("story", selectedStoryId.trim());
+      }
+      router.push(`/registry/${owner}/${name}?${search.toString()}`);
+      router.refresh();
+    } finally {
+      setSavingThemeLayers(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -503,6 +563,40 @@ export function ComponentDetail({
               <p className="mt-2 text-zinc-600 dark:text-zinc-400">
                 {description || "—"}
               </p>
+              {isOwner && project ? (
+                <div className="mt-4 max-w-xl rounded-2xl border border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-950/40">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        Resource theme layers
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                        One registry ref per line. Saving publishes a new patch version.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => void handleSaveThemeLayers()}
+                      disabled={savingThemeLayers || localSelectedVersion !== currentVersion}
+                    >
+                      {savingThemeLayers ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                  <textarea
+                    value={resourceThemeLayersInput}
+                    onChange={(event) => setResourceThemeLayersInput(event.target.value)}
+                    rows={3}
+                    placeholder={"@indeed-cozy/ds/theme\n@indeed-cozy/ds/components"}
+                    className="mt-3 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  />
+                  {localSelectedVersion !== currentVersion ? (
+                    <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                      Switch back to the latest version to edit theme layers.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               {(dependencies.length > 0 || registryDependencies.length > 0) && (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">

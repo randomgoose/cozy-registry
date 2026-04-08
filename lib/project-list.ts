@@ -9,6 +9,7 @@ import {
 } from "@/lib/db/schema";
 import { resolveOwner } from "@/lib/owner";
 import { createServerTimingLogger } from "@/lib/server-timing";
+import { getThumbnailFromMeta } from "@/lib/thumbnail";
 
 export type ProjectListItem = {
   id: string;
@@ -24,7 +25,12 @@ export type ProjectListItem = {
   createdAt: Date;
   updatedAt: Date;
   itemCount: number;
-  previewItems: Array<{ title: string; name: string; type: string }>;
+  previewItems: Array<{
+    title: string;
+    name: string;
+    type: string;
+    thumbnailUrl: string | null;
+  }>;
 };
 
 type BaseProjectRow = Omit<ProjectListItem, "itemCount" | "previewItems">;
@@ -224,8 +230,16 @@ async function hydrateProjects(rows: BaseProjectRow[]): Promise<ProjectListItem[
 
 async function previewItemsForProjects(
   projectIds: string[],
-): Promise<Map<string, Array<{ title: string; name: string; type: string }>>> {
-  const map = new Map<string, Array<{ title: string; name: string; type: string }>>();
+): Promise<
+  Map<
+    string,
+    Array<{ title: string; name: string; type: string; thumbnailUrl: string | null }>
+  >
+> {
+  const map = new Map<
+    string,
+    Array<{ title: string; name: string; type: string; thumbnailUrl: string | null }>
+  >();
   if (projectIds.length === 0) return map;
 
   for (const id of projectIds) {
@@ -238,6 +252,7 @@ async function previewItemsForProjects(
       title: registryItems.title,
       name: registryItems.name,
       type: registryItems.type,
+      meta: registryItems.meta,
     })
     .from(registryProjectItems)
     .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
@@ -247,7 +262,15 @@ async function previewItemsForProjects(
   for (const row of rows) {
     const list = map.get(row.projectId);
     if (!list || list.length >= 4) continue;
-    list.push({ title: row.title, name: row.name, type: row.type });
+    list.push({
+      title: row.title,
+      name: row.name,
+      type: row.type,
+      thumbnailUrl:
+        row.meta && typeof row.meta === "object" && !Array.isArray(row.meta)
+          ? getThumbnailFromMeta(row.meta as Record<string, unknown>)?.url ?? null
+          : null,
+    });
   }
 
   return map;

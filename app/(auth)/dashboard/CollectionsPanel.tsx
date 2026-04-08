@@ -108,6 +108,21 @@ type PreviewArtifactStatusPayload = {
   } | null;
 };
 
+function parseThemeResourceRefsInput(input: string): string[] {
+  return Array.from(
+    new Set(
+      input
+        .split(/[\n,]/)
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function formatThemeResourceRefsInput(refs: string[] | null | undefined): string {
+  return (refs ?? []).join("\n");
+}
+
 function resolveSelectedPreviewStoryId(input: {
   currentStoryId: string | null;
   stories: Array<{ id: string }>;
@@ -241,6 +256,20 @@ function getProjectItemTypeIcon(type: string) {
   };
 }
 
+function getProjectPreviewSlotPlaceholderClass(type: string) {
+  const normalizedType = normalizeRegistryItemType(type);
+  if (normalizedType === REGISTRY_UI_TYPE) {
+    return "bg-violet-100/80 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300";
+  }
+  if (normalizedType === REGISTRY_THEME_TYPE) {
+    return "bg-sky-100/80 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300";
+  }
+  if (normalizedType === REGISTRY_BLOCK_TYPE) {
+    return "bg-amber-100/80 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300";
+  }
+  return "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300";
+}
+
 export function ProjectsPanel(props: {
   /** Registry path segment for item links (`@handle` scope or org slug). */
   registryOwner: string;
@@ -266,7 +295,8 @@ export function ProjectsPanel(props: {
   const [createOpen, setCreateOpen] = useState(false);
   const [createStep, setCreateStep] = useState<1 | 2>(1);
   const [newTitle, setNewTitle] = useState("");
-  const [newDefaultThemeResourceRef, setNewDefaultThemeResourceRef] = useState("");
+  const [newDefaultThemeResourceRefsInput, setNewDefaultThemeResourceRefsInput] =
+    useState("");
   const [createdProject, setCreatedProject] = useState<CreatedProject | null>(null);
   const [inviteInput, setInviteInput] = useState("");
   const [inviteRole, setInviteRole] = useState<"viewer" | "editor" | "admin">("viewer");
@@ -303,6 +333,8 @@ export function ProjectsPanel(props: {
   const [itemActionError, setItemActionError] = useState<string | null>(null);
   const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
   const [warmPreviewSlots, setWarmPreviewSlots] = useState<WarmPreviewSlot[]>([]);
+  const [projectThemeLayersInput, setProjectThemeLayersInput] = useState("");
+  const [projectThemeLayersSaving, setProjectThemeLayersSaving] = useState(false);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedId) ?? null,
@@ -332,6 +364,12 @@ export function ProjectsPanel(props: {
       defaultStoryId: selectedProjectPreviewStories.defaultStoryId,
     });
   }, [selectedItemId, selectedProjectPreviewStories, selectedStoryIdByItemId]);
+
+  useEffect(() => {
+    setProjectThemeLayersInput(
+      formatThemeResourceRefsInput(selectedProject?.defaultThemeResourceRefs),
+    );
+  }, [selectedProject?.id, selectedProject?.defaultThemeResourceRefs]);
   const moveTargetProjects = useMemo(
     () => projects.filter((project) => project.id !== selectedId),
     [projects, selectedId],
@@ -632,10 +670,9 @@ export function ProjectsPanel(props: {
         body: JSON.stringify({
           title: newTitle.trim(),
           visibility: "private",
-          defaultThemeResourceRef:
-            newDefaultThemeResourceRef.trim().length > 0
-              ? newDefaultThemeResourceRef.trim()
-              : null,
+          defaultThemeResourceRefs: parseThemeResourceRefsInput(
+            newDefaultThemeResourceRefsInput,
+          ),
         }),
       });
       if (!res.ok) {
@@ -722,7 +759,7 @@ export function ProjectsPanel(props: {
   function resetCreateWizard() {
     setCreateStep(1);
     setNewTitle("");
-    setNewDefaultThemeResourceRef("");
+    setNewDefaultThemeResourceRefsInput("");
     setCreatedProject(null);
     setInviteInput("");
     setInviteError(null);
@@ -844,7 +881,7 @@ export function ProjectsPanel(props: {
       const response = await fetch(`/api/projects/${selectedId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ defaultThemeResourceRef: nextDefaultThemeRef }),
+        body: JSON.stringify({ defaultThemeResourceRefs: [nextDefaultThemeRef] }),
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -854,7 +891,11 @@ export function ProjectsPanel(props: {
       setProjects((prev) =>
         prev.map((project) =>
           project.id === selectedId
-            ? { ...project, defaultThemeResourceRef: nextDefaultThemeRef }
+            ? {
+                ...project,
+                defaultThemeResourceRefs: [nextDefaultThemeRef],
+                defaultThemeResourceRef: nextDefaultThemeRef,
+              }
             : project,
         ),
       );
@@ -867,6 +908,48 @@ export function ProjectsPanel(props: {
       }
     } finally {
       setItemActionPending(null);
+    }
+  }
+
+  async function handleSaveProjectThemeLayers() {
+    if (!selectedId) return;
+    const nextThemeResourceRefs = parseThemeResourceRefsInput(projectThemeLayersInput);
+    setProjectThemeLayersSaving(true);
+    setItemActionError(null);
+    try {
+      const response = await fetch(`/api/projects/${selectedId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ defaultThemeResourceRefs: nextThemeResourceRefs }),
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? "Failed to update project theme layers");
+      }
+      setProjects((prev) =>
+        prev.map((project) =>
+          project.id === selectedId
+            ? {
+                ...project,
+                defaultThemeResourceRefs: nextThemeResourceRefs,
+                defaultThemeResourceRef: nextThemeResourceRefs[0] ?? null,
+              }
+            : project,
+        ),
+      );
+      invalidateClientCachedValue(projectsCacheKey);
+      invalidateClientCachedValue("projects:");
+    } catch (error) {
+      setItemActionError(
+        error instanceof Error ? error.message : "Failed to update project theme layers",
+      );
+      if (typeof window !== "undefined") {
+        window.alert(
+          error instanceof Error ? error.message : "Failed to update project theme layers",
+        );
+      }
+    } finally {
+      setProjectThemeLayersSaving(false);
     }
   }
 
@@ -1007,16 +1090,17 @@ export function ProjectsPanel(props: {
 
                   <div className="space-y-2">
                     <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                      Default theme resource
+                      Default theme resources
                     </label>
-                    <input
-                      value={newDefaultThemeResourceRef}
-                      onChange={(e) => setNewDefaultThemeResourceRef(e.target.value)}
-                      placeholder="@indeed-cozy/ds/theme"
+                    <textarea
+                      value={newDefaultThemeResourceRefsInput}
+                      onChange={(e) => setNewDefaultThemeResourceRefsInput(e.target.value)}
+                      placeholder={"@indeed-cozy/ds/theme\n@indeed-cozy/ds/components"}
+                      rows={3}
                       className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                     />
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      Optional. Applied automatically to preview and docs when resources in this project do not declare their own theme override.
+                      Optional. One ref per line. Applied in order to preview and docs for resources in this project.
                     </p>
                   </div>
 
@@ -1174,6 +1258,35 @@ export function ProjectsPanel(props: {
                     <span className="font-mono">{selectedProject?.namespaceKey ?? "project"}</span>
                   </div>
                 </div>
+                {canEditProject ? (
+                  <div className="mt-4 rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                          Project theme layers
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          One registry ref per line. Layers are injected in order.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveProjectThemeLayers()}
+                        disabled={projectThemeLayersSaving}
+                        className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                      >
+                        {projectThemeLayersSaving ? "Saving..." : "Save"}
+                      </button>
+                    </div>
+                    <textarea
+                      value={projectThemeLayersInput}
+                      onChange={(e) => setProjectThemeLayersInput(e.target.value)}
+                      rows={3}
+                      placeholder={"@indeed-cozy/ds/theme\n@indeed-cozy/ds/components"}
+                      className="mt-3 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                    />
+                  </div>
+                ) : null}
               </div>
 
             <div className="grid min-h-0 flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -1185,7 +1298,9 @@ export function ProjectsPanel(props: {
                     const isThemeResource = normalizeRegistryItemType(it.type) === REGISTRY_THEME_TYPE;
                     const candidateDefaultThemeRef = `@${props.registryOwner}/${it.name}`;
                     const isCurrentProjectDefaultTheme =
-                      selectedProject?.defaultThemeResourceRef === candidateDefaultThemeRef;
+                      (selectedProject?.defaultThemeResourceRefs ?? []).includes(
+                        candidateDefaultThemeRef,
+                      );
                     return (
                       <ContextMenu
                         key={it.itemId}
@@ -1742,7 +1857,7 @@ export function ProjectsPanel(props: {
             const total = c.itemCount ?? 0;
             const extra = total > 4 ? total - 4 : 0;
             const cardClass =
-              "block rounded-2xl border border-zinc-200 bg-white p-4 text-left shadow-sm transition hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700";
+              "block rounded-2xl border border-border bg-white p-4 text-left transition hover:shadow-sm";
 
             const inner = (
               <>
@@ -1765,20 +1880,38 @@ export function ProjectsPanel(props: {
                 <div className="mt-3 grid grid-cols-2 grid-rows-2 gap-1.5">
                   {[0, 1, 2, 3].map((i) => {
                     const it = previews[i];
+                    const typeIcon = it ? getProjectItemTypeIcon(it.type) : null;
+                    const placeholderClass = it
+                      ? getProjectPreviewSlotPlaceholderClass(it.type)
+                      : "bg-zinc-50/90 dark:bg-zinc-950/50";
                     return (
                       <div
                         key={`${c.id}-slot-${i}`}
-                        className="flex min-h-17 flex-col justify-center rounded-xl border border-zinc-100 bg-zinc-50/90 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/50"
+                        className="relative min-h-17 overflow-hidden rounded-xl border border-zinc-100 bg-zinc-50/90 dark:border-zinc-800 dark:bg-zinc-950/50"
                       >
                         {it ? (
-                          <>
-                            <span className="line-clamp-2 text-[11px] font-medium leading-tight text-zinc-800 dark:text-zinc-200">
-                              {it.title}
-                            </span>
-                            <span className="mt-0.5 truncate text-[10px] text-zinc-500 dark:text-zinc-400">
-                              {it.type}
-                            </span>
-                          </>
+                          it.thumbnailUrl ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={it.thumbnailUrl}
+                                alt=""
+                                className="absolute inset-0 size-full object-cover"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/12 via-transparent to-transparent" />
+                            </>
+                          ) : (
+                            <div
+                              className={`flex size-full items-center justify-center ${placeholderClass}`}
+                              aria-hidden="true"
+                            >
+                              <HugeiconsIcon
+                                icon={typeIcon?.icon ?? ArtboardToolIcon}
+                                size={20}
+                                strokeWidth={1.8}
+                              />
+                            </div>
+                          )
                         ) : null}
                       </div>
                     );
