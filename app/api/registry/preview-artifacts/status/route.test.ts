@@ -6,6 +6,7 @@ const getRegistryItemByScopedIdentityAndVersionMock = vi.fn();
 const enqueuePreviewArtifactJobMock = vi.fn();
 const selectMock = vi.fn();
 const readDependencyDecisionsFromMetaMock = vi.fn();
+const fetchMock = vi.fn();
 
 vi.mock("@/lib/auth", () => ({
   auth: {
@@ -73,6 +74,7 @@ describe("preview artifact status route", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.stubGlobal("fetch", fetchMock);
     getSessionMock.mockResolvedValue(null);
     getUserIdFromTokenMock.mockResolvedValue(null);
     getRegistryItemByScopedIdentityAndVersionMock.mockResolvedValue({
@@ -182,6 +184,13 @@ describe("preview artifact status route", () => {
         },
       ],
     ]);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        hostFallbackUsed: false,
+        compatibleBundledDependencies: ["recharts"],
+      }),
+    });
 
     const { GET } = await import("@/app/api/registry/preview-artifacts/status/route");
     const response = await GET(
@@ -195,6 +204,8 @@ describe("preview artifact status route", () => {
         artifactStatus: "ready",
         artifactCapability: "compatible-artifact",
         compatibleExternalDependencies: ["recharts"],
+        hostFallbackUsed: false,
+        compatibleBundledDependencies: ["recharts"],
       }),
     );
   });

@@ -38,7 +38,7 @@ import {
   RegistryDependencyPermissionDeniedError,
 } from "@/lib/registry-dependency-errors";
 import {
-  mergeRegistryDependenciesWithResolvedTheme,
+  mergeRegistryDependenciesWithResolvedThemes,
   resolveThemeRelationshipForResource,
 } from "@/lib/project-resource-relationships";
 import { db } from "@/lib/db";
@@ -482,8 +482,8 @@ export async function GET(
   const resolvedThemeRelationship =
     item.type === "registry:theme"
       ? {
-          resolvedThemeResourceRef: null,
-          resolvedThemeSource: "none" as const,
+          resolvedThemeResourceRefs: [],
+          resolvedThemeLayerSources: [],
         }
       : await resolveThemeRelationshipForResource({
           owner,
@@ -491,9 +491,9 @@ export async function GET(
           meta: item.meta,
           requestUserId: userId,
         });
-  const effectiveRegistryDependencies = mergeRegistryDependenciesWithResolvedTheme(
+  const effectiveRegistryDependencies = mergeRegistryDependenciesWithResolvedThemes(
     (item.registryDependencies ?? []) as string[],
-    resolvedThemeRelationship.resolvedThemeResourceRef,
+    resolvedThemeRelationship.resolvedThemeResourceRefs,
   );
   const { selectedStory } = pickPreviewStory(itemMetaForStory, requestedStoryId);
   const resolvedStoryId = selectedStory?.id ?? null;
@@ -1235,9 +1235,16 @@ ${versionToolbarHtml}
             name,
             requestedVersion: version,
             registryDependencies: effectiveRegistryDependencies,
+            resolvedThemeResourceRefs:
+              resolvedThemeRelationship.resolvedThemeResourceRefs,
+            resolvedThemeLayerSources:
+              resolvedThemeRelationship.resolvedThemeLayerSources,
             resolvedThemeResourceRef:
-              resolvedThemeRelationship.resolvedThemeResourceRef,
-            resolvedThemeSource: resolvedThemeRelationship.resolvedThemeSource,
+              resolvedThemeRelationship.resolvedThemeResourceRefs[0] ?? null,
+            resolvedThemeSource:
+              resolvedThemeRelationship.resolvedThemeLayerSources[0] === "resource-layer"
+                ? "resource-override"
+                : resolvedThemeRelationship.resolvedThemeLayerSources[0] ?? "none",
             resolvedThemeSources: themeSources,
             injected: themeStyles.trim().length > 0,
             resolveError: themeResolveError,
@@ -1257,9 +1264,16 @@ ${versionToolbarHtml}
             name,
             requestedVersion: version,
             registryDependencies: effectiveRegistryDependencies,
+            resolvedThemeResourceRefs:
+              resolvedThemeRelationship.resolvedThemeResourceRefs,
+            resolvedThemeLayerSources:
+              resolvedThemeRelationship.resolvedThemeLayerSources,
             resolvedThemeResourceRef:
-              resolvedThemeRelationship.resolvedThemeResourceRef,
-            resolvedThemeSource: resolvedThemeRelationship.resolvedThemeSource,
+              resolvedThemeRelationship.resolvedThemeResourceRefs[0] ?? null,
+            resolvedThemeSource:
+              resolvedThemeRelationship.resolvedThemeLayerSources[0] === "resource-layer"
+                ? "resource-override"
+                : resolvedThemeRelationship.resolvedThemeLayerSources[0] ?? "none",
             materializedComponentDepSources: componentDepSources,
             themeResolveError,
             resolvedThemeSources: themeSources,

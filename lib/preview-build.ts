@@ -941,6 +941,14 @@ function createPreviewBundledReactSingletonPlugin(): import("esbuild").Plugin {
 }
 
 function resolvePreviewNodePaths(additionalNodePaths?: string[]) {
+  if (additionalNodePaths) {
+    return Array.from(
+      new Set(
+        additionalNodePaths.map((entry) => entry.trim()).filter(Boolean),
+      ),
+    );
+  }
+
   const appRequire = Module.createRequire(
     path.join(process.cwd(), "package.json"),
   );

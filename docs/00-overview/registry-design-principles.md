@@ -1,6 +1,6 @@
 Status: active
 Owner: engineering
-Last updated: 2026-03-26
+Last updated: 2026-04-08
 Source of truth: yes（原则层；具体契约以各专项 spec 为准）
 
 # Registry 设计原则（北极星）
@@ -23,6 +23,18 @@ Source of truth: yes（原则层；具体契约以各专项 spec 为准）
 
 4. **Extraction 与 Publish 分层**  
    「从源码中抽取可复用组件」是**独立能力**；发布是**契约下的落库动作**。产品主流程上宜：**先抽取 / 审核，再发布**——但不排除脚本、API、迁移等其它入口，只要满足同一套契约。
+
+5. **In development, prefer model convergence over compatibility**
+   在当前仍处于高频迭代、尚未正式上线的阶段，遇到核心语义冲突时，应优先：
+   - 收口到单一正式模型
+   - 消除 UI / 构建 / 数据层的双重语义
+   - 把兼容路径明确标成 temporary bridge
+
+   不应因为提前保留过多兼容层，而让系统同时存在两套都“看起来成立”的真相，例如：
+   - `attach to project`
+   - `canonical project item`
+
+   这条原则是**当前开发阶段特有的偏向**。正式上线后，应改写为更平衡的原则：在保证单一 source of truth 的前提下，系统性评估兼容成本、迁移策略与外部用户影响。
 
 ---
 
@@ -51,3 +63,4 @@ Source of truth: yes（原则层；具体契约以各专项 spec 为准）
 | Deterministic > Heuristic | 同一请求体 + 契约归一化 → 稳定写入；stub 结果始终在 `publishDiagnostics` 中可查。 |
 | Source-first | 既有：多文件 bundle、源码分发；未改。 |
 | Extraction 与 Publish 分层 | `lib/extraction/types.ts` 提供抽取阶段类型骨架；完整抽取引擎待迭代。 |
+| In development, prefer model convergence over compatibility | 新增：用于当前开发阶段的决策偏向，避免 UI/构建/数据层长期保留双重语义；正式上线后需改写为更兼顾兼容与迁移的版本。 |

@@ -45,7 +45,7 @@ import { buildArtifactPreviewHtml } from "@/lib/preview-artifact-html";
 import { resolveCompatibleExternalDelivery } from "@/lib/preview-compatible-delivery";
 import { maybeMaterializeCompatibleBundles } from "@/lib/compatible-bundle-materializer";
 import {
-  mergeRegistryDependenciesWithResolvedTheme,
+  mergeRegistryDependenciesWithResolvedThemes,
   resolveThemeRelationshipForResource,
 } from "@/lib/project-resource-relationships";
 
@@ -763,8 +763,8 @@ export async function processPreviewArtifactJob(jobId: string) {
     const resolvedThemeRelationship =
       item.type === "registry:theme"
         ? {
-            resolvedThemeResourceRef: null,
-            resolvedThemeSource: "none" as const,
+            resolvedThemeResourceRefs: [],
+            resolvedThemeLayerSources: [],
           }
         : await resolveThemeRelationshipForResource({
             owner: payload.owner,
@@ -772,9 +772,9 @@ export async function processPreviewArtifactJob(jobId: string) {
             meta: item.meta,
             requestUserId: payload.requestUserId,
           });
-    const effectiveRegistryDependencies = mergeRegistryDependenciesWithResolvedTheme(
+    const effectiveRegistryDependencies = mergeRegistryDependenciesWithResolvedThemes(
       (item.registryDependencies ?? []) as string[],
-      resolvedThemeRelationship.resolvedThemeResourceRef,
+      resolvedThemeRelationship.resolvedThemeResourceRefs,
     );
     let resolvedThemeCss = "";
     let themeSources: string[] = [];
@@ -811,9 +811,20 @@ export async function processPreviewArtifactJob(jobId: string) {
       jsUrl: jsUrlForClients,
       cssUrl: uploadedCssUrl,
       storiesHtmlUrl: storiesHtmlUrlForClients,
+      hostFallbackUsed: dependencyPlan.hostFallbackUsed,
+      compatibleBundledDependencies: compatibleExternalsForArtifact
+        .filter((entry) => entry.deliveryMode === "compatible-bundled")
+        .map((entry) => entry.packageName),
+      resolvedThemeResourceRefs:
+        resolvedThemeRelationship.resolvedThemeResourceRefs,
+      resolvedThemeLayerSources:
+        resolvedThemeRelationship.resolvedThemeLayerSources,
       resolvedThemeResourceRef:
-        resolvedThemeRelationship.resolvedThemeResourceRef,
-      resolvedThemeSource: resolvedThemeRelationship.resolvedThemeSource,
+        resolvedThemeRelationship.resolvedThemeResourceRefs[0] ?? null,
+      resolvedThemeSource:
+        resolvedThemeRelationship.resolvedThemeLayerSources[0] === "resource-layer"
+          ? "resource-override"
+          : resolvedThemeRelationship.resolvedThemeLayerSources[0] ?? "none",
       themeSources,
       dependencyPlan,
       dependencyResolutionDiagnostics:

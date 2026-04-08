@@ -1,4 +1,9 @@
-## Publish Preview Smoke Gate
+Status: active
+Owner: engineering
+Last updated: 2026-04-07
+Source of truth: yes
+
+# Publish Preview Smoke Gate
 
 This document describes the publish-time preview smoke gate used by MCP tools:
 
@@ -52,7 +57,7 @@ All failures include machine-readable fields (`code`, `step`, `message`) for pro
 Common causes:
 
 - Missing source files or unresolved local imports.
-- Unsupported bare-module imports (package not present in host runtime).
+- Unsupported bare-module imports or provider/runtime-plan failures for dependencies that cannot be satisfied in the current smoke path.
 - Node built-in imports (for example `node:fs`) in component source.
 - Bundling failures during smoke entry build.
 
@@ -78,6 +83,28 @@ Smoke execution is intentionally constrained:
 
 This is a safety gate, not a full untrusted-code sandbox.
 
+## Important Clarification: Hooks Are Allowed
+
+The smoke gate currently runs in a Node-side, SSR-like render environment, but that **does not mean React hooks are forbidden**.
+
+The following are allowed in publish smoke:
+
+- `useState`
+- `useMemo`
+- `useEffect`
+- `"use client"` component modules
+
+Known working scenarios are covered by tests in:
+
+- [lib/registry-preview-smoke.test.ts](/Users/chenchen/Documents/GitHub/my-app/lib/registry-preview-smoke.test.ts)
+- [lib/registry-preview-smoke.examples.test.ts](/Users/chenchen/Documents/GitHub/my-app/lib/registry-preview-smoke.examples.test.ts)
+
+The real risk area is not “hooks in general”, but:
+
+- browser-only globals accessed during render (`window`, `document`, `localStorage`, etc.)
+- third-party dependencies that cannot be resolved in the current smoke path
+- runtime assumptions that require a hydrated browser environment
+
 ---
 
 ## Out Of Scope (Known Non-Goals)
@@ -87,6 +114,8 @@ Smoke gate is SSR-oriented and does not fully emulate browser interactivity. It 
 - Event-handler only failures (`onClick`, `onChange`, etc.).
 - `useEffect`-only client-side failures.
 - Browser-API issues that happen only after hydration.
+
+However, SSR-oriented does **not** imply that React hooks are disallowed.
 
 For those cases, run additional browser-level tests.
 
@@ -188,4 +217,3 @@ Run this checklist after smoke/runtime changes and before release:
    - `use client` + `React.useState`
    -> expect **pass** and preview visible.
 6. Re-run `diagnose_publish_readiness` with `runPreviewSmoke: true` for each case above and confirm `failureCategory` consistency.
-

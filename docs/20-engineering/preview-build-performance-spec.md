@@ -1,4 +1,19 @@
+Status: archived
+Owner: engineering
+Last updated: 2026-04-07
+Source of truth: no
+
 # Preview Build Performance Spec
+
+> Archived / superseded note:
+> This document captures the earlier phase where the main optimization target was request-path preview build performance.
+> It remains useful as implementation history, but it no longer describes the full current preview architecture.
+>
+> Current source-of-truth docs for preview performance and delivery are:
+> - [Story Preview UX / Performance Spec](./story-preview-ux-performance-spec.md)
+> - [Preview Artifact Retrospective](./preview-artifact-retrospective.md)
+> - [Preview Delivery And CDN Plan](./preview-delivery-and-cdn-plan.md)
+> - [Preview Artifact Capability Model Spec](./preview-artifact-capability-model-spec.md)
 
 This document defines the near-term performance plan for the registry preview pipeline. It is intended for the preview/build agent implementing server-side and request-path optimizations.
 

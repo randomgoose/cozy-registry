@@ -1083,7 +1083,9 @@ export async function createRegistryItemVersion(params: {
   previewStories?: unknown;
   /** 可选：default story id in meta.previewDefaultStoryId */
   previewDefaultStoryId?: string | null;
-  /** 可选：resource-level theme override stored in meta.themeResourceRef */
+  /** 可选：resource-level theme layers stored in meta.themeResourceRefs */
+  themeResourceRefs?: string[] | null;
+  /** @deprecated legacy single-value theme layer */
   themeResourceRef?: string | null;
 }) {
   const ownerRefForScopedLookup =
@@ -1235,8 +1237,15 @@ export async function createRegistryItemVersion(params: {
         if (params.previewDefaultStoryId !== undefined) {
           next.previewDefaultStoryId = params.previewDefaultStoryId;
         }
-        if (params.themeResourceRef !== undefined) {
-          next.themeResourceRef = params.themeResourceRef;
+        if (
+          params.themeResourceRefs !== undefined ||
+          params.themeResourceRef !== undefined
+        ) {
+          const nextThemeResourceRefs =
+            params.themeResourceRefs ??
+            (params.themeResourceRef ? [params.themeResourceRef] : []);
+          next.themeResourceRefs = nextThemeResourceRefs;
+          next.themeResourceRef = nextThemeResourceRefs[0] ?? null;
         }
         if (thumbnail) {
           next.thumbnail = thumbnail;
@@ -1291,6 +1300,7 @@ export async function createRegistryItemVersion(params: {
         params.previewExport !== undefined ||
         params.previewStories !== undefined ||
         params.previewDefaultStoryId !== undefined ||
+        params.themeResourceRefs !== undefined ||
         params.themeResourceRef !== undefined ||
         thumbnail)
         ? {
@@ -1315,8 +1325,15 @@ export async function createRegistryItemVersion(params: {
               ...(params.previewDefaultStoryId !== undefined
                 ? { previewDefaultStoryId: params.previewDefaultStoryId }
                 : {}),
-              ...(params.themeResourceRef !== undefined
-                ? { themeResourceRef: params.themeResourceRef }
+              ...((params.themeResourceRefs !== undefined ||
+                params.themeResourceRef !== undefined)
+                ? {
+                    themeResourceRefs:
+                      params.themeResourceRefs ??
+                      (params.themeResourceRef ? [params.themeResourceRef] : []),
+                    themeResourceRef:
+                      params.themeResourceRefs?.[0] ?? params.themeResourceRef ?? null,
+                  }
                 : {}),
               ...(thumbnail ? { thumbnail } : {}),
             } as Record<string, unknown>,
@@ -1593,7 +1610,9 @@ export async function createRegistryItem(data: {
   previewStories?: unknown;
   /** 可选：default story id（meta.previewDefaultStoryId） */
   previewDefaultStoryId?: string | null;
-  /** 可选：resource-level theme override stored in meta.themeResourceRef */
+  /** 可选：resource-level theme layers stored in meta.themeResourceRefs */
+  themeResourceRefs?: string[] | null;
+  /** @deprecated legacy single-value theme layer */
   themeResourceRef?: string | null;
   /** 用于预热 preview artifact 的访问身份。组织私有资源需要它才能被 worker 读取。 */
   requestUserId?: string | null;
@@ -1666,8 +1685,14 @@ export async function createRegistryItem(data: {
         ...(data.previewDefaultStoryId !== undefined
           ? { previewDefaultStoryId: data.previewDefaultStoryId }
           : {}),
-        ...(data.themeResourceRef !== undefined
-          ? { themeResourceRef: data.themeResourceRef }
+        ...((data.themeResourceRefs !== undefined || data.themeResourceRef !== undefined)
+          ? {
+              themeResourceRefs:
+                data.themeResourceRefs ??
+                (data.themeResourceRef ? [data.themeResourceRef] : []),
+              themeResourceRef:
+                data.themeResourceRefs?.[0] ?? data.themeResourceRef ?? null,
+            }
           : {}),
         ...(thumbnail ? { thumbnail } : {}),
       },
@@ -1738,8 +1763,14 @@ export async function createRegistryItem(data: {
         ...(data.previewDefaultStoryId !== undefined
           ? { previewDefaultStoryId: data.previewDefaultStoryId }
           : {}),
-        ...(data.themeResourceRef !== undefined
-          ? { themeResourceRef: data.themeResourceRef }
+        ...((data.themeResourceRefs !== undefined || data.themeResourceRef !== undefined)
+          ? {
+              themeResourceRefs:
+                data.themeResourceRefs ??
+                (data.themeResourceRef ? [data.themeResourceRef] : []),
+              themeResourceRef:
+                data.themeResourceRefs?.[0] ?? data.themeResourceRef ?? null,
+            }
           : {}),
         ...(thumbnail ? { thumbnail } : {}),
       },

@@ -368,6 +368,9 @@ export const registryProjects = pgTable(
     ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: "cascade" }),
     namespaceKey: text("namespace_key").notNull(),
     defaultThemeResourceRef: text("default_theme_resource_ref"),
+    defaultThemeResourceRefs: jsonb("default_theme_resource_refs")
+      .$type<string[]>()
+      .default([]),
     slug: text("slug").notNull(),
     title: text("title").notNull(),
     description: text("description"),

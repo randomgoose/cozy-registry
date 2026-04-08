@@ -1,9 +1,18 @@
-Status: draft
+Status: archived
 Owner: engineering
-Last updated: 2025-02-14
+Last updated: 2026-04-07
 Source of truth: no
 
 # Component Updates & Lockfile Convention
+
+> Archived / superseded note:
+> This document reflects an early lockfile draft centered on `@owner/name`.
+> It no longer matches the current install/identity direction.
+>
+> Use these instead:
+> - [Install Protocol](./install-protocol.md)
+> - [Project-Scoped Registry Identity Spec](./project-scoped-registry-identity-spec.md)
+> - [Registry Dependency Management Spec](./registry-dependency-management-spec.md)
 
 This document describes how projects can keep track of which registry components they are using, and how to check for updates.
 

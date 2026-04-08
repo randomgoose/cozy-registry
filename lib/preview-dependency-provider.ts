@@ -41,6 +41,7 @@ export type PreviewDependencyPlan = {
   managedPackages: PreviewDependencyResolution[];
   compatibleExternals: PreviewCompatibleExternal[];
   diagnostics: PreviewDependencyResolutionDiagnostic[];
+  hostFallbackUsed: boolean;
 };
 
 const DEFAULT_PROVIDER_ROOT = path.join(
@@ -88,7 +89,7 @@ export async function resolvePreviewDependencies(params: {
   const compatibleExternalNames = getCompatibleArtifactDependencies(
     params.decisions,
   );
-  const nodePathSet = new Set<string>(hostNodePaths);
+  const nodePathSet = new Set<string>();
   const resolutions: PreviewDependencyResolution[] = [];
   const diagnostics: PreviewDependencyResolutionDiagnostic[] = [];
   const compatibleExternals: PreviewCompatibleExternal[] = compatibleExternalNames.map(
@@ -161,12 +162,21 @@ export async function resolvePreviewDependencies(params: {
       packageName: ext.packageName,
       requestedVersion: ext.requestedVersion ?? "",
       resolutionSource: "provider",
-      code: "COMPATIBLE_EXTERNAL_IMPORTMAP",
+      code:
+        ext.deliveryMode === "compatible-bundled"
+          ? "COMPATIBLE_BUNDLED_READY"
+          : "COMPATIBLE_EXTERNAL_IMPORTMAP",
       providerMode: "compatible-external",
       message:
-        "Compatible-external dependency will stay external and load via import map/runtime fallback.",
+        ext.deliveryMode === "compatible-bundled"
+          ? "Compatible-external dependency has a platform-controlled bundled delivery URL."
+          : "Compatible-external dependency will stay external and load via import map/runtime fallback.",
     });
   }
+
+  const hostFallbackUsed = diagnostics.some(
+    (diagnostic) => diagnostic.hostFallbackUsed === true,
+  );
 
   return {
     nodePaths: Array.from(nodePathSet),
@@ -175,6 +185,7 @@ export async function resolvePreviewDependencies(params: {
       managedPackages: resolutions,
       compatibleExternals,
       diagnostics,
+      hostFallbackUsed,
     },
     diagnostics,
   };

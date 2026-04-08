@@ -1,7 +1,7 @@
 Status: active
 Owner: shared
-Last updated: 2025-02-14
-Source of truth: yes
+Last updated: 2026-04-07
+Source of truth: partial
 
 # Product Summary
 
@@ -25,6 +25,9 @@ Cozy Registry 是一个面向 Web 开发的 AI-native registry，让设计师、
 - 当前阶段不把自己定义成通用组件仓库产品
 - 主形态是“复制源码并带走”，不是 npm 包管理
 - 主方向是组织/团队自部署，不以公开组件市场为核心
+- preview 主路径已从“请求时动态装配”迁移到“构建后静态 artifact 分发”
+- registry 正式身份已演进到 `owner + project + name`，project 同时承担 namespace 与设计上下文边界
+- 平台正在形成 `managed-artifact / compatible-artifact / runtime-only` 的分层交付模型
 
 ## 核心用户
 

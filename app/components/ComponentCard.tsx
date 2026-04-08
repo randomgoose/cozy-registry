@@ -127,6 +127,8 @@ type PreviewArtifactStatusPayload = {
   artifactStatus: PreviewArtifactStatus;
   artifactCapability?: PreviewArtifactCapability | null;
   compatibleExternalDependencies?: string[];
+  resolvedThemeResourceRefs?: string[];
+  resolvedThemeLayerSources?: Array<"resource-layer" | "project-default">;
   resolvedThemeResourceRef?: string | null;
   resolvedThemeSource?: "resource-override" | "project-default" | "none" | null;
   lastError?: {
@@ -910,13 +912,13 @@ export function ComponentCard({
       : artifactStatus?.artifactStatus === "failed"
         ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
         : null;
-  const resolvedThemeLabel = artifactStatus?.resolvedThemeResourceRef
-    ? artifactStatus.resolvedThemeSource === "resource-override"
-      ? `Theme override: ${artifactStatus.resolvedThemeResourceRef}`
-      : `Project theme: ${artifactStatus.resolvedThemeResourceRef}`
-    : artifactStatus?.resolvedThemeSource === "none"
-      ? "No resolved theme"
-      : null;
+  const resolvedThemeRefs = artifactStatus?.resolvedThemeResourceRefs ?? [];
+  const resolvedThemeLabel =
+    resolvedThemeRefs.length > 0
+      ? `Theme layers: ${resolvedThemeRefs.join(" -> ")}`
+      : artifactStatus?.resolvedThemeSource === "none"
+        ? "No resolved theme"
+        : null;
 
   const handlePreviewPropChange = useCallback((propName: string, value: unknown) => {
     setLivePreviewProps((prev) => (prev ? { ...prev, [propName]: value } : null));

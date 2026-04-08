@@ -1,4 +1,20 @@
-## Component Registry Preview Runtime
+Status: archived
+Owner: engineering
+Last updated: 2026-04-07
+Source of truth: no
+
+# Component Registry Preview Runtime
+
+> Archived / superseded note:
+> This document describes an earlier preview runtime model centered on request-time HTML assembly and a simpler single-bundle contract.
+> It is retained as historical context only.
+>
+> The current source-of-truth direction is split across:
+> - [Preview Artifact Capability Model Spec](./preview-artifact-capability-model-spec.md)
+> - [Preview Third-Party Dependency Governance Spec](./preview-third-party-dependency-governance-spec.md)
+> - [Preview Dependency Provider Refactor Spec](./preview-dependency-provider-refactor-spec.md)
+> - [Preview Delivery And CDN Plan](./preview-delivery-and-cdn-plan.md)
+> - [Preview Artifact Retrospective](./preview-artifact-retrospective.md)
 
 This document defines the v1 technical specification for the Component Registry Preview Runtime. It is the canonical reference for how components are stored, built, and rendered for preview.
 

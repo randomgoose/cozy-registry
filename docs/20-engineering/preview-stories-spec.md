@@ -1,4 +1,14 @@
+Status: proposed
+Owner: engineering
+Last updated: 2026-04-07
+Source of truth: partial
+
 # Preview Stories Spec (v1)
+
+> Scope note:
+> This document remains the source for per-item story metadata (`previewStories`, `previewDefaultStoryId`) and story-aware artifact identity.
+> Component-level multi-story page behavior is now further defined in:
+> - [Multi-Story Preview Page Spec](./multi-story-preview-page-spec.md)
 
 This spec defines how registry items can provide explicit preview stories for robust rendering and fast artifact-backed preview delivery.
 
@@ -141,4 +151,3 @@ For non-theme items:
 - Default story uses artifact-first fast path in preview card.
 - Version updates inherit stories when omitted.
 - Story-specific artifact keys prevent cross-story cache collisions.
-

@@ -15,6 +15,7 @@ export type ProjectListItem = {
   organizationId: string | null;
   ownerUserId: string | null;
   namespaceKey: string;
+  defaultThemeResourceRefs: string[];
   defaultThemeResourceRef: string | null;
   slug: string;
   title: string;
@@ -65,6 +66,7 @@ export async function listProjectsForScope(params: {
         organizationId: registryProjects.organizationId,
         ownerUserId: registryProjects.ownerUserId,
         namespaceKey: registryProjects.namespaceKey,
+        defaultThemeResourceRefs: registryProjects.defaultThemeResourceRefs,
         defaultThemeResourceRef: registryProjects.defaultThemeResourceRef,
         slug: registryProjects.slug,
         title: registryProjects.title,
@@ -85,6 +87,9 @@ export async function listProjectsForScope(params: {
 
     const projects = await withProjectSummaries(rows.map((row) => ({
       ...row,
+      defaultThemeResourceRefs: row.defaultThemeResourceRefs ?? [],
+      defaultThemeResourceRef:
+        row.defaultThemeResourceRefs?.[0] ?? row.defaultThemeResourceRef,
       visibility: normalizeVisibility(row.visibility),
     })));
     timings.flush({
@@ -102,6 +107,7 @@ export async function listProjectsForScope(params: {
       organizationId: registryProjects.organizationId,
       ownerUserId: registryProjects.ownerUserId,
       namespaceKey: registryProjects.namespaceKey,
+      defaultThemeResourceRefs: registryProjects.defaultThemeResourceRefs,
       defaultThemeResourceRef: registryProjects.defaultThemeResourceRef,
       slug: registryProjects.slug,
       title: registryProjects.title,
@@ -122,6 +128,9 @@ export async function listProjectsForScope(params: {
 
   const projects = await withProjectSummaries(rows.map((row) => ({
     ...row,
+    defaultThemeResourceRefs: row.defaultThemeResourceRefs ?? [],
+    defaultThemeResourceRef:
+      row.defaultThemeResourceRefs?.[0] ?? row.defaultThemeResourceRef,
     visibility: normalizeVisibility(row.visibility),
   })));
   timings.flush({
@@ -158,6 +167,7 @@ export async function listProjectsForOwner(params: {
       organizationId: registryProjects.organizationId,
       ownerUserId: registryProjects.ownerUserId,
       namespaceKey: registryProjects.namespaceKey,
+      defaultThemeResourceRefs: registryProjects.defaultThemeResourceRefs,
       defaultThemeResourceRef: registryProjects.defaultThemeResourceRef,
       slug: registryProjects.slug,
       title: registryProjects.title,
@@ -180,6 +190,9 @@ export async function listProjectsForOwner(params: {
 
   const projects = await withProjectSummaries(rows.map((row) => ({
     ...row,
+    defaultThemeResourceRefs: row.defaultThemeResourceRefs ?? [],
+    defaultThemeResourceRef:
+      row.defaultThemeResourceRefs?.[0] ?? row.defaultThemeResourceRef,
     visibility: normalizeVisibility(row.visibility),
   })));
   timings.flush({

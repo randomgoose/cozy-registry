@@ -415,6 +415,12 @@ export function createRegistryMcpServer(request?: Request) {
           .describe(
             "Optional project default theme registry ref, e.g. @indeed-cozy/ds/theme. Used as the default render context for UI resources in this project.",
           ),
+        defaultThemeResourceRefs: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Optional ordered project theme layer refs, e.g. [@indeed-cozy/ds/theme, @indeed-cozy/ds/components]. Applied in order for preview/docs rendering.",
+          ),
         publishScope: z
           .enum(["personal", "organization", "team"])
           .optional()
@@ -457,6 +463,7 @@ export function createRegistryMcpServer(request?: Request) {
         description: args.description ?? null,
         slug: args.slug ?? null,
         visibility: args.visibility,
+        defaultThemeResourceRefs: args.defaultThemeResourceRefs ?? undefined,
         defaultThemeResourceRef: args.defaultThemeResourceRef ?? null,
         publishScope: args.publishScope,
         targetRef: args.targetRef ?? null,
@@ -2395,6 +2402,12 @@ ${fileContent}
         .describe(
           "Optional resource-level theme override stored in meta.themeResourceRef, e.g. @indeed-cozy/ds/theme. Overrides the project default theme for preview/docs rendering.",
         ),
+      themeResourceRefs: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Optional ordered resource-level theme layer refs stored in meta.themeResourceRefs, e.g. [@indeed-cozy/ds/chart-color-tokens]. Appended after project theme layers for preview/docs rendering.",
+        ),
       /**
        * 单文件模式：入口 TSX/CSS 源码（向后兼容）。
        * 当 files 存在时会被忽略。
@@ -2990,6 +3003,7 @@ ${fileContent}
             previewExport: contract.value.previewExport,
             previewStories: args.previewStories,
             previewDefaultStoryId: args.previewDefaultStoryId,
+            themeResourceRefs: args.themeResourceRefs,
             themeResourceRef: args.themeResourceRef,
             registryDependencies: contract.value.registryDependenciesToWrite,
           });
@@ -3061,6 +3075,7 @@ ${fileContent}
           previewExport: contract.value.previewExport,
           previewStories: args.previewStories,
           previewDefaultStoryId: args.previewDefaultStoryId,
+          themeResourceRefs: args.themeResourceRefs,
           themeResourceRef: args.themeResourceRef,
           registryDependencies: contract.value.registryDependenciesToWrite,
         });
@@ -3268,6 +3283,7 @@ ${fileContent}
         previewExport: contract.value.previewExport,
         previewStories: args.previewStories,
         previewDefaultStoryId: args.previewDefaultStoryId,
+        themeResourceRefs: args.themeResourceRefs,
         themeResourceRef: args.themeResourceRef,
         requestUserId: userId,
       });

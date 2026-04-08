@@ -226,10 +226,11 @@ describe("preview-dependency-provider", () => {
           publicUrl: null,
         }),
       ]);
-      expect(result.nodePaths).toContain(path.join(process.cwd(), "node_modules"));
+      expect(result.nodePaths).toEqual([]);
+      expect(result.plan.hostFallbackUsed).toBe(false);
 
-      await fs.rm(tmpRoot, { recursive: true, force: true });
-    },
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  },
     30000,
   );
 
@@ -252,6 +253,8 @@ describe("preview-dependency-provider", () => {
       }),
     ]);
     expect(result.plan.managedPackages).toEqual([]);
+    expect(result.plan.hostFallbackUsed).toBe(false);
+    expect(result.nodePaths).toEqual([]);
   });
 
   it("prefers cached compatible-bundled metadata when present", async () => {
@@ -310,6 +313,15 @@ describe("preview-dependency-provider", () => {
           "https://preview-assets.example.com/compatible-bundles/recharts/2.15.3/bundle.mjs",
       }),
     ]);
+    expect(result.plan.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          packageName: "recharts",
+          code: "COMPATIBLE_BUNDLED_READY",
+        }),
+      ]),
+    );
+    expect(result.plan.hostFallbackUsed).toBe(false);
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });

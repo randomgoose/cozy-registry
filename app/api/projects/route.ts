@@ -4,6 +4,7 @@ import { listProjectsForOwner, listProjectsForScope } from "@/lib/project-list";
 import { createRegistryProject } from "@/lib/registry-project-create";
 import { createServerTimingLogger } from "@/lib/server-timing";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
+import { normalizeThemeResourceRefsInput } from "@/lib/project-resource-relationships";
 
 export async function POST(request: Request) {
   const { userId, activeOrganizationId } = await getProjectScopeContext(request);
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
         title?: string;
         description?: string | null;
         visibility?: "public" | "private";
+        defaultThemeResourceRefs?: unknown;
         defaultThemeResourceRef?: string | null;
       }
     | null;
@@ -27,17 +29,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing required field: title" }, { status: 400 });
   }
 
-  const defaultThemeResourceRef =
-    typeof body.defaultThemeResourceRef === "string" &&
-    body.defaultThemeResourceRef.trim().length > 0
-      ? body.defaultThemeResourceRef.trim()
-      : null;
+  const defaultThemeResourceRefs = normalizeThemeResourceRefsInput(
+    body.defaultThemeResourceRefs,
+  );
+  const normalizedDefaultThemeResourceRefs =
+    defaultThemeResourceRefs.length > 0
+      ? defaultThemeResourceRefs
+      : normalizeThemeResourceRefsInput(body.defaultThemeResourceRef);
   if (
-    defaultThemeResourceRef &&
-    !parseRegistryDependencyRef(defaultThemeResourceRef)
+    normalizedDefaultThemeResourceRefs.some(
+      (ref) => !parseRegistryDependencyRef(ref),
+    )
   ) {
     return NextResponse.json(
-      { error: "defaultThemeResourceRef must be a valid registry ref" },
+      { error: "defaultThemeResourceRef(s) must be valid registry refs" },
       { status: 400 },
     );
   }
@@ -48,7 +53,8 @@ export async function POST(request: Request) {
     description: body.description ?? null,
     slug: body.slug != null ? String(body.slug) : null,
     visibility: body.visibility,
-    defaultThemeResourceRef,
+    defaultThemeResourceRefs: normalizedDefaultThemeResourceRefs,
+    defaultThemeResourceRef: normalizedDefaultThemeResourceRefs[0] ?? null,
     sessionActiveOrganizationId: activeOrganizationId ?? null,
   });
 

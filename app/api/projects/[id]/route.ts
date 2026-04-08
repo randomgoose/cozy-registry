@@ -9,6 +9,7 @@ import {
 } from "@/lib/project-permissions";
 import { registryProjects } from "@/lib/db/schema";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
+import { normalizeThemeResourceRefsInput } from "@/lib/project-resource-relationships";
 
 function isKebab(s: string): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s);
@@ -39,6 +40,7 @@ export async function PATCH(
         title?: string;
         description?: string | null;
         visibility?: "public" | "private";
+        defaultThemeResourceRefs?: unknown;
         defaultThemeResourceRef?: string | null;
       }
     | null;
@@ -51,19 +53,19 @@ export async function PATCH(
     return NextResponse.json({ error: "slug must be kebab-case" }, { status: 400 });
   }
 
-  const defaultThemeResourceRef =
-    typeof body.defaultThemeResourceRef === "string" &&
-    body.defaultThemeResourceRef.trim().length > 0
-      ? body.defaultThemeResourceRef.trim()
-      : body.defaultThemeResourceRef === null
-        ? null
+  const rawDefaultThemeResourceRefs =
+    body.defaultThemeResourceRefs !== undefined
+      ? normalizeThemeResourceRefsInput(body.defaultThemeResourceRefs)
+      : typeof body.defaultThemeResourceRef === "string" ||
+          body.defaultThemeResourceRef === null
+        ? normalizeThemeResourceRefsInput(body.defaultThemeResourceRef)
         : undefined;
   if (
-    defaultThemeResourceRef &&
-    !parseRegistryDependencyRef(defaultThemeResourceRef)
+    rawDefaultThemeResourceRefs &&
+    rawDefaultThemeResourceRefs.some((ref) => !parseRegistryDependencyRef(ref))
   ) {
     return NextResponse.json(
-      { error: "defaultThemeResourceRef must be a valid registry ref" },
+      { error: "defaultThemeResourceRef(s) must be valid registry refs" },
       { status: 400 },
     );
   }
@@ -77,8 +79,11 @@ export async function PATCH(
       ...(body.visibility != null
         ? { visibility: body.visibility === "public" ? "public" : "private" }
         : {}),
-      ...(defaultThemeResourceRef !== undefined
-        ? { defaultThemeResourceRef }
+      ...(rawDefaultThemeResourceRefs !== undefined
+        ? {
+            defaultThemeResourceRefs: rawDefaultThemeResourceRefs,
+            defaultThemeResourceRef: rawDefaultThemeResourceRefs[0] ?? null,
+          }
         : {}),
       updatedAt: new Date(),
     })

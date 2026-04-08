@@ -21,6 +21,11 @@ import { readDependencyDecisionsFromMeta } from "@/lib/third-party-dependency-go
 import { getCompatibleArtifactDependencyDisplayNames } from "@/lib/third-party-dependency-governance";
 import { resolveThemeRelationshipForResource } from "@/lib/project-resource-relationships";
 
+type PreviewArtifactManifestSummary = {
+  hostFallbackUsed?: boolean;
+  compatibleBundledDependencies?: string[];
+};
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const owner = url.searchParams.get("owner");
@@ -67,8 +72,8 @@ export async function GET(request: Request) {
   const resolvedThemeRelationship =
     item.type === "registry:theme"
       ? {
-          resolvedThemeResourceRef: null,
-          resolvedThemeSource: "none" as const,
+          resolvedThemeResourceRefs: [],
+          resolvedThemeLayerSources: [],
         }
       : await resolveThemeRelationshipForResource({
           owner,
@@ -181,6 +186,19 @@ export async function GET(request: Request) {
         : (artifact.lastErrorMessage ?? fallbackSkippedMessage)
       : artifact.lastErrorMessage;
 
+  let manifestSummary: PreviewArtifactManifestSummary | null = null;
+  if (artifact.manifestUrl) {
+    try {
+      const response = await fetch(artifact.manifestUrl, { cache: "no-store" });
+      if (response.ok) {
+        manifestSummary =
+          (await response.json()) as PreviewArtifactManifestSummary;
+      }
+    } catch {
+      manifestSummary = null;
+    }
+  }
+
   return NextResponse.json({
     artifactStatus: artifact.status,
     artifactCapability,
@@ -190,8 +208,17 @@ export async function GET(request: Request) {
     mode,
     storyId: resolvedStoryId,
     compatibleExternalDependencies,
-    resolvedThemeResourceRef: resolvedThemeRelationship.resolvedThemeResourceRef,
-    resolvedThemeSource: resolvedThemeRelationship.resolvedThemeSource,
+    hostFallbackUsed: manifestSummary?.hostFallbackUsed ?? null,
+    compatibleBundledDependencies:
+      manifestSummary?.compatibleBundledDependencies ?? [],
+    resolvedThemeResourceRefs: resolvedThemeRelationship.resolvedThemeResourceRefs,
+    resolvedThemeLayerSources: resolvedThemeRelationship.resolvedThemeLayerSources,
+    resolvedThemeResourceRef:
+      resolvedThemeRelationship.resolvedThemeResourceRefs[0] ?? null,
+    resolvedThemeSource:
+      resolvedThemeRelationship.resolvedThemeLayerSources[0] === "resource-layer"
+        ? "resource-override"
+        : resolvedThemeRelationship.resolvedThemeLayerSources[0] ?? "none",
     artifactKey: artifact.artifactKey,
     artifactUrl: artifact.jsUrl,
     cssUrl: artifact.cssUrl,

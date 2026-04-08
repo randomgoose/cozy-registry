@@ -1,6 +1,6 @@
 Status: active
 Owner: engineering
-Last updated: 2026-04-07
+Last updated: 2026-04-08
 Source of truth: yes
 
 # System Overview
@@ -51,7 +51,7 @@ Source of truth: yes
 - owner 既支持 handle，也兼容 legacy `userId`
 - 资产发布仍以源码与版本快照为中心，但 preview 已进入“构建后分发 artifact”的主路径
 - 同时支持 `registry:block`、`registry:ui`、`registry:theme`
-- theme 支持作为独立 registry item，并可通过 `registryDependencies` 与 project-level relationship 参与 preview / docs 渲染
+- theme 支持作为独立 registry item，并可通过 `registryDependencies` 与 project-level ordered theme layers relationship 参与 preview / docs 渲染
 - registry 正式身份已升级为 `owner + project + name`，同时兼容 legacy `owner + name`
 - preview 第三方依赖已形成多层模型：
   - governance layer：决定依赖是否允许、属于哪种政策边界
@@ -84,16 +84,17 @@ Source of truth: yes
 
 当前已经收住的部分：
 
-- project 支持 `defaultThemeResourceRef`
-- resource 支持 `meta.themeResourceRef` override
-- preview、artifact build、multi-story preview、status API 已共享同一套 theme resolution helper
-- UI 已能展示 `resolvedThemeResourceRef` 与 `resolvedThemeSource`
+- project 支持默认 theme layers，并正从单值字段升级到数组模型
+- resource 支持追加自己的 theme layers
+- preview、artifact build、multi-story preview、status API 已共享同一套 ordered theme layer resolution helper
+- UI 已能展示 resolved theme relationship，下一步会升级到多 layer 展示
 - runtime `live style preview` 已可作为 session-local patch 覆盖已提交 artifact
 - artifact worker 现在也会把 resolved theme CSS 带入 `preview.html`
 
 当前尚未完全收口的部分：
 
 - install protocol 还未正式消费 project-level resolved theme relationship
+- install surfaces 也尚未像 shadcn / jsrepo 那样把 theme layers 作为显式 design-context dependencies 呈现给用户
 - theme 资源的长期 canonical format 仍待从 CSS-first 逐步演进到更结构化的 token 模型
 - theme 变化与关联 artifact freshness 的强一致策略还未完全定案
 
@@ -112,8 +113,9 @@ Source of truth: yes
 - [Preview Artifact Capability Model Spec](../20-engineering/preview-artifact-capability-model-spec.md)：`managed-artifact / compatible-artifact / runtime-only` 的能力分层与实现方向。
 - [Preview Artifact Retrospective](../20-engineering/preview-artifact-retrospective.md)：从重运行时装配迁移到重构建阶段 artifact 的设计复盘、经验与后续原则。
 - [Project-Scoped Registry Identity Spec](../20-engineering/project-scoped-registry-identity-spec.md)：将 registry 正式身份从 `owner + name` 升级到 `owner + project + name` 的系统方案。
-- [Project Resource Relationship Spec](../20-engineering/project-resource-relationship-spec.md)：将 project 升级为默认设计上下文边界，先从 `defaultThemeResourceRef` 与 resource-level theme override 做起。
+- [Project Resource Relationship Spec](../20-engineering/project-resource-relationship-spec.md)：将 project 升级为默认设计上下文边界，并将单一 theme 解析升级到 ordered theme layers 模型。
 - [Component Style Organization Model Spec](../20-engineering/component-style-organization-model-spec.md)：定义组件局部样式与 design-context style 的正式分层，并评估 Tailwind、同目录 CSS、mixed mode、CSS Modules 等在本项目中的实际支持度。
+- [Preview And Project Style Closure Checklist](../20-engineering/preview-and-project-style-closure-checklist.md)：将“preview 构建动态决策”和“project/theme 样式上下文”两条主线压成收尾清单，便于后续 agent 继续收口阶段性桥接与剩余缺口。
 - [Live Style Preview And Committed Artifact Spec](../20-engineering/live-style-preview-and-committed-artifact-spec.md)：将 runtime 样式覆盖与 committed artifact 重建拆成两条协同链路，服务轻量调样式体验。
 - [Vercel React Best Practices For My App](../20-engineering/vercel-react-best-practices-for-my-app.md)：将 Vercel React/Next.js 性能规则映射到当前仓库的具体文件与优化动作。
 - [Preview Delivery And CDN Plan](../20-engineering/preview-delivery-and-cdn-plan.md)：梳理 preview artifact 当前的对象存储 / CDN 分发现状、剩余瓶颈与后续提速方向。
