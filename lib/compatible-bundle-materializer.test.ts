@@ -169,4 +169,52 @@ describe("compatible-bundle-materializer", () => {
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
+
+  it("follows esm.sh-style nested remote imports when bundling", async () => {
+    const tmpRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "cozy-compatible-bundle-nested-test-"),
+    );
+    process.env[compatibleBundleRootEnv] = tmpRoot;
+    process.env[compatibleBundlingEnv] = "true";
+
+    const entry = resolveCompatibleExternalDelivery({
+      packageName: "recharts",
+      requestedVersion: "3.8.1",
+      importMapTarget: "recharts",
+      isDev: false,
+    });
+
+    const fetchMock = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === entry.sourceUrl) {
+        return new Response(
+          `import { scaleBand } from "/d3-scale/src/band?target=es2022"; export { scaleBand };`,
+          {
+            status: 200,
+            headers: { "content-type": "application/javascript" },
+          },
+        );
+      }
+      if (url === "https://esm.sh/d3-scale/src/band?target=es2022") {
+        return new Response(
+          `export function scaleBand() { return "ok"; }`,
+          {
+            status: 200,
+            headers: { "content-type": "application/javascript" },
+          },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const result = await materializeCompatibleBundle({
+      entry,
+      fetchImpl: fetchMock,
+    });
+
+    expect(result.deliveryMode).toBe("compatible-bundled");
+    expect(result.publicUrl).toMatch(/^file:\/\//);
+
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
 });

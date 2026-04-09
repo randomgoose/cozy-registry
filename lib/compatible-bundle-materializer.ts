@@ -35,6 +35,45 @@ export function isCompatibleBundlingEnabled() {
   );
 }
 
+function createRemoteModulePlugin(input: {
+  sourceUrl: string;
+  fetchImpl: typeof fetch;
+}): esbuild.Plugin {
+  const origin = new URL(input.sourceUrl).origin;
+  return {
+    name: "compatible-remote-fetch",
+    setup(build) {
+      build.onResolve({ filter: /^\// }, (args) => ({
+        path: new URL(args.path, origin).toString(),
+        namespace: "remote-http",
+      }));
+
+      build.onResolve({ filter: /^\.\.?\// }, (args) => ({
+        path: new URL(args.path, args.importer).toString(),
+        namespace: "remote-http",
+      }));
+
+      build.onResolve({ filter: /^https?:\/\// }, (args) => ({
+        path: args.path,
+        namespace: "remote-http",
+      }));
+
+      build.onLoad({ filter: /^https?:\/\//, namespace: "remote-http" }, async (args) => {
+        const response = await input.fetchImpl(args.path);
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch remote compatible module (${response.status}): ${args.path}`,
+          );
+        }
+        return {
+          contents: await response.text(),
+          loader: "js",
+        };
+      });
+    },
+  };
+}
+
 export async function materializeCompatibleBundle(input: {
   entry: PreviewCompatibleExternalDelivery;
   upload?: boolean;
@@ -69,9 +108,8 @@ export async function materializeCompatibleBundle(input: {
   const result = await esbuild.build({
     stdin: {
       contents: sourceCode,
-      sourcefile: `${encodeBundlePathSegment(input.entry.packageName)}.mjs`,
+      sourcefile: input.entry.sourceUrl,
       loader: "js",
-      resolveDir: process.cwd(),
     },
     bundle: true,
     format: "esm",
@@ -82,6 +120,12 @@ export async function materializeCompatibleBundle(input: {
     write: false,
     logLevel: "silent",
     external: ["react", "react-dom", "react-dom/client", "react/jsx-runtime"],
+    plugins: [
+      createRemoteModulePlugin({
+        sourceUrl: input.entry.sourceUrl,
+        fetchImpl,
+      }),
+    ],
   });
 
   const bundle = result.outputFiles?.[0]?.text;
