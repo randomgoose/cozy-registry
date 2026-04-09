@@ -10,6 +10,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PublishProjectsToShell } from "@/app/(auth)/dashboard/ProjectsShellCache";
+import { CreateProjectDetailsForm } from "@/app/(auth)/dashboard/CreateProjectDetailsForm";
 import { PreviewFrame } from "@/app/components/PreviewFrame";
 import {
   Dialog,
@@ -28,6 +29,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { extractPropsFromTsx } from "@/lib/validate-tsx";
 import {
   Table,
@@ -98,6 +101,9 @@ type PreviewArtifactStatusPayload = {
   artifactStatus: PreviewArtifactStatus;
   artifactCapability?: PreviewArtifactCapability | null;
   compatibleExternalDependencies?: string[];
+  managedProviderDependencies?: string[];
+  compatibleBundledDependencies?: string[];
+  hostFallbackUsed?: boolean | null;
   resolvedThemeResourceRefs?: string[];
   resolvedThemeLayerSources?: Array<"resource-layer" | "project-default">;
   resolvedThemeResourceRef?: string | null;
@@ -121,6 +127,51 @@ function parseThemeResourceRefsInput(input: string): string[] {
 
 function formatThemeResourceRefsInput(refs: string[] | null | undefined): string {
   return (refs ?? []).join("\n");
+}
+
+function buildArtifactDeliverySummary(
+  artifactStatus: PreviewArtifactStatusPayload | null,
+): string | null {
+  if (!artifactStatus) return null;
+  if (artifactStatus.artifactStatus === "skipped") {
+    return (
+      artifactStatus.lastError?.message ??
+      "Preview artifact prebundle was skipped by policy."
+    );
+  }
+  if (artifactStatus.artifactStatus === "failed") {
+    return artifactStatus.lastError?.message ?? "Preview artifact build failed.";
+  }
+  if (artifactStatus.artifactStatus !== "ready") {
+    return null;
+  }
+
+  const summaryParts: string[] = [];
+  if (artifactStatus.compatibleBundledDependencies?.length) {
+    summaryParts.push(
+      `Bundled for faster preview: ${artifactStatus.compatibleBundledDependencies.join(", ")}.`,
+    );
+  } else if (
+    artifactStatus.artifactCapability === "compatible-artifact" &&
+    artifactStatus.compatibleExternalDependencies?.length
+  ) {
+    summaryParts.push(
+      `Some dependencies still load at runtime: ${artifactStatus.compatibleExternalDependencies.join(", ")}.`,
+    );
+  } else if (artifactStatus.artifactCapability === "compatible-artifact") {
+    summaryParts.push("Some dependencies still load at runtime.");
+  }
+
+  if (artifactStatus.managedProviderDependencies?.length) {
+    summaryParts.push(
+      `Managed by provider: ${artifactStatus.managedProviderDependencies.join(", ")}.`,
+    );
+  }
+  if (artifactStatus.hostFallbackUsed) {
+    summaryParts.push("Host fallback used.");
+  }
+
+  return summaryParts.length > 0 ? summaryParts.join(" ") : null;
 }
 
 function resolveSelectedPreviewStoryId(input: {
@@ -294,9 +345,6 @@ export function ProjectsPanel(props: {
   const [creating, setCreating] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createStep, setCreateStep] = useState<1 | 2>(1);
-  const [newTitle, setNewTitle] = useState("");
-  const [newDefaultThemeResourceRefsInput, setNewDefaultThemeResourceRefsInput] =
-    useState("");
   const [createdProject, setCreatedProject] = useState<CreatedProject | null>(null);
   const [inviteInput, setInviteInput] = useState("");
   const [inviteRole, setInviteRole] = useState<"viewer" | "editor" | "admin">("viewer");
@@ -659,19 +707,21 @@ export function ProjectsPanel(props: {
     return () => window.removeEventListener("project-share-intent", handleShareIntent);
   }, [props.isOrgScope]);
 
-  async function submitStep1(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
+  async function submitStep1(values: {
+    title: string;
+    defaultThemeResourceRefsInput: string;
+  }) {
+    if (!values.title.trim()) return;
     setCreating(true);
     try {
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: newTitle.trim(),
+          title: values.title.trim(),
           visibility: "private",
           defaultThemeResourceRefs: parseThemeResourceRefsInput(
-            newDefaultThemeResourceRefsInput,
+            values.defaultThemeResourceRefsInput,
           ),
         }),
       });
@@ -758,8 +808,6 @@ export function ProjectsPanel(props: {
 
   function resetCreateWizard() {
     setCreateStep(1);
-    setNewTitle("");
-    setNewDefaultThemeResourceRefsInput("");
     setCreatedProject(null);
     setInviteInput("");
     setInviteError(null);
@@ -979,11 +1027,11 @@ export function ProjectsPanel(props: {
               Invite member
             </label>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-              <input
+              <Input
                 value={inviteInput}
                 onChange={(e) => setInviteInput(e.target.value)}
                 placeholder="email@company.com or @handle"
-                className="min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                className="h-10 min-w-0 flex-1 rounded-xl text-sm md:text-sm"
               />
               <div className="flex shrink-0 gap-2">
                 <select
@@ -1062,65 +1110,14 @@ export function ProjectsPanel(props: {
             <DialogContent className="max-w-md gap-5 px-5 pt-5 pb-5">
               <DialogHeader>
                 <DialogTitle>Create project</DialogTitle>
-                <DialogDescription>
-                  {createStep === 1
-                    ? "Step 1 of 2 — choose a display name. The URL slug is generated automatically and is unique within this workspace (organization or your personal scope), not globally."
-                    : createdProject
-                      ? props.isOrgScope
-                        ? "Step 2 of 2 — invite organization members by email or username (@handle). They must already belong to this organization."
-                        : "Your project is ready. Member invites are available for organization projects; personal projects are owned by you only."
-                      : null}
-                </DialogDescription>
               </DialogHeader>
 
               {createStep === 1 ? (
-                <form onSubmit={submitStep1} className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                      Project name
-                    </label>
-                    <input
-                      value={newTitle}
-                      onChange={(e) => setNewTitle(e.target.value)}
-                      placeholder="Marketing Blocks"
-                      className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                      autoFocus
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                      Default theme resources
-                    </label>
-                    <textarea
-                      value={newDefaultThemeResourceRefsInput}
-                      onChange={(e) => setNewDefaultThemeResourceRefsInput(e.target.value)}
-                      placeholder={"@indeed-cozy/ds/theme\n@indeed-cozy/ds/components"}
-                      rows={3}
-                      className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                    />
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      Optional. One ref per line. Applied in order to preview and docs for resources in this project.
-                    </p>
-                  </div>
-
-                  <DialogFooter className="flex flex-row flex-wrap justify-end gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => closeCreateDialog()}
-                      className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={creating || !newTitle.trim()}
-                      className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                    >
-                      {creating ? "Creating..." : "Continue"}
-                    </button>
-                  </DialogFooter>
-                </form>
+                <CreateProjectDetailsForm
+                  creating={creating}
+                  onSubmit={submitStep1}
+                  onCancel={closeCreateDialog}
+                />
               ) : createdProject ? (
                 <div className="space-y-4">
                   <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-950/50">
@@ -1141,11 +1138,11 @@ export function ProjectsPanel(props: {
                           Invite member
                         </label>
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                          <input
+                          <Input
                             value={inviteInput}
                             onChange={(e) => setInviteInput(e.target.value)}
                             placeholder="email@company.com or @handle"
-                            className="min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                            className="h-10 min-w-0 flex-1 rounded-xl text-sm md:text-sm"
                           />
                           <div className="flex shrink-0 gap-2">
                             <select
@@ -1278,12 +1275,12 @@ export function ProjectsPanel(props: {
                         {projectThemeLayersSaving ? "Saving..." : "Save"}
                       </button>
                     </div>
-                    <textarea
+                    <Textarea
                       value={projectThemeLayersInput}
                       onChange={(e) => setProjectThemeLayersInput(e.target.value)}
                       rows={3}
                       placeholder={"@indeed-cozy/ds/theme\n@indeed-cozy/ds/components"}
-                      className="mt-3 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                      className="mt-3 rounded-xl text-sm md:text-sm dark:bg-zinc-950"
                     />
                   </div>
                 ) : null}
@@ -1426,17 +1423,7 @@ export function ProjectsPanel(props: {
                     }
                   })();
                   const artifactStatusMessage =
-                    artifactStatus?.artifactStatus === "ready" &&
-                    artifactStatus.artifactCapability === "compatible-artifact"
-                      ? artifactStatus.compatibleExternalDependencies?.length
-                        ? `Some dependencies load at runtime: ${artifactStatus.compatibleExternalDependencies.join(", ")}.`
-                        : "Some dependencies load at runtime."
-                      : artifactStatus?.artifactStatus === "skipped"
-                      ? artifactStatus.lastError?.message ??
-                        "Preview artifact prebundle was skipped by policy."
-                      : artifactStatus?.artifactStatus === "failed"
-                        ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
-                        : null;
+                    buildArtifactDeliverySummary(artifactStatus);
                   const resolvedThemeRefs =
                     artifactStatus?.resolvedThemeResourceRefs ?? [];
                   const resolvedThemeLabel =

@@ -51,6 +51,9 @@ type PreviewArtifactStatusPayload = {
   artifactStatus: PreviewArtifactStatus;
   artifactCapability?: PreviewArtifactCapability | null;
   compatibleExternalDependencies?: string[];
+  managedProviderDependencies?: string[];
+  compatibleBundledDependencies?: string[];
+  hostFallbackUsed?: boolean | null;
   resolvedThemeResourceRefs?: string[];
   resolvedThemeLayerSources?: Array<"resource-layer" | "project-default">;
   resolvedThemeResourceRef?: string | null;
@@ -79,6 +82,51 @@ function resolveSelectedPreviewStoryId(input: {
     return normalizedDefault;
   }
   return input.stories[0]?.id ?? null;
+}
+
+function buildArtifactDeliverySummary(
+  artifactStatus: PreviewArtifactStatusPayload | null,
+): string | null {
+  if (!artifactStatus) return null;
+  if (artifactStatus.artifactStatus === "skipped") {
+    return (
+      artifactStatus.lastError?.message ??
+      "Preview artifact prebundle was skipped by policy."
+    );
+  }
+  if (artifactStatus.artifactStatus === "failed") {
+    return artifactStatus.lastError?.message ?? "Preview artifact build failed.";
+  }
+  if (artifactStatus.artifactStatus !== "ready") {
+    return null;
+  }
+
+  const summaryParts: string[] = [];
+  if (artifactStatus.compatibleBundledDependencies?.length) {
+    summaryParts.push(
+      `Bundled for faster preview: ${artifactStatus.compatibleBundledDependencies.join(", ")}.`,
+    );
+  } else if (
+    artifactStatus.artifactCapability === "compatible-artifact" &&
+    artifactStatus.compatibleExternalDependencies?.length
+  ) {
+    summaryParts.push(
+      `Some dependencies still load at runtime: ${artifactStatus.compatibleExternalDependencies.join(", ")}.`,
+    );
+  } else if (artifactStatus.artifactCapability === "compatible-artifact") {
+    summaryParts.push("Some dependencies still load at runtime.");
+  }
+
+  if (artifactStatus.managedProviderDependencies?.length) {
+    summaryParts.push(
+      `Managed by provider: ${artifactStatus.managedProviderDependencies.join(", ")}.`,
+    );
+  }
+  if (artifactStatus.hostFallbackUsed) {
+    summaryParts.push("Host fallback used.");
+  }
+
+  return summaryParts.length > 0 ? summaryParts.join(" ") : null;
 }
 
 interface ComponentDetailProps {
@@ -340,18 +388,7 @@ export function ComponentDetail({
         return null;
     }
   })();
-  const artifactStatusMessage =
-    artifactStatus?.artifactStatus === "ready" &&
-    artifactStatus.artifactCapability === "compatible-artifact"
-      ? artifactStatus.compatibleExternalDependencies?.length
-        ? `Some dependencies load at runtime: ${artifactStatus.compatibleExternalDependencies.join(", ")}.`
-        : "Some dependencies load at runtime."
-      : artifactStatus?.artifactStatus === "skipped"
-      ? artifactStatus.lastError?.message ??
-        "Preview artifact prebundle was skipped by policy."
-      : artifactStatus?.artifactStatus === "failed"
-        ? artifactStatus.lastError?.message ?? "Preview artifact build failed."
-        : null;
+  const artifactStatusMessage = buildArtifactDeliverySummary(artifactStatus);
   const resolvedThemeRefs = artifactStatus?.resolvedThemeResourceRefs ?? [];
   const resolvedThemeLabel =
     resolvedThemeRefs.length > 0

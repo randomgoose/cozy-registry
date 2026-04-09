@@ -1,6 +1,6 @@
 Status: active
 Owner: engineering
-Last updated: 2026-04-08
+Last updated: 2026-04-09
 Source of truth: yes
 
 # System Overview
@@ -73,10 +73,13 @@ Source of truth: yes
 - `soft-allowed + explicit version` 已可以进入 `compatible-artifact`
 - worker 已具备 best-effort `compatible-bundled` materialization 路径
 - manifest、`preview.html`、preview route 已能消费 compatible delivery metadata
+- provider 默认已切到 provider-first，host fallback 需显式开启
+- status / manifest 已能显示 `hostFallbackUsed`、`managedProviderDependencies`、`compatibleBundledDependencies`
+- `recharts@3.8.1` 已完成首个真实 `compatible-bundled` rollout 验证
 
 当前尚未完全收口的部分：
 
-- `compatible-bundled` 仍处于逐步验证阶段，还不是所有高频 compatible 依赖的默认稳定路径
+- `compatible-bundled` 仍处于逐步扩覆盖阶段，还不是所有高频 compatible 依赖的默认稳定路径
 - preview 首屏性能仍保留少量 dynamic assembly / external request 成本
 - `stories.html` 虽已进入 artifact-first 主路径，但完整 docs-style 静态交付仍在继续演进
 
@@ -113,7 +116,9 @@ Source of truth: yes
 - [Preview Artifact Capability Model Spec](../20-engineering/preview-artifact-capability-model-spec.md)：`managed-artifact / compatible-artifact / runtime-only` 的能力分层与实现方向。
 - [Preview Artifact Retrospective](../20-engineering/preview-artifact-retrospective.md)：从重运行时装配迁移到重构建阶段 artifact 的设计复盘、经验与后续原则。
 - [Project-Scoped Registry Identity Spec](../20-engineering/project-scoped-registry-identity-spec.md)：将 registry 正式身份从 `owner + name` 升级到 `owner + project + name` 的系统方案。
+- [Project-First Publishing Default Spec](../20-engineering/project-first-publishing-default-spec.md)：将“未指定 project 的新资源自动归入默认 project”作为产品默认路径，弱化 non-project item 的用户心智。
 - [Project Resource Relationship Spec](../20-engineering/project-resource-relationship-spec.md)：将 project 升级为默认设计上下文边界，并将单一 theme 解析升级到 ordered theme layers 模型。
+- [Project As Workspace And Publication Unit Discussion Note](../20-engineering/project-as-workspace-and-publication-unit-discussion-note.md)：讨论 project 是否应从 namespace 进一步成长为 workspace-like space，长期甚至成为 publication unit。
 - [Component Style Organization Model Spec](../20-engineering/component-style-organization-model-spec.md)：定义组件局部样式与 design-context style 的正式分层，并评估 Tailwind、同目录 CSS、mixed mode、CSS Modules 等在本项目中的实际支持度。
 - [Preview And Project Style Closure Checklist](../20-engineering/preview-and-project-style-closure-checklist.md)：将“preview 构建动态决策”和“project/theme 样式上下文”两条主线压成收尾清单，便于后续 agent 继续收口阶段性桥接与剩余缺口。
 - [Live Style Preview And Committed Artifact Spec](../20-engineering/live-style-preview-and-committed-artifact-spec.md)：将 runtime 样式覆盖与 committed artifact 重建拆成两条协同链路，服务轻量调样式体验。

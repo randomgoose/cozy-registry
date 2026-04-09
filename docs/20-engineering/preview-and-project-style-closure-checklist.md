@@ -1,6 +1,6 @@
 Status: active
 Owner: engineering
-Last updated: 2026-04-08
+Last updated: 2026-04-09
 Source of truth: partial
 
 # Preview Build And Project Style Closure Checklist
@@ -38,15 +38,15 @@ Source of truth: partial
 
 ### 1.2 仍属过渡态的点
 
-- preview dependency provider 仍保留 `host-fallback`
-- build / smoke 仍会利用 host `node_modules`
+- preview dependency provider 仍保留 `host-fallback` 作为显式 bridge
+- 少量 build / smoke 场景仍可在显式开关下利用 host `node_modules`
 - `next.config.ts` 仍保留 trusted preview package tracing bridge
 
 ### 1.3 下一步收口项
 
 1. **让 provider 成为真正的一等供应边界**
    - 默认不要把 host node paths 注入所有构建
-   - host fallback 仅在显式 diagnostics 下启用
+   - host fallback 仅在显式 diagnostics / bridge 开关下启用
 
 2. **逐步移除 host tracing 作为 correctness 依赖**
    - `next.config.ts` 中的 trusted package tracing 继续视为 temporary bridge
@@ -58,7 +58,8 @@ Source of truth: partial
 
 4. **继续扩大 `compatible-bundled` 覆盖面**
    - 优先覆盖高频 browser-safe compatible deps
-   - 减少 `esm.sh` 冷拉瓶颈
+   - `recharts` 已完成首个真实 rollout 验证
+   - 继续减少 `esm.sh` 冷拉瓶颈
 
 ### 1.4 收口完成的判断标准
 
@@ -66,6 +67,17 @@ Source of truth: partial
 - provider diagnostics 可以单独解释依赖从哪里来
 - host tracing 不再被当成长期主路径
 - compatible mode 的首屏性能不再主要受 `esm.sh` fan-out 限制
+
+### 1.5 2026-04-09 验证结果
+
+- provider 默认已切到 provider-first；host fallback 需要显式开启 `COZY_ENABLE_PREVIEW_HOST_FALLBACK=true`
+- provider 不再会在 host fallback 关闭时偷偷 seed provider cache
+- status / manifest 已能显示：
+  - `hostFallbackUsed`
+  - `managedProviderDependencies`
+  - `compatibleBundledDependencies`
+- `recharts@3.8.1` 已在真实环境中完成一次 `compatible-bundled` materialization，并在 `pie-chart@0.1.4 (story=donut)` 上验证命中
+- 因此本主线已从“机制存在”推进到“provider 边界收紧 + 首个高频 compatible 包真实跑通”
 
 ---
 
