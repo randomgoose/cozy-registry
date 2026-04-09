@@ -150,6 +150,72 @@ type PreviewWorkspaceState = {
   fileHashes: Map<string, string>;
 };
 
+function collectTailwindClassCandidatesFromSource(source: string): string[] {
+  const candidates = new Set<string>();
+  const patterns = [
+    /class(?:Name)?\s*=\s*["'`]([^"'`]+)["'`]/g,
+    /class(?:Name)?\s*=\s*\{\s*["'`]([^"'`]+)["'`]\s*\}/g,
+    /\b(?:cn|clsx|twMerge|classNames)\(([\s\S]*?)\)/g,
+  ];
+
+  const addTokens = (raw: string) => {
+    for (const token of raw.split(/\s+/)) {
+      const normalized = token.trim();
+      if (!normalized) continue;
+      if (!/^[A-Za-z0-9_!:/.[\]()%#,-]+$/.test(normalized)) continue;
+      if (normalized.length > 160) continue;
+      candidates.add(normalized);
+    }
+  };
+
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(source)) !== null) {
+      const raw = match[1] ?? "";
+      if (!raw) continue;
+      if (pattern.source.includes("cn|clsx|twMerge|classNames")) {
+        const stringPattern = /["'`]([^"'`]+)["'`]/g;
+        let stringMatch: RegExpExecArray | null;
+        while ((stringMatch = stringPattern.exec(raw)) !== null) {
+          addTokens(stringMatch[1] ?? "");
+        }
+        continue;
+      }
+      addTokens(raw);
+    }
+  }
+
+  return Array.from(candidates);
+}
+
+function collectTailwindClassCandidatesFromFiles(
+  files: Map<string, string>,
+): string[] {
+  const candidates = new Set<string>();
+  for (const [filePath, source] of files) {
+    if (!/\.(tsx|ts|jsx|js|html|mdx?)$/i.test(filePath)) continue;
+    for (const candidate of collectTailwindClassCandidatesFromSource(source)) {
+      candidates.add(candidate);
+    }
+  }
+  return Array.from(candidates);
+}
+
+async function buildTailwindBaselineCss(
+  candidates: string[],
+): Promise<string | null> {
+  if (candidates.length === 0) return null;
+  const tailwind = await import("@tailwindcss/node");
+  const compiled = await tailwind.compile(`@import "tailwindcss";`, {
+    base: process.cwd(),
+    onDependency() {
+      // no-op for preview artifact builds
+    },
+  });
+  const css = compiled.build(candidates).trim();
+  return css.length > 0 ? css : null;
+}
+
 const previewWorkspaceRoot = path.join(
   os.tmpdir(),
   "cozy-registry-preview-workspaces",
@@ -634,6 +700,8 @@ root.render(
     await syncWorkspaceFiles(workspace, desiredFiles);
     const previewEntryPath = path.join(tmpDir, "preview-entry.tsx");
 
+    const tailwindCandidates = collectTailwindClassCandidatesFromFiles(desiredFiles);
+
     // 收集组件 bundle 内 import 的 .css 文件，单独产出供 Preview 注入（STYLE_AND_THEME_SPEC §3.2）
     const collectedCss: string[] = [];
     const cssPlugin: import("esbuild").Plugin = {
@@ -739,8 +807,19 @@ root.render(
       };
     }
 
-    const css =
-      collectedCss.length > 0 ? collectedCss.join("\n\n") : undefined;
+    let tailwindCss: string | null = null;
+    try {
+      tailwindCss = await buildTailwindBaselineCss(tailwindCandidates);
+    } catch {
+      tailwindCss = null;
+    }
+
+    const cssParts = [
+      tailwindCss,
+      collectedCss.length > 0 ? collectedCss.join("\n\n") : null,
+    ].filter((value): value is string => !!value && value.trim().length > 0);
+
+    const css = cssParts.length > 0 ? cssParts.join("\n\n") : undefined;
     return {
       ok: true,
       code: output,

@@ -122,4 +122,34 @@ describe("preview-build", () => {
     }
     expect(result.code).toContain(`from "@radix-ui/react-dropdown-menu"`);
   });
+
+  it("builds baseline Tailwind utility css for static className usage", async () => {
+    const result = await buildPreviewBundle(
+      {
+        name: "tailwind-card",
+        version: "1.0.0",
+        files: {
+          "index.tsx": `
+            import React from "react";
+
+            export default function TailwindCard() {
+              return (
+                <div className="flex rounded-md bg-red-500 p-4 text-white">
+                  hello
+                </div>
+              );
+            }
+          `,
+        },
+      },
+      {},
+    );
+
+    if (!result.ok) {
+      throw new Error(result.error.message);
+    }
+    expect(result.css).toContain(".flex");
+    expect(result.css).toContain(".bg-red-500");
+    expect(result.css).toContain(".p-4");
+  });
 });
