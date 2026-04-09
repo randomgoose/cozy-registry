@@ -205,7 +205,21 @@ async function buildTailwindBaselineCss(
   candidates: string[],
 ): Promise<string | null> {
   if (candidates.length === 0) return null;
-  const tailwind = await import("@tailwindcss/node");
+  const runtimeRequire = Module.createRequire(
+    path.join(process.cwd(), "package.json"),
+  );
+  const specifier = ["@tailwindcss", "node"].join("/");
+  const tailwind = runtimeRequire(specifier) as {
+    compile: (
+      css: string,
+      options: {
+        base: string;
+        onDependency: (dependency: string) => void;
+      },
+    ) => Promise<{
+      build(candidates: string[]): string;
+    }>;
+  };
   const compiled = await tailwind.compile(`@import "tailwindcss";`, {
     base: process.cwd(),
     onDependency() {
