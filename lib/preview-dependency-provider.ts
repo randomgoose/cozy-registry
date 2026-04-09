@@ -49,6 +49,13 @@ const DEFAULT_PROVIDER_ROOT = path.join(
   "cozy-preview-dependency-provider",
 );
 
+export function isPreviewHostFallbackEnabled(): boolean {
+  const flag = process.env.COZY_ENABLE_PREVIEW_HOST_FALLBACK
+    ?.trim()
+    .toLowerCase();
+  return flag === "1" || flag === "true" || flag === "on";
+}
+
 /**
  * Directories used as `paths` hints for resolving preview dependencies on the host.
  * Matches the same host hints as registry preview smoke / esbuild (`react` package dir + cwd `node_modules`).
@@ -72,6 +79,8 @@ export function getPreviewDependencyHostNodePaths(
 
 export async function resolvePreviewDependencies(params: {
   decisions: DependencyDecision[];
+  allowHostFallback?: boolean;
+  allowRegistryFetch?: boolean;
 }): Promise<{
   nodePaths: string[];
   resolutions: PreviewDependencyResolution[];
@@ -81,6 +90,9 @@ export async function resolvePreviewDependencies(params: {
   const appRequire = Module.createRequire(
     path.join(process.cwd(), "package.json"),
   );
+  const allowHostFallback =
+    params.allowHostFallback ?? isPreviewHostFallbackEnabled();
+  const allowRegistryFetch = params.allowRegistryFetch ?? true;
   const hostNodePaths = getPreviewDependencyHostNodePaths(appRequire);
   const byName = new Map(
     params.decisions.map((decision) => [decision.packageName, decision]),
@@ -129,12 +141,20 @@ export async function resolvePreviewDependencies(params: {
       packageName,
       requestedVersion,
       hostNodePaths,
+      allowHostFallback,
+      allowRegistryFetch,
     });
 
     if (providerResolution) {
       resolutions.push(providerResolution);
       nodePathSet.add(providerResolution.moduleSearchPath);
       continue;
+    }
+
+    if (!allowHostFallback) {
+      throw new Error(
+        `Unable to resolve managed preview dependency "${packageName}@${requestedVersion}" from the controlled provider. Host fallback is disabled.`,
+      );
     }
 
     const hostResolution = await resolveFromHost({
@@ -228,6 +248,7 @@ async function ensureProviderResolution(input: {
   packageName: string;
   requestedVersion: string;
   hostNodePaths: string[];
+  allowHostFallback: boolean;
   allowRegistryFetch?: boolean;
 }): Promise<PreviewDependencyResolution | null> {
   const providerRoot = getPreviewDependencyProviderRoot();
@@ -238,23 +259,25 @@ async function ensureProviderResolution(input: {
   });
   if (existing) return existing;
 
-  try {
-    const seeded = await seedProviderFromHost({
-      appRequire: input.appRequire,
-      packageName: input.packageName,
-      requestedVersion: input.requestedVersion,
-      providerRoot,
-      hostNodePaths: input.hostNodePaths,
-    });
-    if (seeded) {
-      return tryResolveFromProvider({
+  if (input.allowHostFallback) {
+    try {
+      const seeded = await seedProviderFromHost({
+        appRequire: input.appRequire,
         packageName: input.packageName,
         requestedVersion: input.requestedVersion,
         providerRoot,
+        hostNodePaths: input.hostNodePaths,
       });
+      if (seeded) {
+        return tryResolveFromProvider({
+          packageName: input.packageName,
+          requestedVersion: input.requestedVersion,
+          providerRoot,
+        });
+      }
+    } catch {
+      /* package not on host — fall through to registry fetch */
     }
-  } catch {
-    /* package not on host — fall through to registry fetch */
   }
 
   if (input.allowRegistryFetch && isExactVersion(input.requestedVersion)) {

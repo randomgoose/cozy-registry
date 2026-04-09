@@ -23,6 +23,7 @@ import { resolveThemeRelationshipForResource } from "@/lib/project-resource-rela
 
 type PreviewArtifactManifestSummary = {
   hostFallbackUsed?: boolean;
+  managedProviderDependencies?: string[];
   compatibleBundledDependencies?: string[];
 };
 
@@ -209,6 +210,8 @@ export async function GET(request: Request) {
     storyId: resolvedStoryId,
     compatibleExternalDependencies,
     hostFallbackUsed: manifestSummary?.hostFallbackUsed ?? null,
+    managedProviderDependencies:
+      manifestSummary?.managedProviderDependencies ?? [],
     compatibleBundledDependencies:
       manifestSummary?.compatibleBundledDependencies ?? [],
     resolvedThemeResourceRefs: resolvedThemeRelationship.resolvedThemeResourceRefs,

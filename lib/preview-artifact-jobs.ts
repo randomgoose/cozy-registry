@@ -812,6 +812,9 @@ export async function processPreviewArtifactJob(jobId: string) {
       cssUrl: uploadedCssUrl,
       storiesHtmlUrl: storiesHtmlUrlForClients,
       hostFallbackUsed: dependencyPlan.hostFallbackUsed,
+      managedProviderDependencies: dependencyPlan.managedPackages
+        .filter((entry) => entry.resolutionSource === "provider")
+        .map((entry) => entry.packageName),
       compatibleBundledDependencies: compatibleExternalsForArtifact
         .filter((entry) => entry.deliveryMode === "compatible-bundled")
         .map((entry) => entry.packageName),

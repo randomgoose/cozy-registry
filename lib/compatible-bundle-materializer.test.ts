@@ -109,4 +109,64 @@ describe("compatible-bundle-materializer", () => {
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
+
+  it("materializes a compatible remote entry into bundled metadata when enabled", async () => {
+    const tmpRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "cozy-compatible-bundle-materialize-test-"),
+    );
+    process.env[compatibleBundleRootEnv] = tmpRoot;
+    process.env[compatibleBundlingEnv] = "true";
+
+    const entry = resolveCompatibleExternalDelivery({
+      packageName: "recharts",
+      requestedVersion: "2.15.3",
+      importMapTarget: "recharts",
+      isDev: false,
+    });
+
+    const result = await materializeCompatibleBundle({
+      entry,
+      fetchImpl: (async () =>
+        new Response(
+          `
+            export function BarChart() { return null; }
+            export function ResponsiveContainer(props) { return props?.children ?? null; }
+          `,
+          {
+            status: 200,
+            headers: { "content-type": "application/javascript" },
+          },
+        )) as typeof fetch,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        packageName: "recharts",
+        requestedVersion: "2.15.3",
+        deliveryMode: "compatible-bundled",
+      }),
+    );
+    expect(result.publicUrl).toMatch(/^file:\/\//);
+
+    if (!entry.cacheKey || !entry.requestedVersion) {
+      throw new Error("Expected cache metadata on compatible entry");
+    }
+
+    const metadataPath = buildCompatibleBundleMetadataPath({
+      packageName: entry.packageName,
+      version: entry.requestedVersion,
+      cacheKey: entry.cacheKey,
+      root: tmpRoot,
+    });
+    const metadata = JSON.parse(await fs.readFile(metadataPath, "utf8")) as {
+      deliveryMode: string;
+      packageName: string;
+      publicUrl: string;
+    };
+    expect(metadata.deliveryMode).toBe("compatible-bundled");
+    expect(metadata.packageName).toBe("recharts");
+    expect(metadata.publicUrl).toMatch(/^file:\/\//);
+
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
 });

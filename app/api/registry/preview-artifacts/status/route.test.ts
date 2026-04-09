@@ -188,6 +188,7 @@ describe("preview artifact status route", () => {
       ok: true,
       json: async () => ({
         hostFallbackUsed: false,
+        managedProviderDependencies: ["lucide-react"],
         compatibleBundledDependencies: ["recharts"],
       }),
     });
@@ -205,6 +206,7 @@ describe("preview artifact status route", () => {
         artifactCapability: "compatible-artifact",
         compatibleExternalDependencies: ["recharts"],
         hostFallbackUsed: false,
+        managedProviderDependencies: ["lucide-react"],
         compatibleBundledDependencies: ["recharts"],
       }),
     );
