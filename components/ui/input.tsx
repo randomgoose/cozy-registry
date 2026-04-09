@@ -78,6 +78,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input(
       className={cn(
         inputVariants({ size, variant, onInverse }),
         leftIcon && iconLayout.pad,
+        className,
       )}
       {...props}
     />
@@ -88,7 +89,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input(
   }
 
   return (
-    <div className={cn("relative w-full min-w-0", className)}>
+    <div className="relative w-full min-w-0">
       <div
         className={cn(
           "pointer-events-none absolute inset-y-0 z-1 flex items-center text-muted-foreground [&_svg]:shrink-0 [&_svg]:block",

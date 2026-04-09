@@ -28,11 +28,17 @@ function projectHrefForId(params: {
   projectId: string;
   isWorkspaceShell: boolean;
   activeWorkspaceSlug?: string;
+  section?: "detail" | "settings";
+  settingsSection?: string | null;
 }) {
+  const suffix =
+    params.section === "settings"
+      ? `/settings/${params.settingsSection ?? "general"}`
+      : "";
   if (params.isWorkspaceShell && params.activeWorkspaceSlug) {
-    return `/workspace/${encodeURIComponent(params.activeWorkspaceSlug)}/projects/${params.projectId}`;
+    return `/workspace/${encodeURIComponent(params.activeWorkspaceSlug)}/projects/${params.projectId}${suffix}`;
   }
-  return `/me/projects/${params.projectId}`;
+  return `/me/projects/${params.projectId}${suffix}`;
 }
 
 function projectsIndexHref(isWorkspaceShell: boolean, activeWorkspaceSlug?: string) {
@@ -51,7 +57,8 @@ export function ProjectSwitcher(props: {
   selectedProjectId: string | null;
   isWorkspaceShell: boolean;
   activeWorkspaceSlug?: string;
-  onNavigateStart: (href: string) => void;
+  preserveSection?: "detail" | "settings";
+  preserveSettingsSection?: string | null;
   className?: string;
 }) {
   const {
@@ -60,7 +67,8 @@ export function ProjectSwitcher(props: {
     selectedProjectId,
     isWorkspaceShell,
     activeWorkspaceSlug,
-    onNavigateStart,
+    preserveSection = "detail",
+    preserveSettingsSection = null,
     className,
   } = props;
 
@@ -107,7 +115,6 @@ export function ProjectSwitcher(props: {
         >
           <DropdownMenuItem
             className={menuItemClass}
-            onClick={() => onNavigateStart(projectsListHref)}
             render={<Link href={projectsListHref} />}
           >
             <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
@@ -128,13 +135,14 @@ export function ProjectSwitcher(props: {
               projectId: project.id,
               isWorkspaceShell,
               activeWorkspaceSlug,
+              section: preserveSection,
+              settingsSection: preserveSettingsSection,
             });
             const active = project.id === selectedProjectId;
             return (
               <DropdownMenuItem
                 key={project.id}
                 className={menuItemClass}
-                onClick={() => onNavigateStart(href)}
                 render={<Link href={href} />}
               >
                 <div className="flex min-w-0 flex-1 items-center justify-between gap-3">

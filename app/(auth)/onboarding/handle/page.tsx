@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Input } from "@/components/ui/input";
 
 export default function ChooseHandlePage() {
   const [loading, setLoading] = useState(true);
@@ -80,7 +81,7 @@ export default function ChooseHandlePage() {
             >
               Username
             </label>
-            <input
+            <Input
               id="handle"
               value={handle}
               onChange={(e) => setHandle(e.target.value)}
@@ -88,7 +89,7 @@ export default function ChooseHandlePage() {
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+              className="mt-1 h-10 rounded-lg text-sm md:text-sm"
             />
             <p className="mt-1 text-xs text-zinc-500">
               Lowercase letters, numbers, `.`, `-`, and `_` only. Length 2-30, and it must start and end with a letter or number.

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { FigmaAuthIcon } from "@/app/components/icons/FigmaAuthIcon";
+import { Input } from "@/components/ui/input";
 
 const DEFAULT_CALLBACK = "/post-auth";
 
@@ -57,13 +58,13 @@ function SignUpForm() {
             >
               Name
             </label>
-            <input
+            <Input
               id="name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+              className="mt-1 h-10 rounded-lg text-sm md:text-sm"
             />
           </div>
           <div>
@@ -73,13 +74,13 @@ function SignUpForm() {
             >
               Email
             </label>
-            <input
+            <Input
               id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+              className="mt-1 h-10 rounded-lg text-sm md:text-sm"
             />
           </div>
           <div>
@@ -89,14 +90,14 @@ function SignUpForm() {
             >
               Password
             </label>
-            <input
+            <Input
               id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
               minLength={8}
-              className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+              className="mt-1 h-10 rounded-lg text-sm md:text-sm"
             />
           </div>
           {error && (

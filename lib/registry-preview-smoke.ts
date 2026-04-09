@@ -14,7 +14,6 @@ import {
   type DependencyDecision,
 } from "@/lib/third-party-dependency-governance";
 import {
-  getPreviewDependencyHostNodePaths,
   resolvePreviewDependencies,
   type PreviewDependencyResolutionDiagnostic,
 } from "@/lib/preview-dependency-provider";
@@ -266,11 +265,6 @@ export const __previewProps = PREVIEW_PROPS;
       passThroughBareImports,
       path.join(tmpDir, bundleAliasRoot),
     );
-    const appRequire = Module.createRequire(
-      path.join(process.cwd(), "package.json"),
-    );
-    const previewNodePaths = getPreviewDependencyHostNodePaths(appRequire);
-
     const result = await esbuild.build({
       entryPoints: [entryPath],
       bundle: true,
@@ -280,9 +274,7 @@ export const __previewProps = PREVIEW_PROPS;
       jsx: "automatic",
       write: false,
       logLevel: "silent",
-      nodePaths: Array.from(
-        new Set([...previewNodePaths, ...resolvedPreviewDependencies.nodePaths]),
-      ),
+      nodePaths: resolvedPreviewDependencies.nodePaths,
       plugins: [
         cssPlugin,
         figmaAssetPlugin,

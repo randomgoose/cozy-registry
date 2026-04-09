@@ -1,13 +1,13 @@
 Status: active
 Owner: shared
-Last updated: 2026-04-07
+Last updated: 2026-04-09
 Source of truth: partial
 
 # Product Summary
 
 ## 一句话
 
-Cozy Registry 是一个面向 Web 开发的 AI-native registry，让设计师、开发者和 AI agent 可以发布、发现、预览和消费 blocks、components 和 themes。
+Cozy Registry 是一个面向 Web 开发的 AI-native registry，让设计师、开发者和 AI agent 可以发布、发现、预览和消费 blocks、components 和 themes，并把这些资源提升为跨角色、跨工具、可共享的前端资产。
 
 ## 核心价值
 
@@ -15,6 +15,14 @@ Cozy Registry 是一个面向 Web 开发的 AI-native registry，让设计师、
 - 让这些资产以源码形式进入 Web 开发流程，而不是停留在 demo 或设计稿
 - 让 AI agent 通过结构化 API 和 MCP 可靠发现、安装、升级这些资产
 - 让团队以私有部署方式管理 blocks、components、themes、collections 和权限范围
+
+## 更准确的产品定义
+
+- Cozy Registry 不只是组件存储或预览站，而是一个面向 Web 前端资产的共享资产层
+- 这层资产既服务工程，也服务设计、AI agent 和未来的多工具入口
+- `project` 不只是分组，而是 namespace、设计上下文和未来 publication unit 的边界
+- `theme`、`component`、`block` 不只是散落文件，而是带有 identity、preview、artifact、relationship 和 lifecycle 的资源
+- Cozy Registry 不试图替代 monorepo；它更像承接 monorepo、本地设计系统、Figma Make、v0、Lovable、AI agent 等入口之上的资产与上下文层
 
 ## 当前产品边界
 
@@ -28,6 +36,7 @@ Cozy Registry 是一个面向 Web 开发的 AI-native registry，让设计师、
 - preview 主路径已从“请求时动态装配”迁移到“构建后静态 artifact 分发”
 - registry 正式身份已演进到 `owner + project + name`，project 同时承担 namespace 与设计上下文边界
 - 平台正在形成 `managed-artifact / compatible-artifact / runtime-only` 的分层交付模型
+- 产品长期更接近 design system context layer / component operating layer，而不是单纯的组件仓库 UI
 
 ## 核心用户
 

@@ -140,8 +140,6 @@ export async function resolvePreviewDependencies(params: {
       appRequire,
       packageName,
       requestedVersion,
-      hostNodePaths,
-      allowHostFallback,
       allowRegistryFetch,
     });
 
@@ -247,8 +245,6 @@ async function ensureProviderResolution(input: {
   appRequire: NodeJS.Require;
   packageName: string;
   requestedVersion: string;
-  hostNodePaths: string[];
-  allowHostFallback: boolean;
   allowRegistryFetch?: boolean;
 }): Promise<PreviewDependencyResolution | null> {
   const providerRoot = getPreviewDependencyProviderRoot();
@@ -258,27 +254,6 @@ async function ensureProviderResolution(input: {
     providerRoot,
   });
   if (existing) return existing;
-
-  if (input.allowHostFallback) {
-    try {
-      const seeded = await seedProviderFromHost({
-        appRequire: input.appRequire,
-        packageName: input.packageName,
-        requestedVersion: input.requestedVersion,
-        providerRoot,
-        hostNodePaths: input.hostNodePaths,
-      });
-      if (seeded) {
-        return tryResolveFromProvider({
-          packageName: input.packageName,
-          requestedVersion: input.requestedVersion,
-          providerRoot,
-        });
-      }
-    } catch {
-      /* package not on host — fall through to registry fetch */
-    }
-  }
 
   if (input.allowRegistryFetch && isExactVersion(input.requestedVersion)) {
     const fetched = await materializeFromRegistry({
@@ -700,3 +675,7 @@ function inferModuleSearchPath(packageJsonPath: string) {
     current = parent;
   }
 }
+
+export const __previewDependencyProviderInternals = {
+  seedProviderFromHost,
+};

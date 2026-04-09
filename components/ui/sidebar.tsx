@@ -157,10 +157,10 @@ function SidebarMenuButton({
   return (
     <div
       className={cn(
-        "rounded-md text-sm",
+        "rounded-md text-sm hover:bg-sidebar/75",
         isActive
-          ? "bg-sidebar text-sidebar-primary-foreground hover:bg-sidebar"
-          : "text-sidebar-foreground",
+          ? "bg-sidebar text-sidebar-primary-foreground"
+          : "text-sidebar-primary-foreground",
         className,
       )}
     >

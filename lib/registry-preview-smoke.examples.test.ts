@@ -1,26 +1,26 @@
 import fs from "node:fs/promises";
+import Module from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runRegistryPreviewSmokeTest } from "@/lib/registry-preview-smoke";
-import { evaluateThirdPartyDependencies } from "@/lib/third-party-dependency-governance";
-import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
+import {
+  getPrebundleDependencies,
+  evaluateThirdPartyDependencies,
+} from "@/lib/third-party-dependency-governance";
+import {
+  __previewDependencyProviderInternals,
+  getPreviewDependencyHostNodePaths,
+} from "@/lib/preview-dependency-provider";
 
 const providerRootEnv = "COZY_PREVIEW_DEPENDENCY_PROVIDER_ROOT";
-const hostFallbackEnv = "COZY_ENABLE_PREVIEW_HOST_FALLBACK";
 const originalProviderRoot = process.env[providerRootEnv];
-const originalHostFallback = process.env[hostFallbackEnv];
 
 afterEach(() => {
   if (originalProviderRoot === undefined) {
     delete process.env[providerRootEnv];
   } else {
     process.env[providerRootEnv] = originalProviderRoot;
-  }
-  if (originalHostFallback === undefined) {
-    delete process.env[hostFallbackEnv];
-  } else {
-    process.env[hostFallbackEnv] = originalHostFallback;
   }
 });
 
@@ -31,9 +31,22 @@ async function primeProviderCacheForSmoke(
     path.join(os.tmpdir(), "cozy-preview-smoke-examples-provider-"),
   );
   process.env[providerRootEnv] = tmpRoot;
-  process.env[hostFallbackEnv] = "true";
-  await resolvePreviewDependencies({ decisions });
-  delete process.env[hostFallbackEnv];
+  const appRequire = Module.createRequire(
+    path.join(process.cwd(), "package.json"),
+  );
+  const hostNodePaths = getPreviewDependencyHostNodePaths(appRequire);
+  const byName = new Map(decisions.map((decision) => [decision.packageName, decision]));
+  for (const packageName of getPrebundleDependencies(decisions)) {
+    const requestedVersion = byName.get(packageName)?.requestedVersion?.trim();
+    if (!requestedVersion) continue;
+    await __previewDependencyProviderInternals.seedProviderFromHost({
+      appRequire,
+      packageName,
+      requestedVersion,
+      providerRoot: tmpRoot,
+      hostNodePaths,
+    });
+  }
   return tmpRoot;
 }
 

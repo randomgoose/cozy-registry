@@ -1,9 +1,14 @@
 import fs from "node:fs/promises";
+import Module from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { evaluateThirdPartyDependencies } from "@/lib/third-party-dependency-governance";
-import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
+import {
+  __previewDependencyProviderInternals,
+  getPreviewDependencyHostNodePaths,
+  resolvePreviewDependencies,
+} from "@/lib/preview-dependency-provider";
 import {
   buildCompatibleBundleCacheKey,
   buildCompatibleRemoteSourceUrl,
@@ -37,17 +42,27 @@ afterEach(() => {
 
 describe("preview-dependency-provider", () => {
   it(
-    "materializes an exact trusted built-in into the controlled provider cache",
+    "resolves an exact trusted built-in from the controlled provider after explicit prewarm",
     async () => {
     const tmpRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "cozy-preview-provider-seed-test-"),
     );
     process.env[providerRootEnv] = tmpRoot;
-    process.env[hostFallbackEnv] = "true";
 
     const decisions = evaluateThirdPartyDependencies({
       discovered: ["lucide-react"],
       declared: [{ name: "lucide-react", version: "0.577.0" }],
+    });
+
+    const appRequire = Module.createRequire(
+      path.join(process.cwd(), "package.json"),
+    );
+    await __previewDependencyProviderInternals.seedProviderFromHost({
+      appRequire,
+      packageName: "lucide-react",
+      requestedVersion: "0.577.0",
+      providerRoot: tmpRoot,
+      hostNodePaths: getPreviewDependencyHostNodePaths(appRequire),
     });
 
     const result = await resolvePreviewDependencies({ decisions });
@@ -74,12 +89,22 @@ describe("preview-dependency-provider", () => {
     30000,
   );
 
-  it("copies transitive trusted built-in dependencies into the controlled provider cache", async () => {
+  it("explicit prewarm copies transitive trusted built-in dependencies into the controlled provider cache", async () => {
     const tmpRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "cozy-preview-provider-transitive-test-"),
     );
     process.env[providerRootEnv] = tmpRoot;
-    process.env[hostFallbackEnv] = "true";
+
+    const appRequire = Module.createRequire(
+      path.join(process.cwd(), "package.json"),
+    );
+    await __previewDependencyProviderInternals.seedProviderFromHost({
+      appRequire,
+      packageName: "class-variance-authority",
+      requestedVersion: "0.7.1",
+      providerRoot: tmpRoot,
+      hostNodePaths: getPreviewDependencyHostNodePaths(appRequire),
+    });
 
     const decisions = evaluateThirdPartyDependencies({
       discovered: ["class-variance-authority"],
@@ -209,11 +234,20 @@ describe("preview-dependency-provider", () => {
       path.join(os.tmpdir(), "cozy-preview-provider-base-ui-test-"),
     );
     process.env[providerRootEnv] = tmpRoot;
-    process.env[hostFallbackEnv] = "true";
-
     const decisions = evaluateThirdPartyDependencies({
       discovered: ["@base-ui/react/dialog"],
       declared: [{ name: "@base-ui/react", version: "1.3.0" }],
+    });
+
+    const appRequire = Module.createRequire(
+      path.join(process.cwd(), "package.json"),
+    );
+    await __previewDependencyProviderInternals.seedProviderFromHost({
+      appRequire,
+      packageName: "@base-ui/react",
+      requestedVersion: "1.3.0",
+      providerRoot: tmpRoot,
+      hostNodePaths: getPreviewDependencyHostNodePaths(appRequire),
     });
 
     const result = await resolvePreviewDependencies({ decisions });

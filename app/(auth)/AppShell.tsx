@@ -1,9 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { FolderKanban, LayoutGrid, Settings2 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+  Building2,
+  ChevronLeft,
+  ChevronRight,
+  FolderKanban,
+  KeyRound,
+  LayoutGrid,
+  Palette,
+  Settings2,
+  ShieldAlert,
+  SlidersHorizontal,
+  Users,
+} from "lucide-react";
 import { HomeUserMenu } from "@/app/components/HomeUserMenu";
 import { NotificationBell } from "@/app/components/NotificationBell";
 import { ProjectSwitcher } from "@/app/components/ProjectSwitcher";
@@ -51,13 +64,170 @@ function navActive(pathname: string, href: string) {
   if (h === "/me") return path === "/me";
   // Workspace catalog root: /workspace/{slug} only (not /projects or /settings)
   if (/^\/workspace\/[^/]+$/.test(h)) return path === h;
+  // Project overview should only match the exact project route, not project settings.
+  if (/^\/me\/projects\/[^/]+$/.test(h) || /^\/workspace\/[^/]+\/projects\/[^/]+$/.test(h)) {
+    return path === h;
+  }
+  // Projects index should not stay active inside project-scoped settings.
+  if (h === "/me/projects" || /^\/workspace\/[^/]+\/projects$/.test(h)) {
+    if (/\/projects\/[^/]+\/settings$/.test(path)) return false;
+    return path === h || /^\/(?:me|workspace\/[^/]+)\/projects\/[^/]+$/.test(path);
+  }
   return path === h || path.startsWith(`${h}/`);
 }
 
-function navIconForHref(href: string) {
-  if (href.includes("/projects")) return FolderKanban;
-  if (href.includes("/settings")) return Settings2;
-  return LayoutGrid;
+function projectScopedHref(params: {
+  projectId: string;
+  isWorkspaceShell: boolean;
+  activeWorkspaceSlug?: string;
+  section?: "detail" | "settings";
+}) {
+  const suffix = params.section === "settings" ? "/settings" : "";
+  if (params.isWorkspaceShell && params.activeWorkspaceSlug) {
+    return `/workspace/${encodeURIComponent(params.activeWorkspaceSlug)}/projects/${params.projectId}${suffix}`;
+  }
+  return `/me/projects/${params.projectId}${suffix}`;
+}
+
+type SidebarSecondaryItem = {
+  key: string;
+  href: string;
+  label: string;
+  icon: LucideIcon;
+};
+
+type SidebarNavItem = {
+  key: string;
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  children?: SidebarSecondaryItem[];
+};
+
+type SidebarContext = {
+  isWorkspaceShell: boolean;
+  activeWorkspaceSlug?: string;
+  selectedProjectId: string | null;
+  overviewHref: string;
+  settingsHref: string;
+};
+
+function buildSettingsChildren(context: SidebarContext): SidebarSecondaryItem[] {
+  if (context.selectedProjectId != null) {
+    return [
+      {
+        key: "general",
+        href: `${context.settingsHref}/general`,
+        label: "Basic settings",
+        icon: SlidersHorizontal,
+      },
+      {
+        key: "themes",
+        href: `${context.settingsHref}/themes`,
+        label: "Theme defaults",
+        icon: Palette,
+      },
+      {
+        key: "danger",
+        href: `${context.settingsHref}/danger`,
+        label: "Danger zone",
+        icon: ShieldAlert,
+      },
+    ];
+  }
+
+  if (context.isWorkspaceShell && context.activeWorkspaceSlug) {
+    return [
+      {
+        key: "organization",
+        href: `${context.settingsHref}/organization`,
+        label: "Basic settings",
+        icon: Building2,
+      },
+      {
+        key: "members",
+        href: `${context.settingsHref}/members`,
+        label: "Team members",
+        icon: Users,
+      },
+      {
+        key: "tokens",
+        href: `${context.settingsHref}/tokens`,
+        label: "API tokens",
+        icon: KeyRound,
+      },
+    ];
+  }
+
+  return [
+    {
+      key: "tokens",
+      href: `${context.settingsHref}/tokens`,
+      label: "API tokens",
+      icon: KeyRound,
+    },
+  ];
+}
+
+function buildSidebarNavItems(context: SidebarContext): readonly SidebarNavItem[] {
+  const settingsChildren = buildSettingsChildren(context);
+
+  if (context.isWorkspaceShell && context.activeWorkspaceSlug) {
+    return [
+      {
+        key: "items",
+        href: `/workspace/${encodeURIComponent(context.activeWorkspaceSlug)}`,
+        label: "Items",
+        icon: LayoutGrid,
+      },
+      {
+        key: "overview",
+        href: context.overviewHref,
+        label: "Overview",
+        icon: FolderKanban,
+      },
+      {
+        key: "settings",
+        href: context.settingsHref,
+        label: "Settings",
+        icon: Settings2,
+        children: settingsChildren,
+      },
+    ] as const;
+  }
+
+  return [
+    {
+      key: "items",
+      href: "/me",
+      label: "My items",
+      icon: LayoutGrid,
+    },
+    {
+      key: "overview",
+      href: context.overviewHref,
+      label: "Overview",
+      icon: FolderKanban,
+    },
+    {
+      key: "settings",
+      href: context.settingsHref,
+      label: "Settings",
+      icon: Settings2,
+      children: settingsChildren,
+    },
+  ] as const;
+}
+
+function splitHref(href: string) {
+  const [pathWithQuery, hash = ""] = href.split("#");
+  const [path, query = ""] = pathWithQuery.split("?");
+  const search = new URLSearchParams(query);
+  return {
+    path: normalizePath(path || "/"),
+    section: search.get("section"),
+    hash: hash ? `#${hash}` : "",
+  };
 }
 
 export function AppShell(props: {
@@ -81,16 +251,52 @@ function AppSidebar(props: {
   fullName: string;
   username: string;
   workspace: WorkspaceContext;
-  navItems: readonly { href: string; label: string }[];
+  navItems: readonly SidebarNavItem[];
   pathname: string;
+  currentSection: string | null;
   selectedProjectId: string | null;
   showSidebarProjects: boolean;
   sidebarProjects: ProjectListItem[];
   isWorkspaceShell: boolean;
   activeWorkspaceSlug?: string;
-  onNavigateStart: (href: string) => void;
 }) {
   const { open } = useSidebar();
+  const [secondaryOverride, setSecondaryOverride] = useState<{
+    mode: "open" | "closed";
+    key: string;
+    pathname: string;
+  } | null>(null);
+
+  const autoSecondaryKey = useMemo(() => {
+    return (
+      props.navItems.find((item) => {
+        if (!item.children?.length) return false;
+        return navActive(props.pathname, item.href);
+      })?.key ?? null
+    );
+  }, [props.navItems, props.pathname]);
+
+  const activeSecondaryKey =
+    secondaryOverride && secondaryOverride.pathname === props.pathname
+      ? secondaryOverride.mode === "closed"
+        ? null
+        : secondaryOverride.key
+      : autoSecondaryKey;
+  const activeSecondaryNavItem =
+    props.navItems.find((item) => item.key === activeSecondaryKey && item.children?.length) ?? null;
+  const activeSecondaryItems = activeSecondaryNavItem?.children ?? [];
+  const primaryPaneClass = cn(
+    "absolute inset-0 transition-all duration-220 ease-out",
+    activeSecondaryNavItem
+      ? "-translate-x-4 opacity-0 pointer-events-none"
+      : "translate-x-0 opacity-100",
+  );
+  const secondaryPaneClass = cn(
+    "absolute inset-0 transition-all duration-220 ease-out",
+    activeSecondaryNavItem
+      ? "translate-x-0 opacity-100"
+      : "translate-x-4 opacity-0 pointer-events-none",
+  );
 
   return (
     <Sidebar className="h-screen shrink-0">
@@ -104,37 +310,136 @@ function AppSidebar(props: {
           />
         </SidebarHeader>
 
-        <SidebarContent className="min-h-0 flex-1">
+        <SidebarContent className="flex min-h-0 flex-1 flex-col">
           <Input className="mb-1.5" size={"lg"} leftIcon={<HugeiconsIcon icon={SearchIcon} />} variant={"default"} placeholder="Search" />
-          <SidebarMenu>
-            {props.navItems.map((item) => {
-              const isActive = navActive(props.pathname, item.href);
-              const Icon = navIconForHref(item.href);
-              return (
-                <SidebarMenuItem key={item.href}>
-                  <Link
-                    href={item.href}
-                    className="block"
-                    onClick={() => props.onNavigateStart(item.href)}
-                  >
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      className={cn(
-                        "rounded-md", !open && "justify-center",
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <div className={primaryPaneClass} aria-hidden={!!activeSecondaryNavItem}>
+              <SidebarMenu>
+                {props.navItems.map((item) => {
+                  const isActive = navActive(props.pathname, item.href);
+                  const Icon = item.icon;
+                  return (
+                    <SidebarMenuItem key={item.key}>
+                      {item.children?.length ? (
+                        <button
+                          type="button"
+                          className="block w-full"
+                          onClick={() =>
+                            setSecondaryOverride({
+                              mode: "open",
+                              key: item.key,
+                              pathname: props.pathname,
+                            })
+                          }
+                        >
+                          <SidebarMenuButton
+                            isActive={isActive}
+                            className={cn(
+                              "w-full rounded-md transition-colors",
+                              !open && "justify-center",
+                            )}
+                          >
+                            <Icon className="size-4.5 shrink-0" />
+                            {open ? (
+                              <>
+                                <span className="min-w-0 flex-1 truncate font-medium text-left">
+                                  {item.label}
+                                </span>
+                                <ChevronRight className="size-4 shrink-0 text-zinc-400" />
+                              </>
+                            ) : null}
+                          </SidebarMenuButton>
+                        </button>
+                      ) : (
+                        <Link
+                          href={item.href}
+                          className="block"
+                          onClick={() =>
+                            setSecondaryOverride({
+                              mode: "closed",
+                              key: "",
+                              pathname: props.pathname,
+                            })
+                          }
+                        >
+                          <SidebarMenuButton
+                            isActive={isActive}
+                            className={cn(
+                              "rounded-md transition-colors",
+                              !open && "justify-center",
+                            )}
+                          >
+                            <Icon className="size-4.5 shrink-0" />
+                            {open ? <span className="font-medium">{item.label}</span> : null}
+                          </SidebarMenuButton>
+                        </Link>
                       )}
-                    >
-                      <Icon className="size-4.5 shrink-0" />
-                      {open ? (
-                        <span className="font-medium">
-                          {item.label}
-                        </span>
-                      ) : null}
-                    </SidebarMenuButton>
-                  </Link>
-                </SidebarMenuItem>
-              );
-            })}
-          </SidebarMenu>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </div>
+
+            <div className={secondaryPaneClass} aria-hidden={!activeSecondaryNavItem}>
+              {activeSecondaryNavItem ? (
+                <div className="flex h-full min-h-0 flex-col">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSecondaryOverride({
+                        mode: "closed",
+                        key: activeSecondaryNavItem.key,
+                        pathname: props.pathname,
+                      })
+                    }
+                    className="mb-2 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-zinc-100/80 dark:hover:bg-zinc-900"
+                    aria-label={`Back to ${activeSecondaryNavItem.label}`}
+                  >
+                    <ChevronLeft className="size-4 shrink-0 text-zinc-500 dark:text-zinc-400" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        {activeSecondaryNavItem.label}
+                      </div>
+                    </div>
+                  </button>
+
+                  <SidebarMenu className="min-h-0 flex-1 overflow-auto">
+                    {activeSecondaryItems.map((child) => {
+                      const childTarget = splitHref(child.href);
+                      const currentPath = normalizePath(props.pathname);
+                      const Icon = child.icon;
+                      const childActive =
+                        currentPath === childTarget.path &&
+                        (childTarget.section ? props.currentSection === childTarget.section : true);
+                      return (
+                        <SidebarMenuItem key={child.href}>
+                          <Link
+                            href={child.href}
+                            className="block"
+                          >
+                            <SidebarMenuButton
+                              isActive={childActive}
+                              className={cn(
+                                "rounded-md transition-colors",
+                                !open && "justify-center",
+                              )}
+                            >
+                              <Icon className="size-4.5 shrink-0" />
+                              {open ? (
+                                <span className="min-w-0 flex-1 text-left font-medium">
+                                  {child.label}
+                                </span>
+                              ) : null}
+                            </SidebarMenuButton>
+                          </Link>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </SidebarMenu>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </SidebarContent>
 
         <div className="mt-3 border-t pt-3 dark:border-zinc-800">
@@ -157,46 +462,58 @@ function AppShellFrame(props: {
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [optimisticPathname, setOptimisticPathname] = useState<string | null>(null);
+  const searchParams = useSearchParams();
   const show = shouldShowAppNav(pathname, props.email);
   const projectsCache = useProjectsShellCache();
-  const effectivePathname =
-    optimisticPathname && optimisticPathname !== pathname ? optimisticPathname : pathname;
+  const effectivePathname = pathname;
+  const currentSection = searchParams.get("section");
 
   const workspaceMatch = effectivePathname.match(/^\/workspace\/([^/]+)/);
   const activeWorkspaceSlug = workspaceMatch
     ? decodeURIComponent(workspaceMatch[1])
     : undefined;
   const isWorkspaceShell = !!activeWorkspaceSlug;
-
-  const personalNav = [
-    { href: "/me", label: "My items" },
-    { href: "/me/projects", label: "Projects" },
-    { href: "/me/settings", label: "Settings" },
-  ] as const;
-
-  const navItems =
-    isWorkspaceShell && activeWorkspaceSlug
-      ? ([
-        {
-          href: `/workspace/${encodeURIComponent(activeWorkspaceSlug)}`,
-          label: "Items",
-        },
-        {
-          href: `/workspace/${encodeURIComponent(activeWorkspaceSlug)}/projects`,
-          label: "Projects",
-        },
-        {
-          href: `/workspace/${encodeURIComponent(activeWorkspaceSlug)}/settings`,
-          label: "Settings",
-        },
-      ] as const)
-      : personalNav;
-
   const selectedProjectId = useMemo(() => {
     const m = effectivePathname.match(/\/projects\/([^/]+)/);
     return m?.[1] ? decodeURIComponent(m[1]) : null;
   }, [effectivePathname]);
+  const projectSettingsSectionMatch = effectivePathname.match(
+    /\/projects\/[^/]+\/settings\/([^/]+)$/,
+  );
+  const projectSettingsSection = projectSettingsSectionMatch?.[1]
+    ? decodeURIComponent(projectSettingsSectionMatch[1])
+    : null;
+  const inProjectSettings =
+    /\/projects\/[^/]+\/settings$/.test(effectivePathname) ||
+    projectSettingsSection != null;
+  const overviewHref =
+    selectedProjectId != null
+      ? projectScopedHref({
+          projectId: selectedProjectId,
+          isWorkspaceShell,
+          activeWorkspaceSlug,
+        })
+      : isWorkspaceShell && activeWorkspaceSlug
+        ? `/workspace/${encodeURIComponent(activeWorkspaceSlug)}/projects`
+        : "/me/projects";
+  const settingsHref =
+    selectedProjectId != null
+      ? projectScopedHref({
+          projectId: selectedProjectId,
+          isWorkspaceShell,
+          activeWorkspaceSlug,
+          section: "settings",
+        })
+      : isWorkspaceShell && activeWorkspaceSlug
+        ? `/workspace/${encodeURIComponent(activeWorkspaceSlug)}/settings`
+        : "/me/settings";
+  const navItems = buildSidebarNavItems({
+    isWorkspaceShell,
+    activeWorkspaceSlug,
+    selectedProjectId,
+    overviewHref,
+    settingsHref,
+  });
   const isProjectDetailRoute = Boolean(selectedProjectId);
   const showSidebarProjects = Boolean(selectedProjectId) && show;
   const sidebarProjects = useMemo<ProjectListItem[]>(
@@ -205,7 +522,7 @@ function AppShellFrame(props: {
   );
   const shellMainContentClass = isProjectDetailRoute
     ? "h-full w-full"
-    : "mx-auto w-full max-w-[1440px] px-4 py-4 sm:px-6 lg:px-8";
+    : "mx-auto w-full max-w-[1440px] px-4 py-9 sm:px-6 lg:px-8";
   if (!show) return <>{props.children}</>;
 
   return (
@@ -217,12 +534,12 @@ function AppShellFrame(props: {
           workspace={props.workspace}
           navItems={navItems}
           pathname={effectivePathname}
+          currentSection={currentSection}
           selectedProjectId={selectedProjectId}
           showSidebarProjects={showSidebarProjects}
           sidebarProjects={sidebarProjects}
           isWorkspaceShell={isWorkspaceShell}
           activeWorkspaceSlug={activeWorkspaceSlug}
-          onNavigateStart={(href) => setOptimisticPathname(href)}
         />
 
         <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -235,7 +552,8 @@ function AppShellFrame(props: {
                   selectedProjectId={selectedProjectId}
                   isWorkspaceShell={isWorkspaceShell}
                   activeWorkspaceSlug={activeWorkspaceSlug}
-                  onNavigateStart={(href) => setOptimisticPathname(href)}
+                  preserveSection={inProjectSettings ? "settings" : "detail"}
+                  preserveSettingsSection={projectSettingsSection}
                 />
               </div>
               <nav className="flex items-center gap-3">

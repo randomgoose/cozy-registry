@@ -10,6 +10,13 @@
 
 **做一个「面向 Web 开发的 AI-native registry」，让设计师产出的前端资产能稳定进入开发流程和 AI 流程。**
 
+进一步补充这层定位：
+
+- Cozy Registry 不只是一个组件目录、预览站或发布界面
+- 它更像一个 **面向 Web 前端资产的共享资产层**
+- 这层资产既服务工程，也服务设计、AI agent，以及未来来自多种工具的入口
+- 长期看，产品会逐步形成一个 **design system context layer / component operating layer**
+
 进一步约束：
 
 - **核心用户**是具备 Vibe coding 能力和意愿的设计师，以及负责消费这些资产的 AI agent
@@ -36,7 +43,7 @@
 |----------|----------|------|--------------|
 | 完整站点生成 | Figma Make、Lovable | 擅长快速生成 demo，但缺少团队级资产沉淀、版本、分发与复用机制 | **不做整站工具**，承接其产出的 Web 资产并进入真实开发流程 |
 | 组件/设计系统工具 | Storybook、Zeroheight | 偏向开发维护和展示，设计师直接产出与迭代能力弱 | 让设计师可直接创建、发布、迭代 block / component / theme |
-| 包管理 | npm、内部包仓库 | 工程治理强，但对设计师和 AI 工作流不友好 | 保留源码分发与元数据能力，让 AI 和设计师都可参与 |
+| 包管理 / monorepo | npm、内部包仓库、monorepo design system | 工程治理强，但默认以代码仓库为中心，对设计师、AI agent 和跨工具工作流不够友好 | 不替代代码仓库，而是在其之上提供共享资产、上下文、preview、relationship 和 lifecycle 能力 |
 
 ---
 
@@ -138,6 +145,13 @@
 **两层结构**：
 - **Web 应用（人用）**：浏览、搜索、预览、发布、管理
 - **Registry API（机器用）**：标准 schema，供工具消费
+
+进一步说，这两层共同服务的是：
+
+- **共享资产层**：theme / component / block / collection / project 等资产本身
+- **上下文层**：project、theme layers、preview、artifact、version、relationship
+
+也就是说，本产品要解决的不只是“把代码放在哪里”，而是“这些前端资产如何被跨角色、跨工具一致地理解和消费”。
 
 ### 3.7 目标：AI 友好
 
