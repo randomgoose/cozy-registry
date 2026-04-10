@@ -4,24 +4,37 @@ const INTERNAL_WORKER_USER_ID_HEADER = "x-cozy-request-user-id";
 export function getInternalWorkerAuth(request: Request): {
   isAuthorized: boolean;
   requestUserId: string | null;
+  reason:
+    | "authorized"
+    | "missing-config"
+    | "missing-header"
+    | "mismatch";
 } {
   const configuredSecret =
     process.env.COZY_INTERNAL_JOB_SECRET?.trim() ||
     process.env.INTERNAL_JOB_SECRET?.trim() ||
     "";
   if (!configuredSecret) {
-    return { isAuthorized: false, requestUserId: null };
+    return {
+      isAuthorized: false,
+      requestUserId: null,
+      reason: "missing-config",
+    };
   }
 
   const providedSecret =
     request.headers.get(INTERNAL_WORKER_SECRET_HEADER)?.trim() || "";
   if (!providedSecret || providedSecret !== configuredSecret) {
-    return { isAuthorized: false, requestUserId: null };
+    return {
+      isAuthorized: false,
+      requestUserId: null,
+      reason: providedSecret ? "mismatch" : "missing-header",
+    };
   }
 
   const requestUserId =
     request.headers.get(INTERNAL_WORKER_USER_ID_HEADER)?.trim() || null;
-  return { isAuthorized: true, requestUserId };
+  return { isAuthorized: true, requestUserId, reason: "authorized" };
 }
 
 export function getInternalWorkerHeaders(input: {
@@ -42,4 +55,3 @@ export function getInternalWorkerHeaders(input: {
   }
   return headers;
 }
-

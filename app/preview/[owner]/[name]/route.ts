@@ -362,6 +362,7 @@ export async function GET(
     typeof projectParam === "string" && projectParam.trim().length > 0
       ? projectParam.trim()
       : null;
+  const debugInternalAuth = url.searchParams.get("debug") === "1";
 
   let stepStartedAt = performance.now();
   const session = await auth.api.getSession({ headers: request.headers });
@@ -446,7 +447,21 @@ export async function GET(
   timings.mark("rootItemLoad", stepStartedAt);
 
   if (!item) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json(
+      {
+        error: "Not found",
+        ...(debugInternalAuth
+          ? {
+              internalWorkerAuth: {
+                isAuthorized: internalWorkerAuth.isAuthorized,
+                reason: internalWorkerAuth.reason,
+                hasRequestUserId: !!internalWorkerAuth.requestUserId,
+              },
+            }
+          : {}),
+      },
+      { status: 404 },
+    );
   }
 
   stepStartedAt = performance.now();

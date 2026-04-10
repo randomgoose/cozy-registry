@@ -8,9 +8,11 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PublishProjectsToShell } from "@/app/(auth)/dashboard/ProjectsShellCache";
 import { CreateProjectDetailsForm } from "@/app/(auth)/dashboard/CreateProjectDetailsForm";
+import Folder from "@/components/Folder";
 import { PreviewFrame } from "@/app/components/PreviewFrame";
 import {
   Dialog,
@@ -321,6 +323,10 @@ function getProjectPreviewSlotPlaceholderClass(type: string) {
   return "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300";
 }
 
+function getProjectFolderColor(visibility: "public" | "private" | null | undefined) {
+  return visibility === "public" ? "#0F9B8E" : "#5B3DF5";
+}
+
 export function ProjectsPanel(props: {
   /** Registry path segment for item links (`@handle` scope or org slug). */
   registryOwner: string;
@@ -339,6 +345,7 @@ export function ProjectsPanel(props: {
   initialProjects?: Project[];
   initialProjectItems?: ProjectItemRow[];
 }) {
+  const router = useRouter();
   const isProjectDetail = Boolean(props.initialProjectId);
   const [projects, setProjects] = useState<Project[]>(() => props.initialProjects ?? []);
   const [loading, setLoading] = useState(() => props.initialProjects == null);
@@ -373,6 +380,7 @@ export function ProjectsPanel(props: {
   const [itemDetailLoadingId, setItemDetailLoadingId] = useState<string | null>(null);
   const [itemDetailError, setItemDetailError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [expandedProjectCardId, setExpandedProjectCardId] = useState<string | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [itemActionPending, setItemActionPending] = useState<
@@ -819,6 +827,15 @@ export function ProjectsPanel(props: {
   function closeCreateDialog() {
     resetCreateWizard();
     setCreateOpen(false);
+  }
+
+  function handleProjectCardClick(projectId: string, href?: string) {
+    if (!href) return;
+    if (expandedProjectCardId !== projectId) {
+      setExpandedProjectCardId(projectId);
+      return;
+    }
+    router.push(href);
   }
 
   function selectProjectItem(itemId: string) {
@@ -1837,82 +1854,108 @@ export function ProjectsPanel(props: {
           {props.isOrgScope ? "No organization projects yet." : "No projects yet."}
         </p>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div
+          className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+          onClick={() => setExpandedProjectCardId(null)}
+        >
           {projects.map((c) => {
             const href = props.projectsBasePath ? `${props.projectsBasePath}/${c.id}` : undefined;
             const previews = c.previewItems ?? [];
             const total = c.itemCount ?? 0;
             const extra = total > 4 ? total - 4 : 0;
-            const cardClass =
-              "block rounded-2xl border border-border bg-white p-4 text-left transition hover:shadow-sm";
+            const isExpanded = expandedProjectCardId === c.id;
+            const cardClass = `group bg-secondary/50 rounded-[28px] border p-3 text-left transition ${
+              isExpanded
+                ? "border-violet-300 bg-violet-50/50 shadow-[0_0_0_1px_rgba(139,92,246,0.08)] dark:border-violet-500/50 dark:bg-violet-500/10"
+                : "border-transparent hover:bg-zinc-50/80 dark:hover:bg-zinc-900/40"
+            }`;
 
             const inner = (
               <>
-                <div className="flex items-start justify-between gap-2">
-                  <span className="min-w-0 truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                    {c.title}
-                  </span>
-                  <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-                    {c.visibility === "private" ? "Private" : "Public"}
-                  </span>
-                </div>
-                <p className="mt-1 truncate text-xs text-zinc-500 dark:text-zinc-400">
-                  <span className="font-mono">{c.slug}</span>
-                  {extra > 0 ? (
-                    <span className="ml-2 font-sans text-zinc-400 dark:text-zinc-500">
-                      +{extra} more
-                    </span>
-                  ) : null}
-                </p>
-                <div className="mt-3 grid grid-cols-2 grid-rows-2 gap-1.5">
-                  {[0, 1, 2, 3].map((i) => {
-                    const it = previews[i];
-                    const typeIcon = it ? getProjectItemTypeIcon(it.type) : null;
-                    const placeholderClass = it
-                      ? getProjectPreviewSlotPlaceholderClass(it.type)
-                      : "bg-zinc-50/90 dark:bg-zinc-950/50";
-                    return (
-                      <div
-                        key={`${c.id}-slot-${i}`}
-                        className="relative min-h-17 overflow-hidden rounded-xl border border-zinc-100 bg-zinc-50/90 dark:border-zinc-800 dark:bg-zinc-950/50"
-                      >
-                        {it ? (
-                          it.thumbnailUrl ? (
-                            <>
+                <div className="flex min-h-[220px] items-center justify-center rounded-[32px] bg-radial-[circle_at_top,#ffffff,transparent_62%] from-white via-transparent to-transparent px-4 py-6 dark:bg-radial-[circle_at_top,rgba(255,255,255,0.06),transparent_62%]">
+                  <Folder
+                    interactive={false}
+                    open={isExpanded}
+                    shellOpen
+                    color={getProjectFolderColor(c.visibility)}
+                    size={1.72}
+                    className="origin-center transition duration-300 group-hover:scale-[1.03]"
+                    items={previews.slice(0, 3).map((it, i) => {
+                      const typeIcon = getProjectItemTypeIcon(it.type);
+                      const placeholderClass = getProjectPreviewSlotPlaceholderClass(it.type);
+                      return (
+                        <div
+                          key={`${c.id}-folder-item-${i}`}
+                          className="size-full"
+                        >
+                          {it.thumbnailUrl ? (
+                            <div className="relative size-full overflow-hidden rounded-[10px]">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={it.thumbnailUrl}
                                 alt=""
                                 className="absolute inset-0 size-full object-cover"
                               />
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/12 via-transparent to-transparent" />
-                            </>
+                            </div>
                           ) : (
                             <div
                               className={`flex size-full items-center justify-center ${placeholderClass}`}
                               aria-hidden="true"
                             >
                               <HugeiconsIcon
-                                icon={typeIcon?.icon ?? ArtboardToolIcon}
-                                size={20}
+                                icon={typeIcon.icon ?? ArtboardToolIcon}
+                                size={18}
                                 strokeWidth={1.8}
                               />
                             </div>
-                          )
-                        ) : null}
-                      </div>
-                    );
-                  })}
+                          )}
+                        </div>
+                      );
+                    })}
+                  />
+                </div>
+                <div className="mt-2 flex items-start justify-between gap-3 px-1">
+                  <div className="min-w-0">
+                    <span className="block truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                      {c.title}
+                    </span>
+                    <p className="mt-1 truncate text-xs text-zinc-500 dark:text-zinc-400">
+                      <span className="font-mono">{c.slug}</span>
+                      {extra > 0 ? (
+                        <span className="ml-2 font-sans text-zinc-400 dark:text-zinc-500">
+                          +{extra} more
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                  <span className="mt-0.5 shrink-0 rounded-full border border-zinc-200/80 bg-white/80 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-400">
+                    {c.visibility === "private" ? "Private" : "Public"}
+                  </span>
                 </div>
               </>
             );
 
             return href ? (
-              <Link key={c.id} href={href} className={cardClass}>
+              <button
+                key={c.id}
+                type="button"
+                className={cardClass}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleProjectCardClick(c.id, href);
+                }}
+              >
                 {inner}
-              </Link>
+              </button>
             ) : (
-              <div key={c.id} className={cardClass}>
+              <div
+                key={c.id}
+                className={cardClass}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setExpandedProjectCardId(c.id);
+                }}
+              >
                 {inner}
               </div>
             );
