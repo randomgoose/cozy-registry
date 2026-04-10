@@ -13,13 +13,13 @@ import {
   type PreviewCompatibleExternalDelivery,
 } from "@/lib/preview-compatible-delivery";
 
-export type PreviewDependencyResolutionSource = "provider" | "host-fallback";
+export type PreviewDependencyResolutionSource = "provider";
 
 export type PreviewDependencyResolution = {
   packageName: string;
   requestedVersion: string;
   resolutionSource: PreviewDependencyResolutionSource;
-  source: "provider-cache" | "host-fallback";
+  source: "provider-cache";
   packageRoot: string;
   packageJsonPath: string;
   moduleSearchPath: string;
@@ -49,12 +49,13 @@ const DEFAULT_PROVIDER_ROOT = path.join(
   "cozy-preview-dependency-provider",
 );
 
-export function isPreviewHostFallbackEnabled(): boolean {
-  const flag = process.env.COZY_ENABLE_PREVIEW_HOST_FALLBACK
-    ?.trim()
-    .toLowerCase();
-  return flag === "1" || flag === "true" || flag === "on";
-}
+type HostPackageResolution = {
+  packageName: string;
+  requestedVersion: string;
+  packageRoot: string;
+  packageJsonPath: string;
+  moduleSearchPath: string;
+};
 
 /**
  * Directories used as `paths` hints for resolving preview dependencies on the host.
@@ -79,7 +80,6 @@ export function getPreviewDependencyHostNodePaths(
 
 export async function resolvePreviewDependencies(params: {
   decisions: DependencyDecision[];
-  allowHostFallback?: boolean;
   allowRegistryFetch?: boolean;
 }): Promise<{
   nodePaths: string[];
@@ -90,10 +90,7 @@ export async function resolvePreviewDependencies(params: {
   const appRequire = Module.createRequire(
     path.join(process.cwd(), "package.json"),
   );
-  const allowHostFallback =
-    params.allowHostFallback ?? isPreviewHostFallbackEnabled();
   const allowRegistryFetch = params.allowRegistryFetch ?? true;
-  const hostNodePaths = getPreviewDependencyHostNodePaths(appRequire);
   const byName = new Map(
     params.decisions.map((decision) => [decision.packageName, decision]),
   );
@@ -149,30 +146,9 @@ export async function resolvePreviewDependencies(params: {
       continue;
     }
 
-    if (!allowHostFallback) {
-      throw new Error(
-        `Unable to resolve managed preview dependency "${packageName}@${requestedVersion}" from the controlled provider. Host fallback is disabled.`,
-      );
-    }
-
-    const hostResolution = await resolveFromHost({
-      appRequire,
-      packageName,
-      requestedVersion,
-      hostNodePaths,
-    });
-    resolutions.push(hostResolution);
-    nodePathSet.add(hostResolution.moduleSearchPath);
-    diagnostics.push({
-      packageName,
-      requestedVersion,
-      resolutionSource: "host-fallback",
-      code: "HOST_FALLBACK_USED",
-      providerMode: "managed-provider",
-      hostFallbackUsed: true,
-      message:
-        "Resolved via host node_modules fallback because the controlled preview dependency provider does not yet supply this package version.",
-    });
+    throw new Error(
+      `Unable to resolve managed preview dependency "${packageName}@${requestedVersion}" from the controlled provider.`,
+    );
   }
 
   for (const ext of compatibleExternals) {
@@ -278,7 +254,7 @@ async function resolveFromHost(input: {
   packageName: string;
   requestedVersion: string;
   hostNodePaths: string[];
-}): Promise<PreviewDependencyResolution> {
+}): Promise<HostPackageResolution> {
   let entryPath: string;
   try {
     entryPath = input.appRequire.resolve(input.packageName);
@@ -301,8 +277,6 @@ async function resolveFromHost(input: {
   return {
     packageName: input.packageName,
     requestedVersion: input.requestedVersion,
-    resolutionSource: "host-fallback",
-    source: "host-fallback",
     packageRoot: path.dirname(packageJsonPath),
     packageJsonPath,
     moduleSearchPath: inferModuleSearchPath(packageJsonPath),

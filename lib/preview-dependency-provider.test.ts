@@ -17,10 +17,8 @@ import {
 
 const providerRootEnv = "COZY_PREVIEW_DEPENDENCY_PROVIDER_ROOT";
 const compatibleBundleRootEnv = "COZY_PREVIEW_COMPATIBLE_BUNDLE_ROOT";
-const hostFallbackEnv = "COZY_ENABLE_PREVIEW_HOST_FALLBACK";
 const originalProviderRoot = process.env[providerRootEnv];
 const originalCompatibleBundleRoot = process.env[compatibleBundleRootEnv];
-const originalHostFallback = process.env[hostFallbackEnv];
 
 afterEach(() => {
   if (originalProviderRoot === undefined) {
@@ -32,11 +30,6 @@ afterEach(() => {
     delete process.env[compatibleBundleRootEnv];
   } else {
     process.env[compatibleBundleRootEnv] = originalCompatibleBundleRoot;
-  }
-  if (originalHostFallback === undefined) {
-    delete process.env[hostFallbackEnv];
-  } else {
-    process.env[hostFallbackEnv] = originalHostFallback;
   }
 });
 
@@ -178,40 +171,29 @@ describe("preview-dependency-provider", () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
 
-  it("surfaces host fallback diagnostics when the requested version is not exact", async () => {
+  it("fails managed-package resolution when the requested version is not exact", async () => {
     const tmpRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "cozy-preview-provider-range-test-"),
     );
     process.env[providerRootEnv] = tmpRoot;
-    process.env[hostFallbackEnv] = "true";
 
     const decisions = evaluateThirdPartyDependencies({
       discovered: ["lucide-react"],
       declared: [{ name: "lucide-react", version: "^0.577.0" }],
     });
 
-    const result = await resolvePreviewDependencies({ decisions });
-
-    expect(result.resolutions).toHaveLength(1);
-    expect(result.resolutions[0]?.resolutionSource).toBe("host-fallback");
-    expect(result.diagnostics).toEqual([
-      expect.objectContaining({
-        packageName: "lucide-react",
-        resolutionSource: "host-fallback",
-        code: "HOST_FALLBACK_USED",
-        hostFallbackUsed: true,
-      }),
-    ]);
+    await expect(resolvePreviewDependencies({ decisions })).rejects.toThrow(
+      'Unable to resolve managed preview dependency "lucide-react@^0.577.0" from the controlled provider.',
+    );
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
 
-  it("fails exact managed-package resolution when provider cache misses and host fallback is disabled", async () => {
+  it("fails exact managed-package resolution when provider cache misses", async () => {
     const tmpRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "cozy-preview-provider-no-host-test-"),
     );
     process.env[providerRootEnv] = tmpRoot;
-    delete process.env[hostFallbackEnv];
 
     const decisions = evaluateThirdPartyDependencies({
       discovered: ["lucide-react"],
@@ -221,7 +203,7 @@ describe("preview-dependency-provider", () => {
     await expect(
       resolvePreviewDependencies({ decisions }),
     ).rejects.toThrow(
-      'Unable to resolve managed preview dependency "lucide-react@0.577.0" from the controlled provider. Host fallback is disabled.',
+      'Unable to resolve managed preview dependency "lucide-react@0.577.0" from the controlled provider.',
     );
 
     await fs.rm(tmpRoot, { recursive: true, force: true });
