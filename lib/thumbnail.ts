@@ -148,6 +148,7 @@ export async function maybeBuildRegistryThumbnail(params: {
     "#ffffff",
   );
   const generatedAt = new Date().toISOString();
+  const cacheBust = encodeURIComponent(generatedAt);
   const swatches = { primary, secondary, accent, background };
   const svg = buildThemeThumbnailSvgString(swatches);
 
@@ -169,7 +170,7 @@ export async function maybeBuildRegistryThumbnail(params: {
         assetType: "thumbnail",
       });
       return {
-        url: uploaded.url,
+        url: `${uploaded.url}?v=${cacheBust}`,
         kind: "theme-template",
         width: 1200,
         height: 900,

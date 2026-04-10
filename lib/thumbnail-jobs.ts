@@ -715,12 +715,13 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
       assetType: "thumbnail",
     });
 
+    const generatedAt = new Date().toISOString();
     const thumbnail = {
-      url: uploaded.url,
+      url: `${uploaded.url}?v=${encodeURIComponent(generatedAt)}`,
       kind: "preview-capture" as const,
       width: plan.viewport.width * THUMBNAIL_DEVICE_SCALE,
       height: plan.viewport.height * THUMBNAIL_DEVICE_SCALE,
-      generatedAt: new Date().toISOString(),
+      generatedAt,
     };
 
     await db
