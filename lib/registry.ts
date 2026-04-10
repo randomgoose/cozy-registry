@@ -293,7 +293,8 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
 export async function getRegistryItemByOwnerAndName(
   ownerId: string,
   name: string,
-  requestUserId?: string | null
+  requestUserId?: string | null,
+  allowPrivateAccess: boolean = false,
 ) {
   const [item] = await db
     .select()
@@ -310,7 +311,7 @@ export async function getRegistryItemByOwnerAndName(
   if (!item || !isRegistryItemDirectlyResolvableStatus(item.status)) return null;
 
   // Private item: only owner can access
-  if (item.visibility === "private") {
+  if (!allowPrivateAccess && item.visibility === "private") {
     if (!requestUserId || item.userId !== requestUserId) return null;
   }
 
@@ -352,10 +353,11 @@ async function getRegistryItemByOrganizationAndNameForViewer(
   organizationId: string,
   name: string,
   requestUserId?: string | null,
+  allowPrivateAccess: boolean = false,
 ) {
   const item = await getRegistryItemByOrganizationAndName(organizationId, name);
   if (!item) return null;
-  if (item.visibility === "private") {
+  if (!allowPrivateAccess && item.visibility === "private") {
     if (!requestUserId) return null;
     if (!(await isUserOrganizationMember(requestUserId, organizationId))) return null;
   }
@@ -366,6 +368,7 @@ export async function getRegistryProjectByOwnerAndNamespace(
   ownerId: string,
   namespaceKey: string,
   requestUserId?: string | null,
+  allowPrivateAccess: boolean = false,
 ) {
   const teamPath = parseTeamOwnerPath(ownerId);
   if (teamPath) {
@@ -404,6 +407,19 @@ export async function getRegistryProjectByOwnerAndNamespace(
 
   const org = await resolveOrganizationBySlug(ownerId);
   if (!org) return null;
+  if (allowPrivateAccess) {
+    const [project] = await db
+      .select()
+      .from(registryProjects)
+      .where(
+        and(
+          eq(registryProjects.organizationId, org.id),
+          eq(registryProjects.namespaceKey, namespaceKey),
+        ),
+      )
+      .limit(1);
+    return project ?? null;
+  }
   if (requestUserId == null) {
     const [project] = await db
       .select()
@@ -440,11 +456,13 @@ export async function getRegistryItemByOwnerProjectName(
   name: string,
   version?: string | null,
   requestUserId?: string | null,
+  allowPrivateAccess: boolean = false,
 ) {
   const project = await getRegistryProjectByOwnerAndNamespace(
     ownerId,
     projectKey,
     requestUserId,
+    allowPrivateAccess,
   );
   if (!project) return null;
 
@@ -486,7 +504,7 @@ export async function getRegistryItemByOwnerProjectName(
   }
 
   if (!item || !isRegistryItemDirectlyResolvableStatus(item.status)) return null;
-  if (item.visibility === "private") {
+  if (!allowPrivateAccess && item.visibility === "private") {
     if (item.userId) {
       if (!requestUserId || item.userId !== requestUserId) return null;
     } else if (item.organizationId) {
@@ -806,6 +824,7 @@ export async function getRegistryItemByOwnerNameAndVersion(
   name: string,
   version: string | null | undefined,
   requestUserId?: string | null,
+  allowPrivateAccess: boolean = false,
 ) {
   const teamPath = parseTeamOwnerPath(ownerId);
   if (teamPath) {
@@ -818,6 +837,7 @@ export async function getRegistryItemByOwnerNameAndVersion(
       organizationId,
       name,
       requestUserId,
+      allowPrivateAccess,
     );
     if (!base) return null;
 
@@ -829,7 +849,12 @@ export async function getRegistryItemByOwnerNameAndVersion(
 
   const resolved = await resolveOwner(ownerId);
   if (resolved) {
-    const base = await getRegistryItemByOwnerAndName(resolved.userId, name, requestUserId);
+    const base = await getRegistryItemByOwnerAndName(
+      resolved.userId,
+      name,
+      requestUserId,
+      allowPrivateAccess,
+    );
     if (!base) return null;
     const currentVer = getCurrentVersion(base);
     if (!version || version === currentVer) return base;
@@ -842,6 +867,7 @@ export async function getRegistryItemByOwnerNameAndVersion(
       orgOnly.id,
       name,
       requestUserId,
+      allowPrivateAccess,
     );
     if (!base) return null;
     const currentVer = getCurrentVersion(base);
@@ -858,6 +884,7 @@ export async function getRegistryItemByScopedIdentityAndVersion(params: {
   name: string;
   version: string | null | undefined;
   requestUserId?: string | null;
+  allowPrivateAccess?: boolean;
 }) {
   const projectKey = params.projectKey?.trim() ?? "";
   if (projectKey) {
@@ -867,6 +894,7 @@ export async function getRegistryItemByScopedIdentityAndVersion(params: {
       params.name,
       params.version,
       params.requestUserId,
+      params.allowPrivateAccess ?? false,
     );
   }
 
@@ -875,6 +903,7 @@ export async function getRegistryItemByScopedIdentityAndVersion(params: {
     params.name,
     params.version,
     params.requestUserId,
+    params.allowPrivateAccess ?? false,
   );
 }
 
@@ -1352,6 +1381,7 @@ export async function createRegistryItemVersion(params: {
       name: params.name,
       version: nextVersion,
       type: normalizedType,
+      requestUserId: params.userId,
     },
   });
 
@@ -1799,6 +1829,7 @@ export async function createRegistryItem(data: {
         name: data.name,
         version: INITIAL_VERSION,
         type: normalizedType,
+        requestUserId: data.requestUserId ?? data.userId ?? null,
       },
     });
 
@@ -2219,6 +2250,7 @@ export async function copyOrMoveRegistryItemToOrganization(params: {
       name: targetItem.name,
       version: currentVersion,
       type: normalizeRegistryItemType(targetItem.type),
+      requestUserId: params.requestUserId,
     },
   });
 

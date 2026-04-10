@@ -11,6 +11,7 @@ import {
   getThumbnailFromMeta,
   maybeBuildRegistryThumbnail,
 } from "@/lib/thumbnail";
+import { getInternalWorkerHeaders } from "@/lib/internal-worker-auth";
 import { buildRegistryAssetPath, uploadPublicAsset } from "@/lib/storage";
 
 export const GENERATE_THUMBNAIL_JOB = "generate_thumbnail" as const;
@@ -23,6 +24,7 @@ type ThumbnailJobPayload = {
   name: string;
   version: string;
   type: string;
+  requestUserId?: string | null;
 };
 
 export async function capturePreviewThumbnail(params: {
@@ -31,6 +33,7 @@ export async function capturePreviewThumbnail(params: {
   version: string;
   projectKey?: string | null;
   strategy?: "computed" | "locator";
+  requestUserId?: string | null;
 }) {
   const { chromium: playwrightChromium } = await import("playwright-core");
 
@@ -61,6 +64,9 @@ export async function capturePreviewThumbnail(params: {
         height: plan.viewport.height,
       },
       deviceScaleFactor: THUMBNAIL_DEVICE_SCALE,
+      extraHTTPHeaders: getInternalWorkerHeaders({
+        requestUserId: params.requestUserId ?? null,
+      }),
     });
     const page = await context.newPage();
     await page.goto(`${baseUrl}${plan.previewPath}`, {
@@ -607,6 +613,7 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
     .select({
       id: registryItems.id,
       meta: registryItems.meta,
+      userId: registryItems.userId,
     })
     .from(registryItems)
     .where(eq(registryItems.id, job.itemId))
@@ -620,6 +627,7 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
     .select({
       id: registryItemVersions.id,
       meta: registryItemVersions.meta,
+      createdBy: registryItemVersions.createdBy,
     })
     .from(registryItemVersions)
     .where(eq(registryItemVersions.id, job.itemVersionId!))
@@ -643,6 +651,7 @@ export async function processPreviewCaptureThumbnailJob(jobId: string) {
     name: payload.name,
     version: payload.version,
     projectKey: payload.projectKey ?? null,
+    requestUserId: payload.requestUserId ?? itemVersion.createdBy ?? item.userId ?? null,
   });
 
     const path = buildRegistryAssetPath({

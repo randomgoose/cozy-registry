@@ -9,6 +9,7 @@ import {
   getThemeEntryCss,
 } from "@/lib/registry";
 import { getUserIdFromToken } from "@/lib/auth-api";
+import { getInternalWorkerAuth } from "@/lib/internal-worker-auth";
 import { buildPreviewBundle } from "@/lib/preview-build";
 import {
   buildPreviewCacheKey,
@@ -364,7 +365,12 @@ export async function GET(
 
   let stepStartedAt = performance.now();
   const session = await auth.api.getSession({ headers: request.headers });
-  const userId = session?.user?.id ?? (await getUserIdFromToken(request));
+  const internalWorkerAuth = getInternalWorkerAuth(request);
+  const userId =
+    session?.user?.id ??
+    (await getUserIdFromToken(request)) ??
+    internalWorkerAuth.requestUserId;
+  const allowPrivateAccess = internalWorkerAuth.isAuthorized;
   timings.mark("session", stepStartedAt);
 
   if (!debug && !allowInlineFallback) {
@@ -435,6 +441,7 @@ export async function GET(
     name,
     version,
     requestUserId: userId,
+    allowPrivateAccess,
   });
   timings.mark("rootItemLoad", stepStartedAt);
 
