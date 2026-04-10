@@ -54,26 +54,70 @@ export async function capturePreviewThumbnail(params: {
     version: params.version,
     project: params.projectKey,
   });
+  const internalHeaders = getInternalWorkerHeaders({
+    requestUserId: params.requestUserId ?? null,
+  });
 
   const browser = await launchThumbnailBrowser(playwrightChromium);
 
   try {
+    console.info("[thumbnail-worker] starting preview capture", {
+      previewPath: plan.previewPath,
+      owner: params.owner,
+      name: params.name,
+      version: params.version,
+      projectKey: params.projectKey ?? null,
+      hasInternalSecretHeader: Boolean(
+        internalHeaders["x-cozy-internal-job-secret"],
+      ),
+      hasRequestUserIdHeader: Boolean(
+        internalHeaders["x-cozy-request-user-id"],
+      ),
+      requestUserId: params.requestUserId ?? null,
+    });
     const context = await browser.newContext({
       viewport: {
         width: plan.viewport.width,
         height: plan.viewport.height,
       },
       deviceScaleFactor: THUMBNAIL_DEVICE_SCALE,
-      extraHTTPHeaders: getInternalWorkerHeaders({
-        requestUserId: params.requestUserId ?? null,
-      }),
+      extraHTTPHeaders: internalHeaders,
     });
     const page = await context.newPage();
-    await page.goto(`${baseUrl}${plan.previewPath}`, {
+    const previewUrl = `${baseUrl}${plan.previewPath}`;
+    const response = await page.goto(previewUrl, {
       waitUntil: "networkidle",
       timeout: 30_000,
     });
+    console.info("[thumbnail-worker] preview response", {
+      previewPath: plan.previewPath,
+      status: response?.status() ?? null,
+      ok: response?.ok() ?? null,
+      finalUrl: page.url(),
+    });
     await page.waitForTimeout(600);
+    const pageSnapshot = await page.evaluate(() => ({
+      title: document.title,
+      bodyText: document.body?.innerText?.slice(0, 240) ?? "",
+      hasPreviewSubject: Boolean(
+        document.querySelector("[data-cozy-preview-subject]"),
+      ),
+      hasPreviewContent: Boolean(
+        document.querySelector("[data-cozy-preview-content]"),
+      ),
+    }));
+    console.info("[thumbnail-worker] preview page snapshot", {
+      previewPath: plan.previewPath,
+      ...pageSnapshot,
+    });
+    if (
+      !pageSnapshot.hasPreviewSubject &&
+      /not found/i.test(pageSnapshot.bodyText)
+    ) {
+      throw new Error(
+        `Preview page rendered Not found during thumbnail capture (${plan.previewPath}).`,
+      );
+    }
     const surfaceDiagnostics = await page.evaluate(() => {
       const htmlNode = document.documentElement;
       const bodyNode = document.body;
