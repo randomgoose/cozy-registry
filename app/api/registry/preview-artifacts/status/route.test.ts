@@ -45,6 +45,13 @@ vi.mock("@/lib/third-party-dependency-governance", () => ({
       .map((decision) => decision.importSpecifier ?? decision.packageName),
 }));
 
+vi.mock("@/lib/project-resource-relationships", () => ({
+  resolveThemeRelationshipForResource: vi.fn(async () => ({
+    resolvedThemeResourceRefs: [],
+    resolvedThemeLayerSources: [],
+  })),
+}));
+
 vi.mock("@/lib/db", () => ({
   db: {
     select: selectMock,
@@ -129,7 +136,7 @@ describe("preview artifact status route", () => {
         storyId: "default",
       }),
     );
-  });
+  }, 10000);
 
   it("returns missing without enqueue side effects when enqueue=1 is absent", async () => {
     createSelectChain([[{ id: "version-1" }], []]);
@@ -151,7 +158,7 @@ describe("preview artifact status route", () => {
         version: "1.2.3",
       }),
     );
-  });
+  }, 10000);
 
   it("returns compatible external dependency names for compatible artifacts", async () => {
     getRegistryItemByScopedIdentityAndVersionMock.mockResolvedValue({

@@ -8,7 +8,6 @@ import {
   integer,
   index,
   unique,
-  primaryKey,
 } from "drizzle-orm/pg-core";
 
 // --- Better Auth tables ---
@@ -412,24 +411,6 @@ export const registryProjectMembers = pgTable(
     index("registry_project_members_project_id_idx").on(table.projectId),
     index("registry_project_members_user_id_idx").on(table.userId),
     unique("registry_project_members_project_user_key").on(table.projectId, table.userId),
-  ],
-);
-
-export const registryProjectItems = pgTable(
-  "registry_project_items",
-  {
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => registryProjects.id, { onDelete: "cascade" }),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => registryItems.id, { onDelete: "cascade" }),
-    addedAt: timestamp("added_at").defaultNow().notNull(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.projectId, table.itemId] }),
-    index("registry_project_items_project_id_idx").on(table.projectId),
-    index("registry_project_items_item_id_idx").on(table.itemId),
   ],
 );
 

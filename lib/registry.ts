@@ -6,7 +6,6 @@ import {
   registryItemVersions,
   registryFileVersions,
   registryItemMoves,
-  registryProjectItems,
   registryProjects,
   organization,
   user,
@@ -189,14 +188,6 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
   const allowedTypes = (policy.allowedTypes ?? []).filter(Boolean);
   const allowedOwners = (policy.allowedOwnerHandlesOrIds ?? []).filter(Boolean);
 
-  const allowedItemIds = (() => {
-    if (allowedProjectIds.length === 0) return [] as string[];
-    return db
-      .select({ itemId: registryProjectItems.itemId })
-      .from(registryProjectItems)
-      .where(inArray(registryProjectItems.projectId, allowedProjectIds));
-  })();
-
   const organizationPolicyId = policy.ownerOrganizationId ?? null;
   const visibleClause = requestUserId
     ? or(
@@ -265,11 +256,11 @@ export async function getRegistryItemsScoped(scope: RegistryScope) {
       clauses.push(
         or(
           eq(registryItems.visibility, "public"),
-          inArray(registryItems.id, allowedItemIds),
+          inArray(registryItems.canonicalProjectId, allowedProjectIds),
         ),
       );
     } else {
-      clauses.push(inArray(registryItems.id, allowedItemIds));
+      clauses.push(inArray(registryItems.canonicalProjectId, allowedProjectIds));
     }
   }
 
@@ -466,7 +457,7 @@ export async function getRegistryItemByOwnerProjectName(
   );
   if (!project) return null;
 
-  let [item] = await db
+  const [item] = await db
     .select()
     .from(registryItems)
     .where(
@@ -477,31 +468,6 @@ export async function getRegistryItemByOwnerProjectName(
     )
     .orderBy(desc(registryItems.createdAt))
     .limit(1);
-
-  // Transitional fallback for items that are still attached to a project via
-  // registry_project_items but have not yet been rewritten to canonicalProjectId.
-  if (!item) {
-    const [linked] = await db
-      .select({ itemId: registryItems.id })
-      .from(registryProjectItems)
-      .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
-      .where(
-        and(
-          eq(registryProjectItems.projectId, project.id),
-          eq(registryItems.name, name),
-        ),
-      )
-      .orderBy(desc(registryItems.createdAt))
-      .limit(1);
-
-    if (linked) {
-      [item] = await db
-        .select()
-        .from(registryItems)
-        .where(eq(registryItems.id, linked.itemId))
-        .limit(1);
-    }
-  }
 
   if (!item || !isRegistryItemDirectlyResolvableStatus(item.status)) return null;
   if (!allowPrivateAccess && item.visibility === "private") {
@@ -961,18 +927,9 @@ export async function getRegistryItemByOwnerNameAndVersionScoped(
     return item;
   }
 
-  const [membership] = await db
-    .select({ itemId: registryProjectItems.itemId })
-    .from(registryProjectItems)
-    .where(
-      and(
-        eq(registryProjectItems.itemId, item.id),
-        inArray(registryProjectItems.projectId, allowedProjectIds),
-      ),
-    )
-    .limit(1);
-
-  return membership ? item : null;
+  return item.canonicalProjectId && allowedProjectIds.includes(item.canonicalProjectId)
+    ? item
+    : null;
 }
 
 /** Version rows for an item already loaded (avoids re-resolving owner/project/name in preview hot paths). */

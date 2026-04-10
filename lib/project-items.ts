@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { registryItems, registryProjectItems } from "@/lib/db/schema";
+import { registryItems } from "@/lib/db/schema";
 
 export type ProjectItemRow = {
   itemId: string;
@@ -24,11 +24,15 @@ export async function listProjectItems(projectId: string): Promise<ProjectItemRo
       description: registryItems.description,
       visibility: registryItems.visibility,
       meta: registryItems.meta,
-      addedAt: registryProjectItems.addedAt,
+      addedAt: registryItems.updatedAt,
     })
-    .from(registryProjectItems)
-    .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
-    .where(eq(registryProjectItems.projectId, projectId))
+    .from(registryItems)
+    .where(
+      and(
+        eq(registryItems.canonicalProjectId, projectId),
+        eq(registryItems.status, "active"),
+      ),
+    )
     .orderBy(registryItems.name);
 
   return rows.map((row) => ({

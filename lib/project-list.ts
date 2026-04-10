@@ -3,7 +3,6 @@ import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   registryItems,
-  registryProjectItems,
   registryProjectMembers,
   registryProjects,
 } from "@/lib/db/schema";
@@ -248,18 +247,23 @@ async function previewItemsForProjects(
 
   const rows = await db
     .select({
-      projectId: registryProjectItems.projectId,
+      projectId: registryItems.canonicalProjectId,
       title: registryItems.title,
       name: registryItems.name,
       type: registryItems.type,
       meta: registryItems.meta,
     })
-    .from(registryProjectItems)
-    .innerJoin(registryItems, eq(registryProjectItems.itemId, registryItems.id))
-    .where(inArray(registryProjectItems.projectId, projectIds))
-    .orderBy(desc(registryProjectItems.addedAt));
+    .from(registryItems)
+    .where(
+      and(
+        inArray(registryItems.canonicalProjectId, projectIds),
+        eq(registryItems.status, "active"),
+      ),
+    )
+    .orderBy(desc(registryItems.updatedAt), desc(registryItems.createdAt));
 
   for (const row of rows) {
+    if (!row.projectId) continue;
     const list = map.get(row.projectId);
     if (!list || list.length >= 4) continue;
     list.push({
@@ -279,17 +283,23 @@ async function previewItemsForProjects(
 async function itemCountsForProjects(projectIds: string[]): Promise<Map<string, number>> {
   if (projectIds.length === 0) return new Map();
 
-  const links = await db
+  const items = await db
     .select({
-      projectId: registryProjectItems.projectId,
-      itemId: registryProjectItems.itemId,
+      projectId: registryItems.canonicalProjectId,
+      itemId: registryItems.id,
     })
-    .from(registryProjectItems)
-    .where(inArray(registryProjectItems.projectId, projectIds));
+    .from(registryItems)
+    .where(
+      and(
+        inArray(registryItems.canonicalProjectId, projectIds),
+        eq(registryItems.status, "active"),
+      ),
+    );
 
   const map = new Map<string, number>();
-  for (const link of links) {
-    map.set(link.projectId, (map.get(link.projectId) ?? 0) + 1);
+  for (const item of items) {
+    if (!item.projectId) continue;
+    map.set(item.projectId, (map.get(item.projectId) ?? 0) + 1);
   }
   return map;
 }

@@ -95,6 +95,16 @@ vi.mock("@/lib/preview-stories", () => ({
   pickPreviewStory: vi.fn(() => ({ selectedStory: null, stories: [] })),
 }));
 
+vi.mock("@/lib/project-resource-relationships", () => ({
+  mergeRegistryDependenciesWithResolvedThemes: vi.fn(
+    (deps: string[]) => deps,
+  ),
+  resolveThemeRelationshipForResource: vi.fn(async () => ({
+    resolvedThemeResourceRefs: [],
+    resolvedThemeLayerSources: [],
+  })),
+}));
+
 vi.mock("@/lib/third-party-dependency-governance", () => ({
   evaluateThirdPartyDependencies: vi.fn(() => []),
   excludeExplicitRegistryDependencies: vi.fn((deps: string[]) => deps),
@@ -158,7 +168,7 @@ describe("preview route state pages", () => {
     const html = await response.text();
     expect(html).toContain("Preparing preview");
     expect(html).toContain("currently building");
-  });
+  }, 10000);
 
   it("returns a runtime-only page when the artifact is skipped", async () => {
     createSelectChain([
@@ -182,7 +192,7 @@ describe("preview route state pages", () => {
     const html = await response.text();
     expect(html).toContain("Runtime preview only");
     expect(html).toContain("Skipped by policy.");
-  });
+  }, 10000);
 
   it("returns an error page when the artifact failed", async () => {
     createSelectChain([

@@ -381,13 +381,10 @@ export function ProjectsPanel(props: {
   const [itemDetailError, setItemDetailError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [expandedProjectCardId, setExpandedProjectCardId] = useState<string | null>(null);
-  const [removeOpen, setRemoveOpen] = useState(false);
-  const [moveOpen, setMoveOpen] = useState(false);
   const [itemActionPending, setItemActionPending] = useState<
-    "remove" | "move" | "set-default-theme-ref" | null
+    "set-default-theme-ref" | null
   >(null);
   const [itemActionError, setItemActionError] = useState<string | null>(null);
-  const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
   const [warmPreviewSlots, setWarmPreviewSlots] = useState<WarmPreviewSlot[]>([]);
   const [projectThemeLayersInput, setProjectThemeLayersInput] = useState("");
   const [projectThemeLayersSaving, setProjectThemeLayersSaving] = useState(false);
@@ -426,10 +423,6 @@ export function ProjectsPanel(props: {
       formatThemeResourceRefsInput(selectedProject?.defaultThemeResourceRefs),
     );
   }, [selectedProject?.id, selectedProject?.defaultThemeResourceRefs]);
-  const moveTargetProjects = useMemo(
-    () => projects.filter((project) => project.id !== selectedId),
-    [projects, selectedId],
-  );
   /**
    * `warmPreviewSlots` updates in useLayoutEffect — one frame behind `selectedProjectItem`.
    * Without merging the current selection here, no slot matches `isActive` and the preview area is blank.
@@ -674,15 +667,6 @@ export function ProjectsPanel(props: {
     }
   }, [props.initialProjectId, props.initialProjectItems]);
 
-  useEffect(() => {
-    if (!moveOpen) return;
-    const firstTarget = moveTargetProjects[0]?.id ?? "";
-    setMoveTargetProjectId((current) =>
-      current && moveTargetProjects.some((project) => project.id === current) ? current : firstTarget,
-    );
-    setItemActionError(null);
-  }, [moveOpen, moveTargetProjects]);
-
   async function loadStep2Members(projectId: string, options: { force?: boolean } = {}) {
     setMembersLoading(true);
     try {
@@ -842,99 +826,6 @@ export function ProjectsPanel(props: {
     setSelectedItemId(itemId);
     setSelectedPath(null);
     setItemDetailError(null);
-  }
-
-  function openMoveDialogForItem(itemId: string) {
-    selectProjectItem(itemId);
-    setItemActionError(null);
-    setMoveTargetProjectId("");
-    setMoveOpen(true);
-  }
-
-  function openRemoveDialogForItem(itemId: string) {
-    selectProjectItem(itemId);
-    setItemActionError(null);
-    setRemoveOpen(true);
-  }
-
-  async function handleRemoveSelectedItem() {
-    if (!selectedId || !selectedItemId) return;
-    const removedItemId = selectedItemId;
-    setItemActionPending("remove");
-    setItemActionError(null);
-    try {
-      const response = await fetch(`/api/projects/${selectedId}/items/${removedItemId}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error ?? "Failed to remove resource");
-      }
-
-      const remainingItems = projectItems.filter((item) => item.itemId !== removedItemId);
-      const removedIndex = projectItems.findIndex((item) => item.itemId === removedItemId);
-      const nextSelectedItem =
-        remainingItems[removedIndex] ??
-        remainingItems[Math.max(0, removedIndex - 1)] ??
-        null;
-
-      setProjectItems(remainingItems);
-      setSelectedItemId(nextSelectedItem?.itemId ?? null);
-      setSelectedPath(null);
-      invalidateClientCachedValue(`project-items:${selectedId}`);
-      setDetailByItemId((current) => {
-        const next = { ...current };
-        delete next[removedItemId];
-        return next;
-      });
-
-      setRemoveOpen(false);
-    } catch (error) {
-      setItemActionError(error instanceof Error ? error.message : "Failed to remove resource");
-    } finally {
-      setItemActionPending(null);
-    }
-  }
-
-  async function handleMoveSelectedItem() {
-    if (!selectedId || !selectedItemId || !moveTargetProjectId) return;
-    setItemActionPending("move");
-    setItemActionError(null);
-    try {
-      const addResponse = await fetch(`/api/projects/${moveTargetProjectId}/items`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId: selectedItemId }),
-      });
-      if (!addResponse.ok) {
-        const data = (await addResponse.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error ?? "Failed to add resource to target project");
-      }
-
-      const removeResponse = await fetch(`/api/projects/${selectedId}/items/${selectedItemId}`, {
-        method: "DELETE",
-      });
-      if (!removeResponse.ok) {
-        const data = (await removeResponse.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(
-          data?.error ??
-            "Resource was added to the target project, but removing it from the current project failed",
-        );
-      }
-
-      setMoveOpen(false);
-      invalidateClientCachedValue(`project-items:${selectedId}`);
-      invalidateClientCachedValue(`project-items:${moveTargetProjectId}`);
-      invalidateClientCachedValue("projects:");
-      await Promise.all([
-        refreshSelectedItems(selectedId, { force: true }),
-        refreshProjects({ force: true }),
-      ]);
-    } catch (error) {
-      setItemActionError(error instanceof Error ? error.message : "Failed to move resource");
-    } finally {
-      setItemActionPending(null);
-    }
   }
 
   async function handleSetProjectDefaultThemeRef(item: ProjectItemRow) {
@@ -1352,20 +1243,6 @@ export function ProjectsPanel(props: {
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-52">
                           <ContextMenuLabel className="truncate">{it.title}</ContextMenuLabel>
-                          <ContextMenuSeparator />
-                          <ContextMenuItem
-                            disabled={!canEditProject || itemActionPending !== null}
-                            onClick={() => openMoveDialogForItem(it.itemId)}
-                          >
-                            Move resource
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            variant="destructive"
-                            disabled={!canEditProject || itemActionPending !== null}
-                            onClick={() => openRemoveDialogForItem(it.itemId)}
-                          >
-                            Remove resource
-                          </ContextMenuItem>
                           {isThemeResource ? (
                             <>
                               <ContextMenuSeparator />
@@ -1532,136 +1409,10 @@ export function ProjectsPanel(props: {
                           </div>
                           {selectedItem ? (
                             <div className="flex shrink-0 items-center gap-2">
-                              {canEditProject ? (
-                                <>
-                              <Dialog
-                                open={moveOpen}
-                                onOpenChange={(open) => {
-                                  setMoveOpen(open);
-                                  if (!open) setItemActionError(null);
-                                }}
-                              >
-                                <DialogTrigger
-                                  render={
-                                    <button
-                                      type="button"
-                                      className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                                    />
-                                  }
-                                >
-                                  Move
-                                </DialogTrigger>
-                                <DialogContent className="max-w-md gap-4 px-5 pt-5 pb-5">
-                                  <DialogHeader>
-                                    <DialogTitle>Move resource</DialogTitle>
-                                    <DialogDescription>
-                                      Move{" "}
-                                      <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                                        {selectedItem.title}
-                                      </span>{" "}
-                                      to another project in this workspace.
-                                    </DialogDescription>
-                                  </DialogHeader>
-                                  {moveTargetProjects.length === 0 ? (
-                                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                                      Create another project first, then you can move this resource there.
-                                    </p>
-                                  ) : (
-                                    <div className="space-y-2">
-                                      <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                                        Target project
-                                      </label>
-                                      <select
-                                        value={moveTargetProjectId}
-                                        onChange={(event) => setMoveTargetProjectId(event.target.value)}
-                                        className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                                      >
-                                        {moveTargetProjects.map((project) => (
-                                          <option key={project.id} value={project.id}>
-                                            {project.title} ({project.slug})
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                  )}
-                                  {itemActionError ? (
-                                    <p className="text-sm text-red-600 dark:text-red-400">{itemActionError}</p>
-                                  ) : null}
-                                  <DialogFooter className="flex flex-row justify-end gap-2 pt-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => setMoveOpen(false)}
-                                      className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={handleMoveSelectedItem}
-                                      disabled={
-                                        itemActionPending === "move" ||
-                                        !moveTargetProjectId ||
-                                        moveTargetProjects.length === 0
-                                      }
-                                      className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                                    >
-                                      {itemActionPending === "move" ? "Moving..." : "Move resource"}
-                                    </button>
-                                  </DialogFooter>
-                                </DialogContent>
-                              </Dialog>
-
-                              <Dialog
-                                open={removeOpen}
-                                onOpenChange={(open) => {
-                                  setRemoveOpen(open);
-                                  if (!open) setItemActionError(null);
-                                }}
-                              >
-                                <DialogTrigger
-                                  render={
-                                    <button
-                                      type="button"
-                                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/60"
-                                    />
-                                  }
-                                >
-                                  Remove
-                                </DialogTrigger>
-                                <DialogContent className="max-w-md gap-4 px-5 pt-5 pb-5">
-                                  <DialogHeader>
-                                    <DialogTitle>Remove resource</DialogTitle>
-                                    <DialogDescription>
-                                      Remove{" "}
-                                      <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                                        {selectedItem.title}
-                                      </span>{" "}
-                                      from this project. The underlying registry resource will not be deleted.
-                                    </DialogDescription>
-                                  </DialogHeader>
-                                  {itemActionError ? (
-                                    <p className="text-sm text-red-600 dark:text-red-400">{itemActionError}</p>
-                                  ) : null}
-                                  <DialogFooter className="flex flex-row justify-end gap-2 pt-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => setRemoveOpen(false)}
-                                      className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={handleRemoveSelectedItem}
-                                      disabled={itemActionPending === "remove"}
-                                      className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 dark:bg-red-500 dark:hover:bg-red-400"
-                                    >
-                                      {itemActionPending === "remove" ? "Removing..." : "Remove from project"}
-                                    </button>
-                                  </DialogFooter>
-                                </DialogContent>
-                              </Dialog>
-                                </>
+                              {canEditProject && itemActionError ? (
+                                <p className="text-xs text-red-600 dark:text-red-400">
+                                  {itemActionError}
+                                </p>
                               ) : null}
                             </div>
                           ) : null}
@@ -1889,12 +1640,12 @@ export function ProjectsPanel(props: {
                           className="size-full"
                         >
                           {it.thumbnailUrl ? (
-                            <div className="relative size-full overflow-hidden rounded-[10px]">
+                            <div className="relative size-full overflow-hidden rounded-[10px] bg-white/70 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] dark:bg-zinc-950/50">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={it.thumbnailUrl}
                                 alt=""
-                                className="absolute inset-0 size-full object-cover"
+                                className="absolute inset-1 size-[calc(100%-0.5rem)] object-contain"
                               />
                             </div>
                           ) : (

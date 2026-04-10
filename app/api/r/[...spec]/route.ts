@@ -1,4 +1,3 @@
-import { and, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
@@ -16,8 +15,6 @@ import {
   type RegistryPolicy,
 } from "@/lib/registry-policy";
 import { isBarePackageSpecifier } from "@/lib/module-specifiers";
-import { db } from "@/lib/db";
-import { registryProjectItems } from "@/lib/db/schema";
 
 function parseScopedSpec(spec: string[]): {
   owner: string | null;
@@ -145,6 +142,7 @@ async function applyRegistryPolicy<T extends {
   visibility: string | null;
   userId?: string | null;
   organizationId?: string | null;
+  canonicalProjectId?: string | null;
 }>(item: T, policy: RegistryPolicy | null) {
   if (!policy) return item;
 
@@ -181,16 +179,7 @@ async function applyRegistryPolicy<T extends {
     return item;
   }
 
-  const [membership] = await db
-    .select({ itemId: registryProjectItems.itemId })
-    .from(registryProjectItems)
-    .where(
-      and(
-        eq(registryProjectItems.itemId, item.id),
-        inArray(registryProjectItems.projectId, allowedProjectIds),
-      ),
-    )
-    .limit(1);
-
-  return membership ? item : null;
+  return item.canonicalProjectId && allowedProjectIds.includes(item.canonicalProjectId)
+    ? item
+    : null;
 }
