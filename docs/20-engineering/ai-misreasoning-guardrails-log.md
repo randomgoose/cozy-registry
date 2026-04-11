@@ -209,11 +209,67 @@ AI 使用了一个通用但错误的简化规则：
 
 - proposed
 
+## Case 2: “Project publish can be guessed without explicit scope / canonical entry hints”
+
+### Context
+
+通过 AI + MCP 发布一个多文件 `calendar` 组件到 `dashboard` project 时，最终发布成功，但流程中经历了：
+
+- 先直接使用 `project = "dashboard"` 发布
+- 因 owner scope 未明确而失败
+- 再查询 publish targets 并重试 organization scope
+- 再因 preview export / bundle entry 不明确而失败
+- 最后补 `index.tsx` / `previewExport` 后成功
+
+### Incorrect Inference
+
+AI 的错误推断包括：
+
+- `project` slug 可以脱离 owner scope 独立解析
+- multi-file bundle 只要包含依赖文件即可，entry 不需要特别收口
+- preview export 不清楚时可以依赖系统自动猜中目标组件
+
+### Actual System Behavior
+
+当前系统真实行为是：
+
+- `project` 必须在目标 owner scope 下解析
+- 多文件 bundle 虽然支持任意路径，但 preview/publish 路径对 entry 与 export 的明确性要求更高
+- project 已经是 canonical identity 的一部分，不是 publish 后再“link”的附属关系
+
+### Root Cause
+
+更深层的根因是：
+
+- `publish_component` 的 tool description 仍带有旧的 “link to project” 心智
+- scope 解析失败时的错误语义仍偏底层
+- multi-file bundle 推荐 entry（如 `index.tsx`）没有写成 agent-first guidance
+
+### Recommended Guardrail
+
+优先补在：
+
+1. MCP tool description
+2. publish error codes / diagnostics
+3. workflow skill / plugin
+
+建议方向：
+
+- 将 `project` 描述改成 canonical project scope / identity
+- 明确 multi-file bundle 推荐使用 `index.tsx`
+- 对 `previewExport` 缺失或 entry 歧义给出结构化错误码
+- 将 `list_publish_targets -> list_projects -> diagnose_publish_readiness -> publish_component` 收成正式 publish skill
+
+### Status
+
+- proposed
+
 ## 6. Recommended Next Actions
 
 1. 在 `publish_component` / `diagnose_publish_readiness` 的 MCP tool description 中加入 hooks allowed 的澄清文案
 2. 为 preview smoke 常见失败补更细粒度错误归因，减少 AI 自行脑补
-3. 将当前已有 smoke 测试中的 `useState` / `useEffect` 例子视为可引用的 ground truth
+3. 为 `publish_component` 补更 agent-friendly 的 project / multi-file bundle / preview export guidance
+4. 将当前已有 smoke 测试中的 `useState` / `useEffect` 例子视为可引用的 ground truth
 
 ## 7. Related Docs
 

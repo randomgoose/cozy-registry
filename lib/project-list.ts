@@ -7,6 +7,7 @@ import {
   registryProjects,
 } from "@/lib/db/schema";
 import { resolveOwner } from "@/lib/owner";
+import { activeProjectClause, archivedProjectClause } from "@/lib/project-permissions";
 import { createServerTimingLogger } from "@/lib/server-timing";
 import { getThumbnailFromMeta } from "@/lib/thumbnail";
 
@@ -21,6 +22,8 @@ export type ProjectListItem = {
   title: string;
   description: string | null;
   visibility: "public" | "private";
+  status: "active" | "archived" | "deleted";
+  archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   itemCount: number;
@@ -38,6 +41,12 @@ function normalizeVisibility(value: string): "public" | "private" {
   return value === "private" ? "private" : "public";
 }
 
+function normalizeProjectStatus(value: string): "active" | "archived" | "deleted" {
+  if (value === "archived") return "archived";
+  if (value === "deleted") return "deleted";
+  return "active";
+}
+
 function withProjectSummaries(rows: BaseProjectRow[]): Promise<ProjectListItem[]> {
   return hydrateProjects(rows);
 }
@@ -45,6 +54,7 @@ function withProjectSummaries(rows: BaseProjectRow[]): Promise<ProjectListItem[]
 export async function listProjectsForScope(params: {
   userId: string;
   activeOrganizationId: string | null;
+  status?: "active" | "archived";
 }): Promise<ProjectListItem[]> {
   const timings = createServerTimingLogger("project-list.scope", {
     userId: params.userId,
@@ -77,12 +87,15 @@ export async function listProjectsForScope(params: {
         title: registryProjects.title,
         description: registryProjects.description,
         visibility: registryProjects.visibility,
+        status: registryProjects.status,
+        archivedAt: registryProjects.archivedAt,
         createdAt: registryProjects.createdAt,
         updatedAt: registryProjects.updatedAt,
       })
       .from(registryProjects)
       .where(
         and(
+          params.status === "archived" ? archivedProjectClause() : activeProjectClause(),
           eq(registryProjects.organizationId, params.activeOrganizationId),
           inArray(registryProjects.id, memberIds),
         ),
@@ -96,6 +109,8 @@ export async function listProjectsForScope(params: {
       defaultThemeResourceRef:
         row.defaultThemeResourceRefs?.[0] ?? row.defaultThemeResourceRef,
       visibility: normalizeVisibility(row.visibility),
+      status: normalizeProjectStatus(row.status),
+      archivedAt: row.archivedAt ?? null,
     })));
     timings.flush({
       projectCount: projects.length,
@@ -118,12 +133,15 @@ export async function listProjectsForScope(params: {
       title: registryProjects.title,
       description: registryProjects.description,
       visibility: registryProjects.visibility,
+      status: registryProjects.status,
+      archivedAt: registryProjects.archivedAt,
       createdAt: registryProjects.createdAt,
       updatedAt: registryProjects.updatedAt,
     })
     .from(registryProjects)
     .where(
       and(
+        params.status === "archived" ? archivedProjectClause() : activeProjectClause(),
         eq(registryProjects.ownerUserId, params.userId),
         inArray(registryProjects.id, memberIds),
       ),
@@ -137,6 +155,8 @@ export async function listProjectsForScope(params: {
     defaultThemeResourceRef:
       row.defaultThemeResourceRefs?.[0] ?? row.defaultThemeResourceRef,
     visibility: normalizeVisibility(row.visibility),
+    status: normalizeProjectStatus(row.status),
+    archivedAt: row.archivedAt ?? null,
   })));
   timings.flush({
     projectCount: projects.length,
@@ -149,6 +169,7 @@ export async function listProjectsForScope(params: {
 export async function listProjectsForOwner(params: {
   owner: string;
   requestUserId: string | null;
+  status?: "active" | "archived";
 }): Promise<ProjectListItem[]> {
   const timings = createServerTimingLogger("project-list.owner", {
     owner: params.owner,
@@ -178,12 +199,15 @@ export async function listProjectsForOwner(params: {
       title: registryProjects.title,
       description: registryProjects.description,
       visibility: registryProjects.visibility,
+      status: registryProjects.status,
+      archivedAt: registryProjects.archivedAt,
       createdAt: registryProjects.createdAt,
       updatedAt: registryProjects.updatedAt,
     })
     .from(registryProjects)
     .where(
       and(
+        params.status === "archived" ? archivedProjectClause() : activeProjectClause(),
         eq(registryProjects.ownerUserId, resolved.userId),
         canSeePrivate
           ? or(eq(registryProjects.visibility, "public"), eq(registryProjects.visibility, "private"))
@@ -199,6 +223,8 @@ export async function listProjectsForOwner(params: {
     defaultThemeResourceRef:
       row.defaultThemeResourceRefs?.[0] ?? row.defaultThemeResourceRef,
     visibility: normalizeVisibility(row.visibility),
+    status: normalizeProjectStatus(row.status),
+    archivedAt: row.archivedAt ?? null,
   })));
   timings.flush({
     projectCount: projects.length,

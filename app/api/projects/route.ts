@@ -5,6 +5,8 @@ import { createRegistryProject } from "@/lib/registry-project-create";
 import { createServerTimingLogger } from "@/lib/server-timing";
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 import { normalizeThemeResourceRefsInput } from "@/lib/project-resource-relationships";
+import { materializeProjectInitialization } from "@/lib/project-initialization";
+import type { ProjectCreateMode } from "@/lib/starter-kits";
 
 export async function POST(request: Request) {
   const { userId, activeOrganizationId } = await getProjectScopeContext(request);
@@ -21,6 +23,7 @@ export async function POST(request: Request) {
         title?: string;
         description?: string | null;
         visibility?: "public" | "private";
+        createMode?: ProjectCreateMode;
         defaultThemeResourceRefs?: unknown;
         defaultThemeResourceRef?: string | null;
       }
@@ -62,7 +65,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
 
-  return NextResponse.json({ project: result.project });
+  const createMode: ProjectCreateMode = body.createMode === "primitives-kit" ? "primitives-kit" : "empty";
+  const initialization = await materializeProjectInitialization({
+    createMode,
+    project: result.project,
+    requestUserId: userId,
+  }).catch((error) => ({
+    starterKit: createMode === "empty" ? null : createMode,
+    createdItems: [],
+    defaultThemeResourceRefs: result.project.defaultThemeResourceRefs ?? [],
+    error: error instanceof Error ? error.message : "Failed to materialize starter kit",
+  }));
+
+  return NextResponse.json({
+    project: {
+      ...result.project,
+      defaultThemeResourceRefs:
+        initialization.defaultThemeResourceRefs.length > 0
+          ? initialization.defaultThemeResourceRefs
+          : result.project.defaultThemeResourceRefs,
+      defaultThemeResourceRef:
+        initialization.defaultThemeResourceRefs[0] ??
+        result.project.defaultThemeResourceRef,
+    },
+    initialization,
+  });
 }
 
 export async function GET(request: Request) {

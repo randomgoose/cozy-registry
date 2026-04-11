@@ -1,331 +1,36 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import {
-  ArtboardToolIcon,
-  ComponentIcon,
-  PaintBoardIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PublishProjectsToShell } from "@/app/(auth)/dashboard/ProjectsShellCache";
-import { CreateProjectDetailsForm } from "@/app/(auth)/dashboard/CreateProjectDetailsForm";
-import Folder from "@/components/Folder";
-import { PreviewFrame } from "@/app/components/PreviewFrame";
+import { CreateProjectDialog } from "@/app/(auth)/dashboard/projects-panel/CreateProjectDialog";
+import { ProjectDetailView } from "@/app/(auth)/dashboard/projects-panel/ProjectDetailView";
+import { ProjectShareDialog } from "@/app/(auth)/dashboard/projects-panel/ProjectShareDialog";
+import { ProjectsPortfolioGrid } from "@/app/(auth)/dashboard/projects-panel/ProjectsPortfolioGrid";
+import { ProjectResourceActionDialogs } from "@/app/(auth)/dashboard/projects-panel/ProjectResourceActionDialogs";
+import { ProjectTrashDialog } from "@/app/(auth)/dashboard/projects-panel/ProjectTrashDialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuLabel,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { extractPropsFromTsx } from "@/lib/validate-tsx";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  PREVIEW_WARM_SLOTS_MAX,
+  normalizeProjectItemDetailData,
+  parseThemeResourceRefsInput,
+  resolveProjectItemPreviewStories,
+  resolveSelectedPreviewStoryId,
+} from "@/app/(auth)/dashboard/projects-panel/helpers";
+import type {
+  CreatedProject,
+  MemberRow,
+  PreviewArtifactStatusPayload,
+  Project,
+  ProjectItemDetailData,
+  WarmPreviewSlot,
+} from "@/app/(auth)/dashboard/projects-panel/types";
 import type { ProjectItemRow } from "@/lib/project-items";
-import type { ProjectListItem } from "@/lib/project-list";
-import type { PreviewStory } from "@/lib/preview-stories";
-import {
-  getPreviewDefaultStoryIdFromMeta,
-  getPreviewStoriesFromMeta,
-} from "@/lib/preview-stories";
-import {
-  REGISTRY_BLOCK_TYPE,
-  REGISTRY_THEME_TYPE,
-  REGISTRY_UI_TYPE,
-  normalizeRegistryItemType,
-} from "@/lib/registry-types";
-import {
-  buildMultiStoryPreviewPageUrl,
-  buildStoryPreviewArtifactStatusQuery,
-  buildStoryPreviewPageUrl,
-} from "@/lib/story-preview-urls";
+import { buildStoryPreviewArtifactStatusQuery } from "@/lib/story-preview-urls";
 import {
   getClientCachedValue,
   invalidateClientCachedValue,
 } from "@/lib/client-cache";
-
-const CodeBlock = dynamic(
-  () => import("@/app/registry/[owner]/[name]/CodeBlock").then((mod) => mod.CodeBlock),
-  {
-    loading: () => <div className="text-xs text-zinc-500 dark:text-zinc-400">Loading code…</div>,
-  },
-);
-
-type Project = ProjectListItem;
-
-type CreatedProject = { id: string; slug: string; title: string };
-
-type MemberRow = { userId: string; role: string; name: string | null; email: string };
-
-type ProjectItemDetailData = {
-  type: string;
-  dependencies: string[];
-  registryDependencies: string[];
-  previewStories: PreviewStory[];
-  previewDefaultStoryId: string | null;
-  files: { path: string; content: string; type: string }[];
-};
-
-type PreviewArtifactStatus =
-  | "missing"
-  | "queued"
-  | "running"
-  | "ready"
-  | "failed"
-  | "skipped";
-type PreviewArtifactCapability =
-  | "managed-artifact"
-  | "compatible-artifact"
-  | "runtime-only";
-
-type PreviewArtifactStatusPayload = {
-  artifactStatus: PreviewArtifactStatus;
-  artifactCapability?: PreviewArtifactCapability | null;
-  compatibleExternalDependencies?: string[];
-  managedProviderDependencies?: string[];
-  compatibleBundledDependencies?: string[];
-  hostFallbackUsed?: boolean | null;
-  resolvedThemeResourceRefs?: string[];
-  resolvedThemeLayerSources?: Array<"resource-layer" | "project-default">;
-  resolvedThemeResourceRef?: string | null;
-  resolvedThemeSource?: "resource-override" | "project-default" | "none" | null;
-  lastError?: {
-    code?: string | null;
-    message?: string | null;
-  } | null;
-};
-
-function parseThemeResourceRefsInput(input: string): string[] {
-  return Array.from(
-    new Set(
-      input
-        .split(/[\n,]/)
-        .map((value) => value.trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-function formatThemeResourceRefsInput(refs: string[] | null | undefined): string {
-  return (refs ?? []).join("\n");
-}
-
-function buildArtifactDeliverySummary(
-  artifactStatus: PreviewArtifactStatusPayload | null,
-): string | null {
-  if (!artifactStatus) return null;
-  if (artifactStatus.artifactStatus === "skipped") {
-    return (
-      artifactStatus.lastError?.message ??
-      "Preview artifact prebundle was skipped by policy."
-    );
-  }
-  if (artifactStatus.artifactStatus === "failed") {
-    return artifactStatus.lastError?.message ?? "Preview artifact build failed.";
-  }
-  if (artifactStatus.artifactStatus !== "ready") {
-    return null;
-  }
-
-  const summaryParts: string[] = [];
-  if (artifactStatus.compatibleBundledDependencies?.length) {
-    summaryParts.push(
-      `Bundled for faster preview: ${artifactStatus.compatibleBundledDependencies.join(", ")}.`,
-    );
-  } else if (
-    artifactStatus.artifactCapability === "compatible-artifact" &&
-    artifactStatus.compatibleExternalDependencies?.length
-  ) {
-    summaryParts.push(
-      `Some dependencies still load at runtime: ${artifactStatus.compatibleExternalDependencies.join(", ")}.`,
-    );
-  } else if (artifactStatus.artifactCapability === "compatible-artifact") {
-    summaryParts.push("Some dependencies still load at runtime.");
-  }
-
-  if (artifactStatus.managedProviderDependencies?.length) {
-    summaryParts.push(
-      `Managed by provider: ${artifactStatus.managedProviderDependencies.join(", ")}.`,
-    );
-  }
-  if (artifactStatus.hostFallbackUsed) {
-    summaryParts.push("Host fallback used.");
-  }
-
-  return summaryParts.length > 0 ? summaryParts.join(" ") : null;
-}
-
-function resolveSelectedPreviewStoryId(input: {
-  currentStoryId: string | null;
-  stories: Array<{ id: string }>;
-  defaultStoryId: string | null;
-}) {
-  const normalizedCurrent = input.currentStoryId?.trim() || null;
-  const normalizedDefault = input.defaultStoryId?.trim() || null;
-  const availableStoryIds = new Set(
-    input.stories.map((story) => story.id.trim()).filter(Boolean),
-  );
-
-  if (normalizedCurrent && availableStoryIds.has(normalizedCurrent)) {
-    return normalizedCurrent;
-  }
-  if (normalizedDefault && availableStoryIds.has(normalizedDefault)) {
-    return normalizedDefault;
-  }
-  return input.stories[0]?.id ?? null;
-}
-
-function normalizeProjectItemDetailData(value: unknown): ProjectItemDetailData | null {
-  if (!value || typeof value !== "object") return null;
-  const data = value as Record<string, unknown>;
-  const rawFiles = Array.isArray(data.files) ? data.files : [];
-  const rawPreviewStories = Array.isArray(data.previewStories) ? data.previewStories : [];
-  const files = rawFiles
-    .filter((file): file is Record<string, unknown> => !!file && typeof file === "object")
-    .map((file) => ({
-      path: typeof file.path === "string" ? file.path : "",
-      content: typeof file.content === "string" ? file.content : "",
-      type: typeof file.type === "string" ? file.type : "registry:ui",
-    }))
-    .filter((file) => file.path.length > 0);
-  return {
-    type: typeof data.type === "string" ? data.type : "registry:ui",
-    dependencies: Array.isArray(data.dependencies)
-      ? data.dependencies.filter((dep): dep is string => typeof dep === "string")
-      : [],
-    registryDependencies: Array.isArray(data.registryDependencies)
-      ? data.registryDependencies.filter((dep): dep is string => typeof dep === "string")
-      : [],
-    previewStories: rawPreviewStories
-      .filter((story): story is Record<string, unknown> => !!story && typeof story === "object")
-      .map((story) => ({
-        id: typeof story.id === "string" ? story.id : "",
-        title:
-          typeof story.title === "string" && story.title.trim().length > 0
-            ? story.title
-            : typeof story.id === "string"
-              ? story.id
-              : "Story",
-        props:
-          story.props && typeof story.props === "object" && !Array.isArray(story.props)
-            ? (story.props as Record<string, unknown>)
-            : undefined,
-        export: typeof story.export === "string" ? story.export : undefined,
-      }))
-      .filter((story) => story.id.trim().length > 0),
-    previewDefaultStoryId:
-      typeof data.previewDefaultStoryId === "string" && data.previewDefaultStoryId.trim().length > 0
-        ? data.previewDefaultStoryId.trim()
-        : null,
-    files,
-  };
-}
-
-function resolveProjectItemPreviewStories(input: {
-  itemMeta: Record<string, unknown> | null | undefined;
-  detail: ProjectItemDetailData | null | undefined;
-}) {
-  const metaStories = getPreviewStoriesFromMeta(input.itemMeta);
-  const detailStories = input.detail?.previewStories ?? [];
-  const stories =
-    metaStories.length > detailStories.length ? metaStories : detailStories;
-
-  const metaDefaultStoryId = getPreviewDefaultStoryIdFromMeta(input.itemMeta);
-  const detailDefaultStoryId = input.detail?.previewDefaultStoryId ?? null;
-  const availableStoryIds = new Set(stories.map((story) => story.id));
-  const defaultStoryId =
-    (detailDefaultStoryId && availableStoryIds.has(detailDefaultStoryId)
-      ? detailDefaultStoryId
-      : null) ??
-    (metaDefaultStoryId && availableStoryIds.has(metaDefaultStoryId)
-      ? metaDefaultStoryId
-      : null);
-
-  return { stories, defaultStoryId };
-}
-
-function isCodeFile(path: string): boolean {
-  return /\.(tsx?|jsx?|css|json)$/i.test(path);
-}
-
-/** Keep several preview iframes mounted so switching resources reuses loaded documents (no full remount / white flash). */
-const PREVIEW_WARM_SLOTS_MAX = 6;
-
-type WarmPreviewSlot = {
-  itemId: string;
-  projectKey: string | null;
-  name: string;
-  title: string;
-};
-
-function getProjectItemTypeIcon(type: string) {
-  const normalizedType = normalizeRegistryItemType(type);
-  if (normalizedType === REGISTRY_UI_TYPE) {
-    return {
-      icon: ComponentIcon,
-      className:
-        "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-    };
-  }
-  if (normalizedType === REGISTRY_THEME_TYPE) {
-    return {
-      icon: PaintBoardIcon,
-      className:
-        "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
-    };
-  }
-  if (normalizedType === REGISTRY_BLOCK_TYPE) {
-    return {
-      icon: ArtboardToolIcon,
-      className:
-        "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-    };
-  }
-  return {
-    icon: ArtboardToolIcon,
-    className:
-      "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
-  };
-}
-
-function getProjectPreviewSlotPlaceholderClass(type: string) {
-  const normalizedType = normalizeRegistryItemType(type);
-  if (normalizedType === REGISTRY_UI_TYPE) {
-    return "bg-violet-100/80 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300";
-  }
-  if (normalizedType === REGISTRY_THEME_TYPE) {
-    return "bg-sky-100/80 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300";
-  }
-  if (normalizedType === REGISTRY_BLOCK_TYPE) {
-    return "bg-amber-100/80 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300";
-  }
-  return "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300";
-}
-
-function getProjectFolderColor(visibility: "public" | "private" | null | undefined) {
-  return visibility === "public" ? "#0F9B8E" : "#5B3DF5";
-}
+import { type ProjectCreateMode } from "@/lib/starter-kits";
 
 export function ProjectsPanel(props: {
   /** Registry path segment for item links (`@handle` scope or org slug). */
@@ -381,17 +86,25 @@ export function ProjectsPanel(props: {
   const [itemDetailError, setItemDetailError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [expandedProjectCardId, setExpandedProjectCardId] = useState<string | null>(null);
+  const [trashProjectId, setTrashProjectId] = useState<string | null>(null);
+  const [trashError, setTrashError] = useState<string | null>(null);
+  const [trashingProject, setTrashingProject] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const [itemActionPending, setItemActionPending] = useState<
-    "set-default-theme-ref" | null
+    "remove" | "move" | "set-default-theme-ref" | null
   >(null);
   const [itemActionError, setItemActionError] = useState<string | null>(null);
+  const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
   const [warmPreviewSlots, setWarmPreviewSlots] = useState<WarmPreviewSlot[]>([]);
-  const [projectThemeLayersInput, setProjectThemeLayersInput] = useState("");
-  const [projectThemeLayersSaving, setProjectThemeLayersSaving] = useState(false);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedId) ?? null,
     [projects, selectedId],
+  );
+  const trashProject = useMemo(
+    () => projects.find((project) => project.id === trashProjectId) ?? null,
+    [projects, trashProjectId],
   );
   const selectedProjectItem = useMemo(
     () => projectItems.find((it) => it.itemId === selectedItemId) ?? null,
@@ -409,6 +122,10 @@ export function ProjectsPanel(props: {
   }, [selectedProjectDetail, selectedProjectItem]);
   const canEditProject = props.canEditProject ?? false;
   const currentProjectNamespaceKey = selectedProject?.namespaceKey ?? null;
+  const moveTargetProjects = useMemo(
+    () => projects.filter((project) => project.id !== selectedId),
+    [projects, selectedId],
+  );
   const selectedProjectStoryId = useMemo(() => {
     if (!selectedItemId) return null;
     return resolveSelectedPreviewStoryId({
@@ -419,10 +136,13 @@ export function ProjectsPanel(props: {
   }, [selectedItemId, selectedProjectPreviewStories, selectedStoryIdByItemId]);
 
   useEffect(() => {
-    setProjectThemeLayersInput(
-      formatThemeResourceRefsInput(selectedProject?.defaultThemeResourceRefs),
+    if (!moveOpen) return;
+    const firstTarget = moveTargetProjects[0]?.id ?? "";
+    setMoveTargetProjectId((current) =>
+      current && moveTargetProjects.some((project) => project.id === current) ? current : firstTarget,
     );
-  }, [selectedProject?.id, selectedProject?.defaultThemeResourceRefs]);
+    setItemActionError(null);
+  }, [moveOpen, moveTargetProjects]);
   /**
    * `warmPreviewSlots` updates in useLayoutEffect — one frame behind `selectedProjectItem`.
    * Without merging the current selection here, no slot matches `isActive` and the preview area is blank.
@@ -503,10 +223,9 @@ export function ProjectsPanel(props: {
         `project-item-detail:${props.registryOwner}:${currentProjectNamespaceKey ?? "root"}:${item.name}`,
         async () => {
           const res = await fetch(
-            `/api/r/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(item.name)}${
-              currentProjectNamespaceKey
-                ? `?project=${encodeURIComponent(currentProjectNamespaceKey)}`
-                : ""
+            `/api/r/${encodeURIComponent(props.registryOwner)}/${encodeURIComponent(item.name)}${currentProjectNamespaceKey
+              ? `?project=${encodeURIComponent(currentProjectNamespaceKey)}`
+              : ""
             }`,
             { cache: "force-cache" },
           );
@@ -554,7 +273,7 @@ export function ProjectsPanel(props: {
       setItemsLoading(false);
       return;
     }
-    refreshSelectedItems(selectedId).catch(() => {});
+    refreshSelectedItems(selectedId).catch(() => { });
   }, [
     selectedId,
     isProjectDetail,
@@ -701,20 +420,24 @@ export function ProjectsPanel(props: {
 
   async function submitStep1(values: {
     title: string;
+    createMode: ProjectCreateMode;
     defaultThemeResourceRefsInput: string;
   }) {
     if (!values.title.trim()) return;
     setCreating(true);
     try {
+      const selectedThemeRefs = parseThemeResourceRefsInput(
+        values.defaultThemeResourceRefsInput,
+      );
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: values.title.trim(),
+          createMode: values.createMode,
           visibility: "private",
-          defaultThemeResourceRefs: parseThemeResourceRefsInput(
-            values.defaultThemeResourceRefsInput,
-          ),
+          defaultThemeResourceRefs:
+            values.createMode === "empty" ? selectedThemeRefs : [],
         }),
       });
       if (!res.ok) {
@@ -724,6 +447,11 @@ export function ProjectsPanel(props: {
       }
       const data = (await res.json().catch(() => null)) as {
         project?: { id: string; slug: string; title: string };
+        initialization?: {
+          starterKit?: string | null;
+          createdItems?: string[];
+          error?: string;
+        };
       } | null;
       const p = data?.project;
       if (!p) {
@@ -734,9 +462,14 @@ export function ProjectsPanel(props: {
       setCreateStep(2);
       setInviteInput("");
       setInviteError(null);
-        invalidateClientCachedValue("projects:");
-        await refreshProjects({ force: true });
-        void loadStep2Members(p.id, { force: true });
+      if (data?.initialization?.error) {
+        alert(
+          `Project created, but starter initialization did not finish: ${data.initialization.error}`,
+        );
+      }
+      invalidateClientCachedValue("projects:");
+      await refreshProjects({ force: true });
+      void loadStep2Members(p.id, { force: true });
     } finally {
       setCreating(false);
     }
@@ -813,19 +546,115 @@ export function ProjectsPanel(props: {
     setCreateOpen(false);
   }
 
-  function handleProjectCardClick(projectId: string, href?: string) {
-    if (!href) return;
-    if (expandedProjectCardId !== projectId) {
-      setExpandedProjectCardId(projectId);
-      return;
-    }
-    router.push(href);
+  function openProjectTrashDialog(project: Project) {
+    setTrashProjectId(project.id);
+    setTrashError(null);
   }
 
   function selectProjectItem(itemId: string) {
     setSelectedItemId(itemId);
     setSelectedPath(null);
     setItemDetailError(null);
+  }
+
+  function openMoveDialogForItem(itemId: string) {
+    selectProjectItem(itemId);
+    setItemActionError(null);
+    setMoveTargetProjectId("");
+    setMoveOpen(true);
+  }
+
+  function openRemoveDialogForItem(itemId: string) {
+    selectProjectItem(itemId);
+    setItemActionError(null);
+    setRemoveOpen(true);
+  }
+
+  function removeItemFromCurrentProjectState(removedItemId: string) {
+    const remainingItems = projectItems.filter((item) => item.itemId !== removedItemId);
+    const removedIndex = projectItems.findIndex((item) => item.itemId === removedItemId);
+    const nextSelectedItem =
+      remainingItems[removedIndex] ??
+      remainingItems[Math.max(0, removedIndex - 1)] ??
+      null;
+
+    setProjectItems(remainingItems);
+    setSelectedItemId(nextSelectedItem?.itemId ?? null);
+    setSelectedPath(null);
+    setDetailByItemId((current) => {
+      const next = { ...current };
+      delete next[removedItemId];
+      return next;
+    });
+    setArtifactStatusByItemId((current) => {
+      const next = { ...current };
+      delete next[removedItemId];
+      return next;
+    });
+    setSelectedStoryIdByItemId((current) => {
+      const next = { ...current };
+      delete next[removedItemId];
+      return next;
+    });
+    setWarmPreviewSlots((current) => current.filter((slot) => slot.itemId !== removedItemId));
+  }
+
+  async function handleRemoveSelectedItem() {
+    if (!selectedId || !selectedItemId || !currentProjectNamespaceKey) return;
+    const removedItemId = selectedItemId;
+    const removedItem = projectItems.find((item) => item.itemId === removedItemId) ?? null;
+    if (!removedItem) return;
+
+    setItemActionPending("remove");
+    setItemActionError(null);
+    try {
+      const response = await fetch(`/api/projects/${selectedId}/items/${removedItemId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? "Failed to delete resource");
+      }
+
+      removeItemFromCurrentProjectState(removedItemId);
+      invalidateClientCachedValue(`project-items:${selectedId}`);
+      invalidateClientCachedValue("projects:");
+      setRemoveOpen(false);
+      void refreshProjects({ force: true });
+    } catch (error) {
+      setItemActionError(error instanceof Error ? error.message : "Failed to delete resource");
+    } finally {
+      setItemActionPending(null);
+    }
+  }
+
+  async function handleMoveSelectedItem() {
+    if (!selectedId || !selectedItemId || !moveTargetProjectId) return;
+    const movedItemId = selectedItemId;
+    setItemActionPending("move");
+    setItemActionError(null);
+    try {
+      const response = await fetch(`/api/projects/${selectedId}/items/${movedItemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetProjectId: moveTargetProjectId }),
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? "Failed to move resource");
+      }
+
+      removeItemFromCurrentProjectState(movedItemId);
+      invalidateClientCachedValue(`project-items:${selectedId}`);
+      invalidateClientCachedValue(`project-items:${moveTargetProjectId}`);
+      invalidateClientCachedValue("projects:");
+      setMoveOpen(false);
+      void refreshProjects({ force: true });
+    } catch (error) {
+      setItemActionError(error instanceof Error ? error.message : "Failed to move resource");
+    } finally {
+      setItemActionPending(null);
+    }
   }
 
   async function handleSetProjectDefaultThemeRef(item: ProjectItemRow) {
@@ -848,10 +677,10 @@ export function ProjectsPanel(props: {
         prev.map((project) =>
           project.id === selectedId
             ? {
-                ...project,
-                defaultThemeResourceRefs: [nextDefaultThemeRef],
-                defaultThemeResourceRef: nextDefaultThemeRef,
-              }
+              ...project,
+              defaultThemeResourceRefs: [nextDefaultThemeRef],
+              defaultThemeResourceRef: nextDefaultThemeRef,
+            }
             : project,
         ),
       );
@@ -867,52 +696,46 @@ export function ProjectsPanel(props: {
     }
   }
 
-  async function handleSaveProjectThemeLayers() {
-    if (!selectedId) return;
-    const nextThemeResourceRefs = parseThemeResourceRefsInput(projectThemeLayersInput);
-    setProjectThemeLayersSaving(true);
-    setItemActionError(null);
+  async function handleMoveProjectToTrash() {
+    if (!trashProjectId) return;
+    setTrashingProject(true);
+    setTrashError(null);
     try {
-      const response = await fetch(`/api/projects/${selectedId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ defaultThemeResourceRefs: nextThemeResourceRefs }),
+      const response = await fetch(`/api/projects/${trashProjectId}`, {
+        method: "DELETE",
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error ?? "Failed to update project theme layers");
+        throw new Error(data?.error ?? "Failed to move project to trash");
       }
-      setProjects((prev) =>
-        prev.map((project) =>
-          project.id === selectedId
-            ? {
-                ...project,
-                defaultThemeResourceRefs: nextThemeResourceRefs,
-                defaultThemeResourceRef: nextThemeResourceRefs[0] ?? null,
-              }
-            : project,
-        ),
-      );
+      setProjects((current) => current.filter((project) => project.id !== trashProjectId));
       invalidateClientCachedValue(projectsCacheKey);
       invalidateClientCachedValue("projects:");
+      setTrashProjectId(null);
     } catch (error) {
-      setItemActionError(
-        error instanceof Error ? error.message : "Failed to update project theme layers",
-      );
-      if (typeof window !== "undefined") {
-        window.alert(
-          error instanceof Error ? error.message : "Failed to update project theme layers",
-        );
-      }
+      setTrashError(error instanceof Error ? error.message : "Failed to move project to trash");
     } finally {
-      setProjectThemeLayersSaving(false);
+      setTrashingProject(false);
     }
   }
 
   return (
     <section className={props.className ?? "h-full"}>
       <PublishProjectsToShell projects={projects} />
-      <Dialog
+      <ProjectTrashDialog
+        open={trashProjectId != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTrashProjectId(null);
+            setTrashError(null);
+          }
+        }}
+        projectTitle={trashProject?.title ?? null}
+        deleting={trashingProject}
+        error={trashError}
+        onConfirm={() => void handleMoveProjectToTrash()}
+      />
+      <ProjectShareDialog
         open={shareOpen}
         onOpenChange={(open) => {
           setShareOpen(open);
@@ -921,209 +744,70 @@ export function ProjectsPanel(props: {
             setInviteError(null);
           }
         }}
-      >
-        <DialogContent className="max-w-md gap-5 px-5 pt-5 pb-5 sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Invite to project</DialogTitle>
-            <DialogDescription>
-              Invite organization members by email or @handle. They must already belong to this
-              organization.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={submitShareInvite} className="space-y-2">
-            <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-              Invite member
-            </label>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-              <Input
-                value={inviteInput}
-                onChange={(e) => setInviteInput(e.target.value)}
-                placeholder="email@company.com or @handle"
-                className="h-10 min-w-0 flex-1 rounded-xl text-sm md:text-sm"
-              />
-              <div className="flex shrink-0 gap-2">
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value as "viewer" | "editor" | "admin")}
-                  className="rounded-xl border border-zinc-300 bg-white px-2 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                  aria-label="Member role"
-                >
-                  <option value="viewer">Viewer</option>
-                  <option value="editor">Editor</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <button
-                  type="submit"
-                  disabled={inviting || !inviteInput.trim()}
-                  className="rounded-xl bg-zinc-900 px-3 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-                >
-                  {inviting ? "…" : "Invite"}
-                </button>
-              </div>
-            </div>
-            {inviteError ? (
-              <p className="text-xs text-red-600 dark:text-red-400">{inviteError}</p>
-            ) : null}
-          </form>
-          <div>
-            <div className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-              Members
-            </div>
-            {membersLoading ? (
-              <p className="mt-2 text-sm text-zinc-500">Loading…</p>
-            ) : step2Members.length === 0 ? (
-              <p className="mt-2 text-sm text-zinc-500">No members yet besides you.</p>
-            ) : (
-              <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-sm">
-                {step2Members.map((m) => (
-                  <li
-                    key={m.userId}
-                    className="flex justify-between gap-2 rounded-lg border border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
-                  >
-                    <span className="truncate text-zinc-800 dark:text-zinc-200">
-                      {m.name || m.email}
-                    </span>
-                    <span className="shrink-0 text-xs text-zinc-500">{m.role}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+        inviteInput={inviteInput}
+        onInviteInputChange={setInviteInput}
+        inviteRole={inviteRole}
+        onInviteRoleChange={setInviteRole}
+        inviteError={inviteError}
+        inviting={inviting}
+        onSubmitInvite={submitShareInvite}
+        membersLoading={membersLoading}
+        members={step2Members}
+      />
 
       {!isProjectDetail ? (
         <div className="mb-8 flex flex-col gap-4 sm:mb-10 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
             Projects
           </h2>
-          <Dialog
+          <CreateProjectDialog
             open={createOpen}
             onOpenChange={(open) => {
               setCreateOpen(open);
               resetCreateWizard();
               if (!open) setCreating(false);
             }}
-          >
-            <DialogTrigger
-              render={
-                <button
-                  type="button"
-                  className="shrink-0 rounded-full bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                />
-              }
-            >
-              Create project
-            </DialogTrigger>
-            <DialogContent className="max-w-md gap-5 px-5 pt-5 pb-5">
-              <DialogHeader>
-                <DialogTitle>Create project</DialogTitle>
-              </DialogHeader>
-
-              {createStep === 1 ? (
-                <CreateProjectDetailsForm
-                  creating={creating}
-                  onSubmit={submitStep1}
-                  onCancel={closeCreateDialog}
-                />
-              ) : createdProject ? (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm dark:border-zinc-800 dark:bg-zinc-950/50">
-                    <div className="font-medium text-zinc-900 dark:text-zinc-100">{createdProject.title}</div>
-                    <div className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                      Slug{" "}
-                      <code className="rounded bg-zinc-200/80 px-1 dark:bg-zinc-800">
-                        {createdProject.slug}
-                      </code>{" "}
-                      · used in URLs and MCP scopes
-                    </div>
-                  </div>
-
-                  {props.isOrgScope ? (
-                    <>
-                      <form onSubmit={submitInvite} className="space-y-2">
-                        <label className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                          Invite member
-                        </label>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                          <Input
-                            value={inviteInput}
-                            onChange={(e) => setInviteInput(e.target.value)}
-                            placeholder="email@company.com or @handle"
-                            className="h-10 min-w-0 flex-1 rounded-xl text-sm md:text-sm"
-                          />
-                          <div className="flex shrink-0 gap-2">
-                            <select
-                              value={inviteRole}
-                              onChange={(e) =>
-                                setInviteRole(e.target.value as "viewer" | "editor" | "admin")
-                              }
-                              className="rounded-xl border border-zinc-300 bg-white px-2 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                              aria-label="Member role"
-                            >
-                              <option value="viewer">Viewer</option>
-                              <option value="editor">Editor</option>
-                              <option value="admin">Admin</option>
-                            </select>
-                            <button
-                              type="submit"
-                              disabled={inviting || !inviteInput.trim()}
-                              className="rounded-xl bg-zinc-900 px-3 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-                            >
-                              {inviting ? "…" : "Invite"}
-                            </button>
-                          </div>
-                        </div>
-                        {inviteError ? (
-                          <p className="text-xs text-red-600 dark:text-red-400">{inviteError}</p>
-                        ) : null}
-                      </form>
-
-                      <div>
-                        <div className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
-                          Members
-                        </div>
-                        {membersLoading ? (
-                          <p className="mt-2 text-sm text-zinc-500">Loading…</p>
-                        ) : step2Members.length === 0 ? (
-                          <p className="mt-2 text-sm text-zinc-500">No members yet.</p>
-                        ) : (
-                          <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-sm">
-                            {step2Members.map((m) => (
-                              <li
-                                key={m.userId}
-                                className="flex justify-between gap-2 rounded-lg border border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
-                              >
-                                <span className="truncate text-zinc-800 dark:text-zinc-200">
-                                  {m.name || m.email}
-                                </span>
-                                <span className="shrink-0 text-xs text-zinc-500">{m.role}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    </>
-                  ) : null}
-
-                  <DialogFooter className="pt-2">
-                    <button
-                      type="button"
-                      onClick={() => closeCreateDialog()}
-                      className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                    >
-                      Done
-                    </button>
-                  </DialogFooter>
-                </div>
-              ) : null}
-            </DialogContent>
-          </Dialog>
+            creating={creating}
+            createStep={createStep}
+            createdProject={createdProject}
+            isOrgScope={props.isOrgScope}
+            inviteInput={inviteInput}
+            onInviteInputChange={setInviteInput}
+            inviteRole={inviteRole}
+            onInviteRoleChange={setInviteRole}
+            inviteError={inviteError}
+            inviting={inviting}
+            membersLoading={membersLoading}
+            members={step2Members}
+            onSubmitStep1={submitStep1}
+            onSubmitInvite={submitInvite}
+            onCancel={closeCreateDialog}
+          />
         </div>
       ) : null}
 
       {isProjectDetail ? (
         <div className="h-full min-h-0">
+          <ProjectResourceActionDialogs
+            selectedItemTitle={selectedProjectItem?.title ?? null}
+            moveOpen={moveOpen}
+            onMoveOpenChange={(open) => {
+              setMoveOpen(open);
+              if (!open) setItemActionError(null);
+            }}
+            removeOpen={removeOpen}
+            onRemoveOpenChange={(open) => {
+              setRemoveOpen(open);
+              if (!open) setItemActionError(null);
+            }}
+            moveTargetProjects={moveTargetProjects}
+            moveTargetProjectId={moveTargetProjectId}
+            onMoveTargetProjectIdChange={setMoveTargetProjectId}
+            itemActionError={itemActionError}
+            itemActionPending={itemActionPending}
+            onMoveConfirm={() => void handleMoveSelectedItem()}
+            onRemoveConfirm={() => void handleRemoveSelectedItem()}
+          />
           {!selectedId ? (
             <div className="flex h-full min-h-0 items-center justify-center text-sm text-zinc-500">
               Loading project…
@@ -1136,7 +820,7 @@ export function ProjectsPanel(props: {
             <div className="flex h-full min-h-0 items-center justify-center px-6 text-center">
               <div>
                 <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                No resources in this project yet
+                  No resources in this project yet
                 </p>
                 <p className="mx-auto mt-2 max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
                   Add items to this project from your registry workflow or API when publishing.
@@ -1144,574 +828,55 @@ export function ProjectsPanel(props: {
               </div>
             </div>
           ) : (
-            <div className="flex h-full min-h-0 flex-col">
-              <div className="border-b border-zinc-200/80 px-4 py-4 dark:border-zinc-800">
-                <div className="min-w-0">
-                  <p className="truncate text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-                    {selectedProject?.title ?? props.initialProjectTitle ?? "Project"}
-                  </p>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                    <span>
-                      Slug{" "}
-                      <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                        {selectedProject?.slug ?? props.initialProjectSlug ?? "unknown"}
-                      </code>
-                    </span>
-                    <span>·</span>
-                    <span>{selectedProject?.visibility ?? props.initialProjectVisibility ?? "private"}</span>
-                    <span>·</span>
-                    <span className="font-mono">{selectedProject?.namespaceKey ?? "project"}</span>
-                  </div>
-                </div>
-                {canEditProject ? (
-                  <div className="mt-4 rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                          Project theme layers
-                        </p>
-                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                          One registry ref per line. Layers are injected in order.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleSaveProjectThemeLayers()}
-                        disabled={projectThemeLayersSaving}
-                        className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                      >
-                        {projectThemeLayersSaving ? "Saving..." : "Save"}
-                      </button>
-                    </div>
-                    <Textarea
-                      value={projectThemeLayersInput}
-                      onChange={(e) => setProjectThemeLayersInput(e.target.value)}
-                      rows={3}
-                      placeholder={"@indeed-cozy/ds/theme\n@indeed-cozy/ds/components"}
-                      className="mt-3 rounded-xl text-sm md:text-sm dark:bg-zinc-950"
-                    />
-                  </div>
-                ) : null}
-              </div>
-
-            <div className="grid min-h-0 flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
-              <section className="flex min-h-0 flex-col border-b border-zinc-200/80 lg:border-r lg:border-b-0 dark:border-zinc-800">
-                <div className="min-h-0 flex-1 space-y-1 overflow-auto p-2">
-                  {projectItems.map((it) => {
-                    const active = it.itemId === selectedItemId;
-                    const typeIcon = getProjectItemTypeIcon(it.type);
-                    const isThemeResource = normalizeRegistryItemType(it.type) === REGISTRY_THEME_TYPE;
-                    const candidateDefaultThemeRef = `@${props.registryOwner}/${it.name}`;
-                    const isCurrentProjectDefaultTheme =
-                      (selectedProject?.defaultThemeResourceRefs ?? []).includes(
-                        candidateDefaultThemeRef,
-                      );
-                    return (
-                      <ContextMenu
-                        key={it.itemId}
-                        onOpenChange={(open) => {
-                          if (open) selectProjectItem(it.itemId);
-                        }}
-                      >
-                        <ContextMenuTrigger>
-                          <button
-                            type="button"
-                            onClick={() => selectProjectItem(it.itemId)}
-                            className={`w-full rounded-lg px-3 py-2.5 text-left transition ${
-                              active
-                                ? "bg-zinc-100 text-zinc-950 dark:bg-zinc-800 dark:text-zinc-50"
-                                : "text-zinc-700 hover:bg-zinc-100/80 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              <span
-                                className={`mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg ${typeIcon.className}`}
-                                aria-hidden="true"
-                              >
-                                <HugeiconsIcon icon={typeIcon.icon} size={18} strokeWidth={1.8} />
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                                  {it.title}
-                                </p>
-                                <p className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">
-                                  {it.name}
-                                </p>
-                              </div>
-                            </div>
-                          </button>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-52">
-                          <ContextMenuLabel className="truncate">{it.title}</ContextMenuLabel>
-                          {isThemeResource ? (
-                            <>
-                              <ContextMenuSeparator />
-                              <ContextMenuItem
-                                disabled={
-                                  !canEditProject || itemActionPending !== null || isCurrentProjectDefaultTheme
-                                }
-                                onClick={() => handleSetProjectDefaultThemeRef(it)}
-                              >
-                                {isCurrentProjectDefaultTheme
-                                  ? "Already project default source ref"
-                                  : "Set as project default source ref"}
-                              </ContextMenuItem>
-                            </>
-                          ) : null}
-                        </ContextMenuContent>
-                      </ContextMenu>
-                    );
-                  })}
-                </div>
-              </section>
-
-              <section className="flex min-h-0 flex-col overflow-hidden">
-                {(() => {
-                  const selectedItem = projectItems.find((it) => it.itemId === selectedItemId) ?? null;
-                  const selectedDetail = selectedItemId ? detailByItemId[selectedItemId] : null;
-                  const artifactStatus = selectedItemId
-                    ? artifactStatusByItemId[selectedItemId] ?? null
-                    : null;
-                  const preferredFile =
-                    selectedDetail?.files.find((file) => file.path === selectedPath) ??
-                    selectedDetail?.files.find((file) => /\.(tsx?|jsx?)$/i.test(file.path)) ??
-                    selectedDetail?.files.find((file) => isCodeFile(file.path)) ??
-                    selectedDetail?.files[0] ??
-                    null;
-                  const code = preferredFile?.content ?? "";
-                  const propsFromCode =
-                    selectedDetail?.type === "registry:theme" || !code ? [] : extractPropsFromTsx(code);
-                  const artifactStatusTone = (() => {
-                    switch (artifactStatus?.artifactStatus) {
-                      case "ready":
-                        return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
-                      case "skipped":
-                        return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
-                      case "failed":
-                        return "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200";
-                      case "queued":
-                      case "running":
-                        return "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200";
-                      default:
-                        return "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
-                    }
-                  })();
-                  const artifactStatusLabel = (() => {
-                    switch (artifactStatus?.artifactStatus) {
-                      case "queued":
-                        return "Artifact queued";
-                      case "running":
-                        return "Artifact building";
-                      case "ready":
-                        return artifactStatus.artifactCapability === "compatible-artifact"
-                          ? "Compatibility mode"
-                          : "Artifact ready";
-                      case "failed":
-                        return "Artifact failed";
-                      case "skipped":
-                        return "Runtime preview only";
-                      case "missing":
-                        return "Artifact missing";
-                      default:
-                        return null;
-                    }
-                  })();
-                  const artifactStatusMessage =
-                    buildArtifactDeliverySummary(artifactStatus);
-                  const resolvedThemeRefs =
-                    artifactStatus?.resolvedThemeResourceRefs ?? [];
-                  const resolvedThemeLabel =
-                    resolvedThemeRefs.length > 0
-                      ? `Theme layers: ${resolvedThemeRefs.join(" -> ")}`
-                      : artifactStatus?.resolvedThemeSource === "none"
-                        ? "No resolved theme"
-                        : null;
-                  const storiesPreviewHref =
-                    selectedItem && selectedProjectPreviewStories.stories.length
-                      ? buildMultiStoryPreviewPageUrl({
-                          owner: props.registryOwner,
-                          name: selectedItem.name,
-                          project: currentProjectNamespaceKey,
-                          storyId: selectedProjectStoryId,
-                        })
-                      : null;
-                  return (
-                    <>
-                      <div className="border-b border-zinc-200/80 px-4 py-3 dark:border-zinc-800">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                              {selectedItem?.title ?? "Select a resource"}
-                            </p>
-                            {selectedItem ? (
-                              <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                                {currentProjectNamespaceKey
-                                  ? `${props.registryOwner} / ${currentProjectNamespaceKey} / ${selectedItem.name}`
-                                  : `${props.registryOwner} / ${selectedItem.name}`}
-                              </p>
-                            ) : null}
-                            {artifactStatusLabel && detailTab === "preview" ? (
-                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <span
-                                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${artifactStatusTone}`}
-                                >
-                                  {artifactStatusLabel}
-                                </span>
-                                {resolvedThemeLabel ? (
-                                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                                    {resolvedThemeLabel}
-                                  </span>
-                                ) : null}
-                                {artifactStatusMessage ? (
-                                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                                    {artifactStatusMessage}
-                                  </span>
-                                ) : null}
-                              </div>
-                            ) : null}
-                            {detailTab === "preview" &&
-                            selectedProjectPreviewStories.stories.length ? (
-                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                                  Story:
-                                </span>
-                                <select
-                                  aria-label="Select story"
-                                  value={selectedProjectStoryId ?? ""}
-                                  onChange={(event) => {
-                                    if (!selectedItem) return;
-                                    const next = event.target.value.trim();
-                                    setSelectedStoryIdByItemId((prev) => ({
-                                      ...prev,
-                                      [selectedItem.itemId]: next.length > 0 ? next : null,
-                                    }));
-                                  }}
-                                  className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-                                >
-                                  {selectedProjectPreviewStories.stories.map((story) => (
-                                    <option key={story.id} value={story.id}>
-                                      {story.title}
-                                    </option>
-                                  ))}
-                                </select>
-                                {selectedProjectPreviewStories.stories.length > 1 && storiesPreviewHref ? (
-                                  <Link
-                                    href={storiesPreviewHref}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
-                                  >
-                                    Open stories page
-                                  </Link>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                          {selectedItem ? (
-                            <div className="flex shrink-0 items-center gap-2">
-                              {canEditProject && itemActionError ? (
-                                <p className="text-xs text-red-600 dark:text-red-400">
-                                  {itemActionError}
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                      {selectedItem ? (
-                        <div className="border-b border-zinc-200/80 px-4 py-2 dark:border-zinc-800">
-                          <div className="inline-flex items-center gap-1 rounded-lg bg-zinc-100/80 p-1 dark:bg-zinc-900">
-                            {(["preview", "code"] as const).map((tab) => {
-                              const active = detailTab === tab;
-                              return (
-                                <button
-                                  key={tab}
-                                  type="button"
-                                  onClick={() => setDetailTab(tab)}
-                                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                                    active
-                                      ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-800 dark:text-zinc-50"
-                                      : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-                                  }`}
-                                >
-                                  {tab === "preview" ? "Preview" : "Code"}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ) : null}
-                      {!selectedItem ? (
-                        <div className="flex flex-1 min-h-0 items-center justify-center text-sm text-zinc-500">
-                          Select a resource to preview.
-                        </div>
-                      ) : (
-                        <>
-                        <div
-                          className={`relative isolate min-h-0 flex-1 ${detailTab !== "preview" ? "hidden" : ""}`}
-                          aria-hidden={detailTab !== "preview"}
-                        >
-                          {previewSlotsToRender.map((slot) => {
-                            const isActive =
-                              selectedItem.itemId === slot.itemId &&
-                              currentProjectNamespaceKey === slot.projectKey;
-                            const slotDetail = detailByItemId[slot.itemId] ?? null;
-                            const slotProjectItem =
-                              projectItems.find((it) => it.itemId === slot.itemId) ?? null;
-                            const slotPreviewStories = resolveProjectItemPreviewStories({
-                              itemMeta: slotProjectItem?.meta ?? null,
-                              detail: slotDetail,
-                            });
-                            const slotStoryId =
-                              slotPreviewStories.stories.length > 0
-                                ? resolveSelectedPreviewStoryId({
-                                    currentStoryId: isActive
-                                      ? selectedStoryIdByItemId[slot.itemId] ?? null
-                                      : null,
-                                    stories: slotPreviewStories.stories,
-                                    defaultStoryId: slotPreviewStories.defaultStoryId,
-                                  })
-                                : null;
-                            const src =
-                              slotPreviewStories.stories.length > 1
-                                ? buildMultiStoryPreviewPageUrl({
-                                    owner: props.registryOwner,
-                                    name: slot.name,
-                                    project: slot.projectKey,
-                                    storyId: slotStoryId,
-                                  })
-                                : buildStoryPreviewPageUrl({
-                                    owner: props.registryOwner,
-                                    name: slot.name,
-                                    project: slot.projectKey,
-                                    storyId: slotStoryId,
-                                  });
-                            return (
-                              <div
-                                key={`${slot.itemId}:${slot.projectKey ?? ""}`}
-                                className="absolute inset-0 overflow-hidden"
-                                style={{
-                                  opacity: isActive ? 1 : 0,
-                                  pointerEvents: isActive ? "auto" : "none",
-                                  zIndex: isActive ? 2 : 0,
-                                  visibility: "visible",
-                                }}
-                                aria-hidden={!isActive}
-                              >
-                                <PreviewFrame
-                                  src={src}
-                                  title={`${slot.title} preview`}
-                                  className="h-full w-full"
-                                  interactive={isActive && detailTab === "preview"}
-                                  alignX="left"
-                                  alignY="top"
-                                  fitMode="actual"
-                                  loadImmediately
-                                />
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div
-                          className={`grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] ${detailTab !== "code" ? "hidden" : ""}`}
-                          aria-hidden={detailTab !== "code"}
-                        >
-                          <div className="min-h-0 overflow-auto border-r border-zinc-200/80 p-2 dark:border-zinc-800">
-                            {itemDetailLoadingId === selectedItem.itemId && !selectedDetail ? (
-                              <p className="text-xs text-zinc-500">Loading…</p>
-                            ) : selectedDetail?.files.length ? (
-                              <div className="space-y-1">
-                                {selectedDetail.files.map((file) => (
-                                  <button
-                                    key={file.path}
-                                    type="button"
-                                    onClick={() => setSelectedPath(file.path)}
-                                    className={`block w-full rounded-md px-2 py-1 text-left text-xs ${
-                                      (selectedPath ? selectedPath === file.path : preferredFile?.path === file.path)
-                                        ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                                        : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                                    }`}
-                                  >
-                                    {file.path}
-                                  </button>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-xs text-zinc-500">{itemDetailError ?? "No files to show"}</p>
-                            )}
-                          </div>
-                          <div className="min-h-0 overflow-auto">
-                            {itemDetailError && !selectedDetail ? (
-                              <div className="flex min-h-[220px] items-center justify-center px-4 text-sm text-amber-600 dark:text-amber-400">
-                                {itemDetailError}
-                              </div>
-                            ) : (
-                              <CodeBlock
-                                code={code || "// source unavailable"}
-                                language={
-                                  preferredFile?.path?.endsWith(".css")
-                                    ? "css"
-                                    : preferredFile?.path?.endsWith(".json")
-                                      ? "json"
-                                      : "tsx"
-                                }
-                                variant="flush"
-                                overflowMode="narrow"
-                              />
-                            )}
-                            {propsFromCode.length > 0 ? (
-                              <div className="border-t border-zinc-200/80 p-3 dark:border-zinc-800">
-                                <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                                  Props
-                                </p>
-                                <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
-                                  <Table>
-                                    <TableHeader>
-                                      <TableRow>
-                                        <TableHead>Name</TableHead>
-                                        <TableHead>Type</TableHead>
-                                        <TableHead>Optional</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {propsFromCode.map((prop) => (
-                                        <TableRow key={prop.name}>
-                                          <TableCell className="font-mono">{prop.name}</TableCell>
-                                          <TableCell className="font-mono">{prop.type}</TableCell>
-                                          <TableCell>{prop.optional ? "Yes" : "—"}</TableCell>
-                                        </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                        </>
-                      )}
-                    </>
-                  );
-                })()}
-              </section>
-            </div>
-            </div>
+            <ProjectDetailView
+              registryOwner={props.registryOwner}
+              initialProjectTitle={props.initialProjectTitle}
+              initialProjectSlug={props.initialProjectSlug}
+              initialProjectVisibility={props.initialProjectVisibility}
+              canEditProject={canEditProject}
+              selectedProject={selectedProject}
+              currentProjectNamespaceKey={currentProjectNamespaceKey}
+              projectItems={projectItems}
+              selectedItemId={selectedItemId}
+              onSelectProjectItem={selectProjectItem}
+              onOpenMoveDialog={openMoveDialogForItem}
+              onOpenRemoveDialog={openRemoveDialogForItem}
+              onSetProjectDefaultThemeRef={handleSetProjectDefaultThemeRef}
+              detailByItemId={detailByItemId}
+              artifactStatusByItemId={artifactStatusByItemId}
+              detailTab={detailTab}
+              onDetailTabChange={setDetailTab}
+              selectedPath={selectedPath}
+              onSelectedPathChange={setSelectedPath}
+              selectedProjectPreviewStories={selectedProjectPreviewStories}
+              selectedProjectStoryId={selectedProjectStoryId}
+              selectedStoryIdByItemId={selectedStoryIdByItemId}
+              onSelectedStoryIdChange={(itemId, storyId) => {
+                setSelectedStoryIdByItemId((prev) => ({
+                  ...prev,
+                  [itemId]: storyId,
+                }));
+              }}
+              previewSlotsToRender={previewSlotsToRender}
+              itemDetailLoadingId={itemDetailLoadingId}
+              itemDetailError={itemDetailError}
+              itemActionPending={itemActionPending}
+              itemActionError={itemActionError}
+            />
           )}
         </div>
       ) : loading ? (
         <p className="text-sm text-zinc-500">Loading...</p>
-      ) : projects.length === 0 ? (
-        <p className="text-sm text-zinc-500">
-          {props.isOrgScope ? "No organization projects yet." : "No projects yet."}
-        </p>
       ) : (
-        <div
-          className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
-          onClick={() => setExpandedProjectCardId(null)}
-        >
-          {projects.map((c) => {
-            const href = props.projectsBasePath ? `${props.projectsBasePath}/${c.id}` : undefined;
-            const previews = c.previewItems ?? [];
-            const total = c.itemCount ?? 0;
-            const extra = total > 4 ? total - 4 : 0;
-            const isExpanded = expandedProjectCardId === c.id;
-            const cardClass = `group bg-secondary/50 rounded-[28px] border p-3 text-left transition ${
-              isExpanded
-                ? "border-violet-300 bg-violet-50/50 shadow-[0_0_0_1px_rgba(139,92,246,0.08)] dark:border-violet-500/50 dark:bg-violet-500/10"
-                : "border-transparent hover:bg-zinc-50/80 dark:hover:bg-zinc-900/40"
-            }`;
-
-            const inner = (
-              <>
-                <div className="flex min-h-[220px] items-center justify-center rounded-[32px] bg-radial-[circle_at_top,#ffffff,transparent_62%] from-white via-transparent to-transparent px-4 py-6 dark:bg-radial-[circle_at_top,rgba(255,255,255,0.06),transparent_62%]">
-                  <Folder
-                    interactive={false}
-                    open={isExpanded}
-                    shellOpen
-                    color={getProjectFolderColor(c.visibility)}
-                    size={1.72}
-                    className="origin-center transition duration-300 group-hover:scale-[1.03]"
-                    items={previews.slice(0, 3).map((it, i) => {
-                      const typeIcon = getProjectItemTypeIcon(it.type);
-                      const placeholderClass = getProjectPreviewSlotPlaceholderClass(it.type);
-                      return (
-                        <div
-                          key={`${c.id}-folder-item-${i}`}
-                          className="size-full"
-                        >
-                          {it.thumbnailUrl ? (
-                            <div className="relative size-full overflow-hidden rounded-[10px] bg-white/70 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] dark:bg-zinc-950/50">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={it.thumbnailUrl}
-                                alt=""
-                                className="absolute inset-1 size-[calc(100%-0.5rem)] object-contain"
-                              />
-                            </div>
-                          ) : (
-                            <div
-                              className={`flex size-full items-center justify-center ${placeholderClass}`}
-                              aria-hidden="true"
-                            >
-                              <HugeiconsIcon
-                                icon={typeIcon.icon ?? ArtboardToolIcon}
-                                size={18}
-                                strokeWidth={1.8}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  />
-                </div>
-                <div className="mt-2 flex items-start justify-between gap-3 px-1">
-                  <div className="min-w-0">
-                    <span className="block truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                      {c.title}
-                    </span>
-                    <p className="mt-1 truncate text-xs text-zinc-500 dark:text-zinc-400">
-                      <span className="font-mono">{c.slug}</span>
-                      {extra > 0 ? (
-                        <span className="ml-2 font-sans text-zinc-400 dark:text-zinc-500">
-                          +{extra} more
-                        </span>
-                      ) : null}
-                    </p>
-                  </div>
-                  <span className="mt-0.5 shrink-0 rounded-full border border-zinc-200/80 bg-white/80 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-400">
-                    {c.visibility === "private" ? "Private" : "Public"}
-                  </span>
-                </div>
-              </>
-            );
-
-            return href ? (
-              <button
-                key={c.id}
-                type="button"
-                className={cardClass}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleProjectCardClick(c.id, href);
-                }}
-              >
-                {inner}
-              </button>
-            ) : (
-              <div
-                key={c.id}
-                className={cardClass}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setExpandedProjectCardId(c.id);
-                }}
-              >
-                {inner}
-              </div>
-            );
-          })}
-        </div>
+        <ProjectsPortfolioGrid
+          projects={projects}
+          projectsBasePath={props.projectsBasePath}
+          isOrgScope={props.isOrgScope}
+          expandedProjectCardId={expandedProjectCardId}
+          onExpandedProjectCardIdChange={setExpandedProjectCardId}
+          router={router}
+          onMoveProjectToTrash={openProjectTrashDialog}
+        />
       )}
     </section>
   );

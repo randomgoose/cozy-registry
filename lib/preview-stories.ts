@@ -10,9 +10,7 @@ export type PreviewStory = {
   sourcePath?: string;
 };
 
-export function getPreviewStoriesFromMeta(meta: unknown): PreviewStory[] {
-  if (!meta || typeof meta !== "object") return [];
-  const raw = (meta as Record<string, unknown>).previewStories;
+export function normalizePreviewStoriesInput(raw: unknown): PreviewStory[] {
   if (!Array.isArray(raw)) return [];
   const out: PreviewStory[] = [];
   for (const item of raw) {
@@ -55,6 +53,11 @@ export function getPreviewStoriesFromMeta(meta: unknown): PreviewStory[] {
     seen.add(s.id);
     return true;
   });
+}
+
+export function getPreviewStoriesFromMeta(meta: unknown): PreviewStory[] {
+  if (!meta || typeof meta !== "object") return [];
+  return normalizePreviewStoriesInput((meta as Record<string, unknown>).previewStories);
 }
 
 export function getPreviewDefaultStoryIdFromMeta(meta: unknown): string | null {

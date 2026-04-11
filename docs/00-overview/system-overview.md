@@ -119,6 +119,10 @@ Source of truth: yes
 - [Project-First Publishing Default Spec](../20-engineering/project-first-publishing-default-spec.md)：将“未指定 project 的新资源自动归入默认 project”作为产品默认路径，弱化 non-project item 的用户心智。
 - [Project Resource Relationship Spec](../20-engineering/project-resource-relationship-spec.md)：将 project 升级为默认设计上下文边界，并将单一 theme 解析升级到 ordered theme layers 模型。
 - [Project As Workspace And Publication Unit Discussion Note](../20-engineering/project-as-workspace-and-publication-unit-discussion-note.md)：讨论 project 是否应从 namespace 进一步成长为 workspace-like space，长期甚至成为 publication unit。
+- [Additional Resource Types Planning Spec](../20-engineering/additional-resource-types-planning-spec.md)：讨论在 `block / ui / theme` 之外，`icon`、`animation`、`image` 等资源是否值得成为新的一等类型，以及哪些更适合作为附属资产处理。
+- [Cozy Starter System Product Note](../10-product/cozy-starter-system-product-note.md)：讨论是否提供一套可调样式的 starter component system，作为用户进入 Cozy 工作流的冷启动入口，而不是把 Cozy 做成另一套独立组件库。
+- [Cozy Starter System V1 Spec](../10-product/cozy-starter-system-v1-spec.md)：将 Starter System 从产品判断推进到第一版可执行范围，明确组件范围、theme/project 集成方式，以及对 AI 与 Figma Make 的入口角色。
+- [Activities Feature Spec](../20-engineering/activities-feature-spec.md)：定义按当前 personal / workspace / project context 自动收缩范围的资源活动流，以及 sidebar 入口、事件模型和第一阶段事件范围。
 - [Component Style Organization Model Spec](../20-engineering/component-style-organization-model-spec.md)：定义组件局部样式与 design-context style 的正式分层，并评估 Tailwind、同目录 CSS、mixed mode、CSS Modules 等在本项目中的实际支持度。
 - [Preview And Project Style Closure Checklist](../20-engineering/preview-and-project-style-closure-checklist.md)：将“preview 构建动态决策”和“project/theme 样式上下文”两条主线压成收尾清单，便于后续 agent 继续收口阶段性桥接与剩余缺口。
 - [Live Style Preview And Committed Artifact Spec](../20-engineering/live-style-preview-and-committed-artifact-spec.md)：将 runtime 样式覆盖与 committed artifact 重建拆成两条协同链路，服务轻量调样式体验。
@@ -127,3 +131,4 @@ Source of truth: yes
 - [Dependency Execution Strategy Heuristic Spec](../20-engineering/dependency-execution-strategy-heuristic-spec.md)：在治理边界内按依赖复杂度与平台交付能力自动选择构建策略，并把平台控制缓存/CDN 纳入 compatible delivery。
 - [Compatible Bundled Delivery Spec](../20-engineering/compatible-bundled-delivery-spec.md)：将 compatible externals 从远端多模块拉取优化为平台控制的单文件/少量 chunk 交付。
 - [AI Misreasoning Guardrails Log](../20-engineering/ai-misreasoning-guardrails-log.md)：持续记录 AI 因为工具描述、错误语义或系统 contract 不清而产生的误判，并追踪 guardrail 补点。
+- [AI-Friendly Tool Contract And Skill Strategy](../20-engineering/ai-friendly-tool-contract-and-skill-strategy.md)：总结如何把系统真相放进 MCP tool contract，把多步 publish / install / preview 工作流放进 skill / plugin 层，并以真实 AI 发布绕路案例反推优化重点。

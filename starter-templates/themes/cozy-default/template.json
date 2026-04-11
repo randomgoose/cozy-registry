@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "templateKey": "themes/cozy-default",
+  "resourceType": "registry:theme",
+  "title": "Cozy Default Theme",
+  "description": "Starter project theme tokens for the Cozy primitives kit.",
+  "entryFile": "files/theme.css",
+  "files": [
+    {
+      "path": "files/theme.css",
+      "kind": "entry"
+    }
+  ],
+  "templateDependencies": [],
+  "declaredDependencies": []
+}

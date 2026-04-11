@@ -34,6 +34,10 @@ import {
 } from "@/lib/registry-resolver";
 import { materializeInstalledRegistryFilesFromResolvedGraph } from "@/lib/registry-install-layout";
 import {
+  collectExplicitRegistryImportRefs,
+  mergeRegistryDependencyRefs,
+} from "@/lib/registry-source-dependencies";
+import {
   RegistryDependencyCycleError,
   RegistryDependencyNotFoundError,
   RegistryDependencyPermissionDeniedError,
@@ -513,10 +517,6 @@ export async function GET(
           meta: item.meta,
           requestUserId: userId,
         });
-  const effectiveRegistryDependencies = mergeRegistryDependenciesWithResolvedThemes(
-    (item.registryDependencies ?? []) as string[],
-    resolvedThemeRelationship.resolvedThemeResourceRefs,
-  );
   const { selectedStory } = pickPreviewStory(itemMetaForStory, requestedStoryId);
   const resolvedStoryId = selectedStory?.id ?? null;
   const normalizedStoryId = resolvedStoryId ?? "";
@@ -909,6 +909,15 @@ ${versionToolbarHtml}
   for (const f of filesArray) {
     files[f.path] = f.content;
   }
+
+  const explicitRegistryDependencies = mergeRegistryDependencyRefs(
+    (item.registryDependencies ?? []) as string[],
+    collectExplicitRegistryImportRefs(files),
+  );
+  const effectiveRegistryDependencies = mergeRegistryDependenciesWithResolvedThemes(
+    explicitRegistryDependencies,
+    resolvedThemeRelationship.resolvedThemeResourceRefs,
+  );
 
   const itemMeta = itemMetaForStory;
   const rawPreviewProps = itemMeta?.previewProps;

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "templateKey": "primitives/dialog",
+  "resourceType": "registry:ui",
+  "title": "Dialog",
+  "description": "",
+  "entryFile": "files/index.tsx",
+  "files": [
+    {
+      "path": "files/index.tsx",
+      "kind": "entry"
+    },
+    {
+      "path": "files/utils.ts",
+      "kind": "supporting"
+    },
+    {
+      "path": "README.md",
+      "kind": "docs"
+    }
+  ],
+  "templateDependencies": [
+    {
+      "templateKey": "primitives/button",
+      "localStubPath": "Button.tsx"
+    }
+  ],
+  "declaredDependencies": [
+    {
+      "name": "@base-ui/react",
+      "version": "1.3.0"
+    },
+    {
+      "name": "lucide-react",
+      "version": "0.577.0"
+    }
+  ],
+  "previewExport": "DialogPreview",
+  "previewStories": [
+    {
+      "id": "default",
+      "title": "Default",
+      "export": "DialogPreview",
+      "description": "Starter modal layout with header, description, and footer actions."
+    }
+  ],
+  "previewDefaultStoryId": "default"
+}

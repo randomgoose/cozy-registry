@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "templateKey": "primitives/button",
+  "resourceType": "registry:ui",
+  "title": "Button",
+  "description": "",
+  "entryFile": "files/index.tsx",
+  "files": [
+    {
+      "path": "files/index.tsx",
+      "kind": "entry"
+    },
+    {
+      "path": "files/utils.ts",
+      "kind": "supporting"
+    },
+    {
+      "path": "README.md",
+      "kind": "docs"
+    }
+  ],
+  "templateDependencies": [],
+  "declaredDependencies": [
+    {
+      "name": "@base-ui/react",
+      "version": "1.3.0"
+    },
+    {
+      "name": "class-variance-authority",
+      "version": "0.7.1"
+    }
+  ],
+  "previewProps": {
+    "children": "Continue"
+  },
+  "previewExport": "Button",
+  "previewStories": [
+    {
+      "id": "default",
+      "title": "Default",
+      "export": "Button",
+      "props": {
+        "children": "Continue"
+      }
+    },
+    {
+      "id": "outline",
+      "title": "Outline",
+      "export": "Button",
+      "props": {
+        "variant": "outline",
+        "children": "Secondary action"
+      }
+    },
+    {
+      "id": "destructive",
+      "title": "Destructive",
+      "export": "Button",
+      "props": {
+        "variant": "destructive",
+        "children": "Delete"
+      }
+    },
+    {
+      "id": "icon",
+      "title": "Icon",
+      "export": "Button",
+      "props": {
+        "size": "icon",
+        "aria-label": "Settings",
+        "children": "S"
+      }
+    }
+  ],
+  "previewDefaultStoryId": "default"
+}

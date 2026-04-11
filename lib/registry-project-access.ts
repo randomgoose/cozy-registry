@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { registryProjects } from "@/lib/db/schema";
 import {
+  activeProjectClause,
   getProjectIfAccessible,
   getUserProjectRole,
   roleCanEditProject,
@@ -22,7 +23,7 @@ export async function findAccessibleRegistryProjectBySlug(
   const candidates = await db
     .select()
     .from(registryProjects)
-    .where(eq(registryProjects.slug, key));
+    .where(and(eq(registryProjects.slug, key), activeProjectClause()));
   for (const row of candidates) {
     const accessible = await getProjectIfAccessible(userId, row.id);
     if (accessible) return accessible;
@@ -61,7 +62,7 @@ export async function resolveCanonicalRegistryProjectForWrite(params: {
   const [project] = await db
     .select()
     .from(registryProjects)
-    .where(and(eq(registryProjects.slug, slug), ownershipClause))
+    .where(and(eq(registryProjects.slug, slug), ownershipClause, activeProjectClause()))
     .limit(1);
 
   if (!project) {

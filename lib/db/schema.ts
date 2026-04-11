@@ -374,6 +374,10 @@ export const registryProjects = pgTable(
     title: text("title").notNull(),
     description: text("description"),
     visibility: text("visibility").default("private").notNull(), // "public" | "private"
+    status: text("status").default("active").notNull(), // active | archived | deleted
+    archivedAt: timestamp("archived_at"),
+    archivedBy: text("archived_by").references(() => user.id, { onDelete: "set null" }),
+    deletedAt: timestamp("deleted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
@@ -487,6 +491,54 @@ export const registryPreviewArtifacts = pgTable(
       table.storyId,
     ),
     unique("registry_preview_artifacts_artifact_key_key").on(table.artifactKey),
+  ],
+);
+
+/** Append-only resource activity stream (workspace / personal / project scoped reads). */
+export const registryActivities = pgTable(
+  "registry_activities",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    organizationId: text("organization_id").references(() => organization.id, {
+      onDelete: "set null",
+    }),
+    ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: "set null" }),
+    canonicalProjectId: uuid("canonical_project_id").references(() => registryProjects.id, {
+      onDelete: "set null",
+    }),
+    itemId: uuid("item_id").references(() => registryItems.id, { onDelete: "set null" }),
+    itemVersionId: uuid("item_version_id").references(() => registryItemVersions.id, {
+      onDelete: "set null",
+    }),
+    actorUserId: text("actor_user_id").references(() => user.id, { onDelete: "set null" }),
+    actorType: text("actor_type").notNull(), // user | agent | system
+    eventType: text("event_type").notNull(),
+    resourceType: text("resource_type").notNull(),
+    resourceName: text("resource_name").notNull(),
+    resourceTitle: text("resource_title"),
+    resourceOwnerRef: text("resource_owner_ref"),
+    versionLabel: text("version_label"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    correlationId: text("correlation_id"),
+  },
+  (table) => [
+    index("registry_activities_organization_created_idx").on(
+      table.organizationId,
+      table.createdAt,
+      table.id,
+    ),
+    index("registry_activities_owner_created_idx").on(
+      table.ownerUserId,
+      table.createdAt,
+      table.id,
+    ),
+    index("registry_activities_project_created_idx").on(
+      table.canonicalProjectId,
+      table.createdAt,
+      table.id,
+    ),
+    index("registry_activities_item_created_idx").on(table.itemId, table.createdAt),
   ],
 );
 

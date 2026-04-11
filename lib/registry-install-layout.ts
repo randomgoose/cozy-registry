@@ -50,6 +50,7 @@ export function rewriteInstalledRegistryImports<T extends { path: string; conten
     files: T[];
     rootOwner: string;
     rootName: string;
+    rootProjectSlug?: string | null;
     dependencyTargets: Map<string, InstallDependencyTarget>;
   },
 ): T[] {
@@ -59,7 +60,7 @@ export function rewriteInstalledRegistryImports<T extends { path: string; conten
   const installBaseDir = getDefaultInstallDir({
     owner: params.rootOwner,
     name: params.rootName,
-    projectSlug: null,
+    projectSlug: params.rootProjectSlug ?? null,
   });
 
   return params.files.map((file) => {
@@ -97,7 +98,13 @@ export function rewriteInstalledRegistryImports<T extends { path: string; conten
 
 export function buildDependencyTargetIndex(
   ordered: Array<{
-    ref: { owner: string; name: string; version: string | null; ref: string };
+    ref: {
+      owner: string;
+      projectKey: string | null;
+      name: string;
+      version: string | null;
+      ref: string;
+    };
     item: { type: string; files?: Array<{ path: string }>; registryDependencies?: string[] | null };
   }>,
 ): Map<string, InstallDependencyTarget> {
@@ -109,12 +116,19 @@ export function buildDependencyTargetIndex(
     const target: InstallDependencyTarget = {
       owner: ref.owner,
       name: ref.name,
+      projectSlug: ref.projectKey ?? null,
       version: ref.version ?? "0.0.0",
       entryPath: pickInstallEntryPath(item.files ?? []),
     };
     out.set(ref.ref, target);
     out.set(`@${ref.owner}/${ref.name}`, target);
     if (ref.version) out.set(`@${ref.owner}/${ref.name}@${ref.version}`, target);
+    if (ref.projectKey) {
+      out.set(`@${ref.owner}/${ref.projectKey}/${ref.name}`, target);
+      if (ref.version) {
+        out.set(`@${ref.owner}/${ref.projectKey}/${ref.name}@${ref.version}`, target);
+      }
+    }
     const list = byName.get(ref.name) ?? [];
     list.push(target);
     byName.set(ref.name, list);
@@ -129,7 +143,13 @@ export function buildDependencyTargetIndex(
 
 export function materializeInstalledRegistryFilesFromResolvedGraph(
   ordered: Array<{
-    ref: { owner: string; name: string; version: string | null; ref: string };
+    ref: {
+      owner: string;
+      projectKey: string | null;
+      name: string;
+      version: string | null;
+      ref: string;
+    };
     item: {
       type: string;
       files?: Array<{ path: string; content: string }>;
@@ -169,13 +189,18 @@ export function materializeInstalledRegistryFilesFromResolvedGraph(
       })),
       rootOwner: ref.owner,
       rootName: ref.name,
+      rootProjectSlug: ref.projectKey ?? null,
       dependencyTargets: directTargets,
     });
 
     for (const file of rewrittenFiles) {
       const projectRelative = normalizePosix(
         path.posix.join(
-          getDefaultInstallDir({ owner: ref.owner, name: ref.name }),
+          getDefaultInstallDir({
+            owner: ref.owner,
+            name: ref.name,
+            projectSlug: ref.projectKey ?? null,
+          }),
           normalizeInstallFilePath(file.path),
         ),
       );
@@ -184,7 +209,11 @@ export function materializeInstalledRegistryFilesFromResolvedGraph(
 
     rootEntries[ref.ref] = normalizePosix(
       path.posix.join(
-        getDefaultInstallDir({ owner: ref.owner, name: ref.name }),
+        getDefaultInstallDir({
+          owner: ref.owner,
+          name: ref.name,
+          projectSlug: ref.projectKey ?? null,
+        }),
         pickInstallEntryPath(item.files ?? []).replace(/\.(tsx?|jsx?|css)$/i, ""),
       ),
     );

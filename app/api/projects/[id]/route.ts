@@ -116,12 +116,18 @@ export async function DELETE(
   }
 
   const [deleted] = await db
-    .delete(registryProjects)
+    .update(registryProjects)
+    .set({
+      status: "archived",
+      archivedAt: new Date(),
+      archivedBy: userId,
+      updatedAt: new Date(),
+    })
     .where(eq(registryProjects.id, id))
     .returning();
 
   if (!deleted) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, action: "archived" });
 }

@@ -38,6 +38,11 @@ import {
   createRegistryResolverMemo,
   resolveRegistryDependencies,
 } from "@/lib/registry-resolver";
+import { materializeInstalledRegistryFilesFromResolvedGraph } from "@/lib/registry-install-layout";
+import {
+  collectExplicitRegistryImportRefs,
+  mergeRegistryDependencyRefs,
+} from "@/lib/registry-source-dependencies";
 import { resolvePreviewDependencies } from "@/lib/preview-dependency-provider";
 import { isBarePackageSpecifier } from "@/lib/module-specifiers";
 import { buildMultiStoryPreviewHtml } from "@/lib/multi-story-preview-html";
@@ -568,6 +573,65 @@ export async function processPreviewArtifactJob(jobId: string) {
     const previewProps = selectedStory?.props ?? fallbackPreviewProps;
     const previewExport = selectedStory?.export ?? fallbackPreviewExport;
 
+    const projectKeyForRelationships = normalizedProjectKey ?? item.canonicalProjectKey ?? null;
+    const resolvedThemeRelationship =
+      item.type === "registry:theme"
+        ? {
+            resolvedThemeResourceRefs: [],
+            resolvedThemeLayerSources: [],
+          }
+        : await resolveThemeRelationshipForResource({
+            owner: payload.owner,
+            projectKey: projectKeyForRelationships,
+            meta: item.meta,
+            requestUserId: payload.requestUserId,
+          });
+    const inferredRegistryDependencies = collectExplicitRegistryImportRefs(files);
+    const explicitRegistryDependencies = mergeRegistryDependencyRefs(
+      (item.registryDependencies ?? []) as string[],
+      inferredRegistryDependencies,
+    );
+    const effectiveRegistryDependencies = mergeRegistryDependenciesWithResolvedThemes(
+      explicitRegistryDependencies,
+      resolvedThemeRelationship.resolvedThemeResourceRefs,
+    );
+    let resolvedThemeCss = "";
+    let themeSources: string[] = [];
+    if (effectiveRegistryDependencies.length > 0 && item.type !== "registry:theme") {
+      const resolvedGraph = await resolveRegistryDependencies({
+        owner: payload.owner,
+        projectKey: projectKeyForRelationships,
+        name: payload.name,
+        version: payload.version,
+        requestUserId: payload.requestUserId,
+        memo: createRegistryResolverMemo(),
+        extraRootRegistryDependencies: effectiveRegistryDependencies,
+      });
+      const installedLayout = materializeInstalledRegistryFilesFromResolvedGraph(
+        resolvedGraph.ordered,
+      );
+      const rootRef =
+        resolvedGraph.ordered[resolvedGraph.ordered.length - 1]?.ref.ref ?? null;
+      for (const key of Object.keys(files)) {
+        delete files[key];
+      }
+      for (const [p, c] of Object.entries(installedLayout.files)) {
+        files[p] = c;
+      }
+      if (rootRef) {
+        const rootEntry = installedLayout.rootEntries[rootRef];
+        if (rootEntry) {
+          files["index.tsx"] =
+            `export { default } from "./${rootEntry}";\nexport * from "./${rootEntry}";\n`;
+        }
+      }
+      const resolvedTheme = collectThemeCssFromResolvedGraph(
+        resolvedGraph.ordered,
+      );
+      resolvedThemeCss = resolvedTheme.css;
+      themeSources = resolvedTheme.sources;
+    }
+
     const runtimeDeps = Array.from(
       new Set([
         ...((item.dependencies ?? []) as string[]),
@@ -581,7 +645,7 @@ export async function processPreviewArtifactJob(jobId: string) {
     const dependencyDecisions = evaluateThirdPartyDependencies({
       discovered: excludeExplicitRegistryDependencies(
         runtimeDeps,
-        (item.registryDependencies ?? []) as string[],
+        explicitRegistryDependencies,
       ),
       declared: readDeclaredThirdPartyDependenciesFromMeta(itemMeta),
     });
@@ -744,7 +808,6 @@ export async function processPreviewArtifactJob(jobId: string) {
       uploadedStoriesHtml.url,
       storiesHtml,
     );
-
     const resolvedCompatibleExternals =
       resolvedPreviewDependencies.plan.compatibleExternals.map((entry) =>
         resolveCompatibleExternalDelivery({
@@ -759,41 +822,6 @@ export async function processPreviewArtifactJob(jobId: string) {
         entries: resolvedCompatibleExternals,
         upload: true,
       });
-    const projectKeyForRelationships = normalizedProjectKey ?? item.canonicalProjectKey ?? null;
-    const resolvedThemeRelationship =
-      item.type === "registry:theme"
-        ? {
-            resolvedThemeResourceRefs: [],
-            resolvedThemeLayerSources: [],
-          }
-        : await resolveThemeRelationshipForResource({
-            owner: payload.owner,
-            projectKey: projectKeyForRelationships,
-            meta: item.meta,
-            requestUserId: payload.requestUserId,
-          });
-    const effectiveRegistryDependencies = mergeRegistryDependenciesWithResolvedThemes(
-      (item.registryDependencies ?? []) as string[],
-      resolvedThemeRelationship.resolvedThemeResourceRefs,
-    );
-    let resolvedThemeCss = "";
-    let themeSources: string[] = [];
-    if (effectiveRegistryDependencies.length > 0 && item.type !== "registry:theme") {
-      const resolvedGraph = await resolveRegistryDependencies({
-        owner: payload.owner,
-        projectKey: projectKeyForRelationships,
-        name: payload.name,
-        version: payload.version,
-        requestUserId: payload.requestUserId,
-        memo: createRegistryResolverMemo(),
-        extraRootRegistryDependencies: effectiveRegistryDependencies,
-      });
-      const resolvedTheme = collectThemeCssFromResolvedGraph(
-        resolvedGraph.ordered,
-      );
-      resolvedThemeCss = resolvedTheme.css;
-      themeSources = resolvedTheme.sources;
-    }
     const dependencyPlan = {
       ...resolvedPreviewDependencies.plan,
       compatibleExternals: compatibleExternalsForArtifact,

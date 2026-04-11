@@ -10,6 +10,10 @@ import {
 import { parseRegistryDependencyRef } from "@/lib/registry-graph";
 import { materializeInstalledRegistryFilesFromResolvedGraph } from "@/lib/registry-install-layout";
 import {
+  collectExplicitRegistryImportRefs,
+  mergeRegistryDependencyRefs,
+} from "@/lib/registry-source-dependencies";
+import {
   getPrebundleDependencies,
   type DependencyDecision,
 } from "@/lib/third-party-dependency-governance";
@@ -42,6 +46,7 @@ type BareImportSpecifiers = {
 type SmokeResolvedNode = {
   ref: {
     owner: string;
+    projectKey: string | null;
     name: string;
     version: string | null;
     ref: string;
@@ -89,7 +94,11 @@ export async function runRegistryPreviewSmokeTest(params: {
     };
   }
 
-  const directDeps = (params.registryDependencies ?? [])
+  const explicitRegistryDependencies = mergeRegistryDependencyRefs(
+    params.registryDependencies ?? [],
+    collectExplicitRegistryImportRefs(rootFiles),
+  );
+  const directDeps = explicitRegistryDependencies
     .map((raw) => parseRegistryDependencyRef(raw))
     .filter((entry): entry is NonNullable<typeof entry> => entry != null);
 
@@ -119,6 +128,7 @@ export async function runRegistryPreviewSmokeTest(params: {
   merged.set(rootRef, {
     ref: {
       owner: "__local__",
+      projectKey: null,
       name: params.name,
       version: null,
       ref: rootRef,
@@ -132,7 +142,7 @@ export async function runRegistryPreviewSmokeTest(params: {
         content,
         type: "registry:file",
       })),
-      registryDependencies: params.registryDependencies ?? [],
+      registryDependencies: explicitRegistryDependencies,
     },
   });
 

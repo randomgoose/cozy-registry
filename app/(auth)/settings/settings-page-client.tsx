@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { PageContentShell } from "@/app/components/PageContentShell";
 import { authClient } from "@/lib/auth-client";
 import { MembersSettingsSection } from "./components/MembersSettingsSection";
 import { OrganizationSettingsSection } from "./components/OrganizationSettingsSection";
@@ -312,11 +313,11 @@ export function SettingsPageClient({ section }: { section?: string | null } = {}
         : "tokens";
 
   return (
-    <>
+    <PageContentShell>
       <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
         Settings
       </h1>
-      <p className="mt-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
+      <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
         Current scope: {isOrgScope ? "Organization" : "Personal"}
       </p>
 
@@ -383,6 +384,6 @@ export function SettingsPageClient({ section }: { section?: string | null } = {}
           Sign out
         </button>
       </div>
-    </>
+    </PageContentShell>
   );
 }

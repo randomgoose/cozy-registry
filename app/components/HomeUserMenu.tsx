@@ -11,10 +11,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type HomeUserMenuProps = {
   fullName: string;
   username: string;
+  avatarUrl?: string | null;
 };
 
 const MENU_ITEMS = [
@@ -23,17 +26,18 @@ const MENU_ITEMS = [
   { href: "/me/settings", label: "Settings" },
 ];
 
-export function HomeUserMenu({ fullName, username }: HomeUserMenuProps) {
+export function HomeUserMenu({ fullName, username, avatarUrl }: HomeUserMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-surface-inverse px-2.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-zinc-800 data-[popup-open]:bg-zinc-800 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:data-[popup-open]:bg-zinc-200"
-          />
+          <Button variant={"ghost"} size={"lg"} />
         }
       >
+        <Avatar>
+          <AvatarFallback>{fullName.charAt(0)}</AvatarFallback>
+          <AvatarImage src={avatarUrl ?? undefined} />
+        </Avatar>
         <span className="max-w-[160px] truncate">{fullName}</span>
         <ChevronDown className="size-4 transition-transform duration-200 data-[popup-open]:rotate-180" />
       </DropdownMenuTrigger>

@@ -32,6 +32,8 @@ import {
   enqueuePreviewArtifactJob,
   enqueueWarmPreviewArtifacts,
 } from "@/lib/preview-artifact-jobs";
+import { activeProjectClause } from "@/lib/project-permissions";
+import { recordRegistryItemActivity } from "@/lib/registry-activities";
 import { buildDependencySnapshot } from "@/lib/third-party-dependency-governance";
 
 const INITIAL_VERSION = "0.1.0";
@@ -373,6 +375,7 @@ export async function getRegistryProjectByOwnerAndNamespace(
       .from(registryProjects)
       .where(
         and(
+          activeProjectClause(),
           eq(registryProjects.organizationId, organizationId),
           eq(registryProjects.namespaceKey, namespaceKey),
         ),
@@ -388,6 +391,7 @@ export async function getRegistryProjectByOwnerAndNamespace(
       .from(registryProjects)
       .where(
         and(
+          activeProjectClause(),
           eq(registryProjects.ownerUserId, resolved.userId),
           eq(registryProjects.namespaceKey, namespaceKey),
         ),
@@ -404,6 +408,7 @@ export async function getRegistryProjectByOwnerAndNamespace(
       .from(registryProjects)
       .where(
         and(
+          activeProjectClause(),
           eq(registryProjects.organizationId, org.id),
           eq(registryProjects.namespaceKey, namespaceKey),
         ),
@@ -417,6 +422,7 @@ export async function getRegistryProjectByOwnerAndNamespace(
       .from(registryProjects)
       .where(
         and(
+          activeProjectClause(),
           eq(registryProjects.organizationId, org.id),
           eq(registryProjects.namespaceKey, namespaceKey),
         ),
@@ -430,6 +436,7 @@ export async function getRegistryProjectByOwnerAndNamespace(
     .from(registryProjects)
     .where(
       and(
+        activeProjectClause(),
         eq(registryProjects.organizationId, org.id),
         eq(registryProjects.namespaceKey, namespaceKey),
         canSeePrivate
@@ -1122,6 +1129,10 @@ export async function createRegistryItemVersion(params: {
     params.dependencies ?? ((item.dependencies ?? []) as string[]);
   const nextRegistryDependencies =
     params.registryDependencies ?? ((item.registryDependencies ?? []) as string[]);
+  const nextProjectKey =
+    params.canonicalProjectId !== undefined
+      ? (params.canonicalProjectKey ?? null)
+      : (item.canonicalProjectKey ?? null);
 
   // 归一化为多文件 bundle：
   // - 若显式提供 files，则优先使用
@@ -1276,7 +1287,7 @@ export async function createRegistryItemVersion(params: {
       ...(params.canonicalProjectId !== undefined
         ? {
             canonicalProjectId: params.canonicalProjectId,
-            canonicalProjectKey: params.canonicalProjectKey ?? null,
+            canonicalProjectKey: nextProjectKey,
           }
         : {}),
       updatedAt: new Date(),
@@ -1334,7 +1345,7 @@ export async function createRegistryItemVersion(params: {
     payload: {
       ownerId: ownerLabelForThumb,
       ownerHandle: ownerLabelForThumb,
-      projectKey: item.canonicalProjectKey ?? null,
+      projectKey: nextProjectKey,
       name: params.name,
       version: nextVersion,
       type: normalizedType,
@@ -1347,13 +1358,36 @@ export async function createRegistryItemVersion(params: {
       itemId: item.id,
       itemVersionId: itemVersion.id,
       owner: ownerLabelForThumb,
-      project: item.canonicalProjectKey ?? null,
+      project: nextProjectKey,
       name: params.name,
       version: nextVersion,
       requestUserId: params.userId,
       meta: itemVersion.meta,
     });
   }
+
+  await recordRegistryItemActivity({
+    item: {
+      id: item.id,
+      userId: item.userId,
+      organizationId: item.organizationId,
+      canonicalProjectId:
+        params.canonicalProjectId !== undefined
+          ? (params.canonicalProjectId ?? null)
+          : (item.canonicalProjectId ?? null),
+      name: item.name,
+      type: item.type,
+      title: item.title,
+    },
+    eventType: "item.version_published",
+    actorUserId: params.userId,
+    itemVersionId: itemVersion.id,
+    versionLabel: nextVersion,
+    metadata: {
+      bump: params.bump,
+      message: params.message ?? null,
+    },
+  });
 
   return { version: nextVersion, id: itemVersion.id };
 }
@@ -1762,7 +1796,7 @@ export async function createRegistryItem(data: {
           : {}),
         ...(thumbnail ? { thumbnail } : {}),
       },
-      createdBy: data.userId ?? null,
+      createdBy: data.requestUserId ?? data.userId ?? null,
     })
     .returning();
 
@@ -1803,6 +1837,25 @@ export async function createRegistryItem(data: {
       });
     }
   }
+
+  await recordRegistryItemActivity({
+    item: {
+      id: item.id,
+      userId: item.userId,
+      organizationId: item.organizationId,
+      canonicalProjectId: item.canonicalProjectId,
+      name: item.name,
+      type: item.type,
+      title: item.title,
+    },
+    eventType: "item.created",
+    actorUserId: data.requestUserId ?? data.userId ?? null,
+    itemVersionId: itemVersion?.id ?? null,
+    metadata: {
+      source: "publish",
+      visibility: item.visibility,
+    },
+  });
 
   return {
     ...item,
@@ -1860,6 +1913,24 @@ export async function archiveRegistryItem(params: {
     .returning();
 
   if (!updated) throw new Error("Failed to archive registry item");
+
+  await recordRegistryItemActivity({
+    item: {
+      id: updated.id,
+      userId: updated.userId,
+      organizationId: updated.organizationId,
+      canonicalProjectId: updated.canonicalProjectId,
+      name: updated.name,
+      type: updated.type,
+      title: updated.title,
+    },
+    eventType: "item.archived",
+    actorUserId: params.requestUserId,
+    metadata: {
+      lifecycleReason: params.lifecycleReason ?? null,
+    },
+  });
+
   return updated;
 }
 
@@ -1909,6 +1980,24 @@ export async function archiveOrganizationRegistryItem(params: {
     .returning();
 
   if (!updated) throw new Error("Failed to archive registry item");
+
+  await recordRegistryItemActivity({
+    item: {
+      id: updated.id,
+      userId: updated.userId,
+      organizationId: updated.organizationId,
+      canonicalProjectId: updated.canonicalProjectId,
+      name: updated.name,
+      type: updated.type,
+      title: updated.title,
+    },
+    eventType: "item.archived",
+    actorUserId: params.requestUserId,
+    metadata: {
+      lifecycleReason: params.lifecycleReason ?? null,
+    },
+  });
+
   return updated;
 }
 
@@ -1974,6 +2063,23 @@ export async function permanentlyDeleteRegistryItem(params: {
     .where(eq(registryItems.id, item.id))
     .returning({ id: registryItems.id });
   if (!marked) throw new Error("Failed to mark registry item deleted");
+
+  await recordRegistryItemActivity({
+    item: {
+      id: item.id,
+      userId: item.userId,
+      organizationId: item.organizationId,
+      canonicalProjectId: item.canonicalProjectId,
+      name: item.name,
+      type: item.type,
+      title: item.title,
+    },
+    eventType: "item.deleted",
+    actorUserId: params.requestUserId,
+    metadata: {
+      lifecycleReason: params.lifecycleReason ?? item.lifecycleReason ?? null,
+    },
+  });
 
   await db.delete(registryItems).where(eq(registryItems.id, item.id));
 }
@@ -2043,6 +2149,23 @@ export async function permanentlyDeleteOrganizationRegistryItem(params: {
     .where(eq(registryItems.id, item.id))
     .returning({ id: registryItems.id });
   if (!marked) throw new Error("Failed to mark registry item deleted");
+
+  await recordRegistryItemActivity({
+    item: {
+      id: item.id,
+      userId: item.userId,
+      organizationId: item.organizationId,
+      canonicalProjectId: item.canonicalProjectId,
+      name: item.name,
+      type: item.type,
+      title: item.title,
+    },
+    eventType: "item.deleted",
+    actorUserId: params.requestUserId,
+    metadata: {
+      lifecycleReason: params.lifecycleReason ?? item.lifecycleReason ?? null,
+    },
+  });
 
   await db.delete(registryItems).where(eq(registryItems.id, item.id));
 }
@@ -2278,6 +2401,7 @@ export async function updateRegistryItemVisibility(params: {
     throw new Error("Only owner can update visibility");
   }
   ensureRegistryItemMutable(item.status);
+  if (item.visibility === params.visibility) return item;
 
   const [updated] = await db
     .update(registryItems)
@@ -2289,6 +2413,26 @@ export async function updateRegistryItemVisibility(params: {
     .returning();
 
   if (!updated) throw new Error("Failed to update visibility");
+
+  await recordRegistryItemActivity({
+    item: {
+      id: updated.id,
+      userId: updated.userId,
+      organizationId: updated.organizationId,
+      canonicalProjectId: updated.canonicalProjectId,
+      name: updated.name,
+      type: updated.type,
+      title: updated.title,
+    },
+    eventType: "item.metadata_updated",
+    actorUserId: params.requestUserId,
+    metadata: {
+      changedFields: ["visibility"],
+      previousVisibility: item.visibility,
+      visibility: updated.visibility,
+    },
+  });
+
   return updated;
 }
 
@@ -2321,6 +2465,12 @@ export async function updateOrganizationRegistryItemVisibility(params: {
     throw new Error("Only owner or editor can update visibility");
   }
   ensureRegistryItemMutable(item.status);
+  if (item.visibility === params.visibility) {
+    return {
+      visibility: item.visibility,
+      updatedAt: item.updatedAt,
+    };
+  }
 
   const [updated] = await db
     .update(registryItems)
@@ -2333,6 +2483,127 @@ export async function updateOrganizationRegistryItemVisibility(params: {
       visibility: registryItems.visibility,
       updatedAt: registryItems.updatedAt,
     });
+
+  if (updated) {
+    await recordRegistryItemActivity({
+      item: {
+        id: item.id,
+        userId: item.userId,
+        organizationId: item.organizationId,
+        canonicalProjectId: item.canonicalProjectId,
+        name: item.name,
+        type: item.type,
+        title: item.title,
+      },
+      eventType: "item.metadata_updated",
+      actorUserId: params.requestUserId,
+      metadata: {
+        changedFields: ["visibility"],
+        previousVisibility: item.visibility,
+        visibility: updated.visibility,
+      },
+    });
+  }
+
+  return updated;
+}
+
+export async function moveCanonicalRegistryItemToProject(params: {
+  itemId: string;
+  sourceProjectId: string;
+  targetProjectId: string;
+  requestUserId: string;
+}) {
+  const [item] = await db
+    .select()
+    .from(registryItems)
+    .where(eq(registryItems.id, params.itemId))
+    .limit(1);
+  if (!item) {
+    throw new Error("Source item not found");
+  }
+  ensureRegistryItemMutable(item.status);
+  if (item.canonicalProjectId !== params.sourceProjectId) {
+    throw new Error("Source item is not in the specified project");
+  }
+
+  const [sourceProject] = await db
+    .select()
+    .from(registryProjects)
+    .where(eq(registryProjects.id, params.sourceProjectId))
+    .limit(1);
+  const [targetProject] = await db
+    .select()
+    .from(registryProjects)
+    .where(eq(registryProjects.id, params.targetProjectId))
+    .limit(1);
+
+  if (!sourceProject || !targetProject) {
+    throw new Error("Target project not found");
+  }
+
+  const sameScope =
+    sourceProject.organizationId != null
+      ? sourceProject.organizationId === targetProject.organizationId
+      : sourceProject.ownerUserId != null && sourceProject.ownerUserId === targetProject.ownerUserId;
+  if (!sameScope) {
+    throw new Error("Can only move resources between projects in the same scope");
+  }
+
+  const scopeConflictWhere =
+    item.organizationId != null
+      ? and(
+          eq(registryItems.organizationId, item.organizationId),
+          eq(registryItems.canonicalProjectKey, targetProject.namespaceKey),
+          eq(registryItems.name, item.name),
+        )
+      : and(
+          eq(registryItems.userId, item.userId ?? ""),
+          eq(registryItems.canonicalProjectKey, targetProject.namespaceKey),
+          eq(registryItems.name, item.name),
+        );
+  const [conflict] = await db
+    .select({ id: registryItems.id })
+    .from(registryItems)
+    .where(scopeConflictWhere)
+    .limit(1);
+  if (conflict && conflict.id !== item.id) {
+    throw new Error("Target project already contains a resource with this name");
+  }
+
+  const [updated] = await db
+    .update(registryItems)
+    .set({
+      canonicalProjectId: targetProject.id,
+      canonicalProjectKey: targetProject.namespaceKey,
+      updatedAt: new Date(),
+    })
+    .where(eq(registryItems.id, item.id))
+    .returning();
+  if (!updated) {
+    throw new Error("Failed to move resource");
+  }
+
+  await recordRegistryItemActivity({
+    item: {
+      id: updated.id,
+      userId: updated.userId,
+      organizationId: updated.organizationId,
+      canonicalProjectId: updated.canonicalProjectId,
+      name: updated.name,
+      type: updated.type,
+      title: updated.title,
+    },
+    eventType: "item.metadata_updated",
+    actorUserId: params.requestUserId,
+    metadata: {
+      changedFields: ["canonicalProjectId", "canonicalProjectKey"],
+      previousProjectId: sourceProject.id,
+      previousProjectKey: sourceProject.namespaceKey,
+      canonicalProjectId: targetProject.id,
+      canonicalProjectKey: targetProject.namespaceKey,
+    },
+  });
 
   return updated;
 }

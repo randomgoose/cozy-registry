@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  Activity,
   Building2,
   ChevronLeft,
   ChevronRight,
@@ -15,6 +16,7 @@ import {
   Settings2,
   ShieldAlert,
   SlidersHorizontal,
+  Trash,
   Users,
 } from "lucide-react";
 import { HomeUserMenu } from "@/app/components/HomeUserMenu";
@@ -61,6 +63,10 @@ function normalizePath(p: string) {
 function navActive(pathname: string, href: string) {
   const path = normalizePath(pathname);
   const h = normalizePath(href);
+  if (h === "/me/activities") return path === h;
+  if (/^\/workspace\/[^/]+\/activities$/.test(h)) return path === h;
+  if (/^\/me\/projects\/[^/]+\/activities$/.test(h)) return path === h;
+  if (/^\/workspace\/[^/]+\/projects\/[^/]+\/activities$/.test(h)) return path === h;
   if (h === "/me") return path === "/me";
   // Workspace catalog root: /workspace/{slug} only (not /projects or /settings)
   if (/^\/workspace\/[^/]+$/.test(h)) return path === h;
@@ -111,6 +117,28 @@ type SidebarContext = {
   overviewHref: string;
   settingsHref: string;
 };
+
+function activitiesHref(context: SidebarContext): string {
+  if (context.selectedProjectId != null) {
+    const base = projectScopedHref({
+      projectId: context.selectedProjectId,
+      isWorkspaceShell: context.isWorkspaceShell,
+      activeWorkspaceSlug: context.activeWorkspaceSlug,
+    });
+    return `${base}/activities`;
+  }
+  if (context.isWorkspaceShell && context.activeWorkspaceSlug) {
+    return `/workspace/${encodeURIComponent(context.activeWorkspaceSlug)}/activities`;
+  }
+  return "/me/activities";
+}
+
+function trashHref(context: SidebarContext): string {
+  if (context.isWorkspaceShell && context.activeWorkspaceSlug) {
+    return `/workspace/${encodeURIComponent(context.activeWorkspaceSlug)}/trash`;
+  }
+  return "/me/trash";
+}
 
 function buildSettingsChildren(context: SidebarContext): SidebarSecondaryItem[] {
   if (context.selectedProjectId != null) {
@@ -171,6 +199,8 @@ function buildSettingsChildren(context: SidebarContext): SidebarSecondaryItem[] 
 
 function buildSidebarNavItems(context: SidebarContext): readonly SidebarNavItem[] {
   const settingsChildren = buildSettingsChildren(context);
+  const activityHref = activitiesHref(context);
+  const trashPageHref = trashHref(context);
 
   if (context.isWorkspaceShell && context.activeWorkspaceSlug) {
     return [
@@ -187,12 +217,24 @@ function buildSidebarNavItems(context: SidebarContext): readonly SidebarNavItem[
         icon: FolderKanban,
       },
       {
+        key: "activities",
+        href: activityHref,
+        label: "Activities",
+        icon: Activity,
+      },
+      {
         key: "settings",
         href: context.settingsHref,
         label: "Settings",
         icon: Settings2,
         children: settingsChildren,
       },
+      {
+        key: "trash",
+        href: trashPageHref,
+        label: "Trash",
+        icon: Trash,
+      }
     ] as const;
   }
 
@@ -210,12 +252,24 @@ function buildSidebarNavItems(context: SidebarContext): readonly SidebarNavItem[
       icon: FolderKanban,
     },
     {
+      key: "activities",
+      href: activityHref,
+      label: "Activities",
+      icon: Activity,
+    },
+    {
       key: "settings",
       href: context.settingsHref,
       label: "Settings",
       icon: Settings2,
       children: settingsChildren,
     },
+    {
+      key: "trash",
+      href: trashPageHref,
+      label: "Trash",
+      icon: Trash,
+    }
   ] as const;
 }
 
@@ -445,7 +499,7 @@ function AppSidebar(props: {
         <div className="mt-3 border-t pt-3 dark:border-zinc-800">
           <div className={cn("flex items-center gap-2", !open && "justify-center")}>
             <NotificationBell />
-            <HomeUserMenu fullName={props.fullName} username={props.username} />
+            <HomeUserMenu fullName={props.fullName} username={props.username} avatarUrl={props.workspace.user?.image ?? ""} />
           </div>
         </div>
       </div>
@@ -489,21 +543,21 @@ function AppShellFrame(props: {
   const overviewHref =
     selectedProjectId != null
       ? projectScopedHref({
-          projectId: selectedProjectId,
-          isWorkspaceShell,
-          activeWorkspaceSlug,
-        })
+        projectId: selectedProjectId,
+        isWorkspaceShell,
+        activeWorkspaceSlug,
+      })
       : isWorkspaceShell && activeWorkspaceSlug
         ? `/workspace/${encodeURIComponent(activeWorkspaceSlug)}/projects`
         : "/me/projects";
   const settingsHref =
     selectedProjectId != null
       ? projectScopedHref({
-          projectId: selectedProjectId,
-          isWorkspaceShell,
-          activeWorkspaceSlug,
-          section: "settings",
-        })
+        projectId: selectedProjectId,
+        isWorkspaceShell,
+        activeWorkspaceSlug,
+        section: "settings",
+      })
       : isWorkspaceShell && activeWorkspaceSlug
         ? `/workspace/${encodeURIComponent(activeWorkspaceSlug)}/settings`
         : "/me/settings";

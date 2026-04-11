@@ -139,7 +139,11 @@ export async function DELETE(request: Request, { params }: Params) {
     if (msg.includes("not found") || msg.includes("no access")) {
       return NextResponse.json({ error: msg }, { status: 404 });
     }
-    if (msg.includes("Only owner") || msg.includes("Only organization editors")) {
+    if (
+      msg.includes("Only owner") ||
+      msg.includes("Only organization editors") ||
+      msg.includes("Only owner or editor")
+    ) {
       return NextResponse.json({ error: msg }, { status: 403 });
     }
     if (msg.includes("archived first")) {
@@ -296,6 +300,9 @@ export async function PATCH(request: Request, { params }: Params) {
       return NextResponse.json({ error: msg }, { status: 404 });
     }
     if (msg.includes("Only owner")) {
+      return NextResponse.json({ error: msg }, { status: 403 });
+    }
+    if (msg.includes("Only owner or editor")) {
       return NextResponse.json({ error: msg }, { status: 403 });
     }
     if (msg.includes("cannot be modified")) {

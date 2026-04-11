@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 type NotificationItem = {
   id: string;
@@ -108,18 +109,18 @@ export function NotificationBell() {
     <DropdownMenu onOpenChange={(open) => open && load()}>
       <DropdownMenuTrigger
         render={
-          <button
-            type="button"
+          <Button
             aria-label="Notifications"
-            className="relative inline-flex size-9 items-center justify-center rounded-lg border border-zinc-200/80 bg-white/80 text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            size={"icon"}
+            variant={"outline"}
           >
-            <Bell className="size-[18px]" />
+            <Bell className="size-4" />
             {unread > 0 ? (
               <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
                 {unread > 99 ? "99+" : unread}
               </span>
             ) : null}
-          </button>
+          </Button>
         }
       />
 

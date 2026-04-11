@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PageContentShell } from "@/app/components/PageContentShell";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -133,65 +134,66 @@ export function ProjectSettingsPanel(props: ProjectSettingsPanelProps) {
   }
 
   return (
-    <section className="space-y-6">
-      <div className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">
-          Project settings
-        </p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-          {props.title}
-        </h1>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Manage how this project appears inside {props.scopeLabel ?? "this workspace"}.
-        </p>
+    <PageContentShell>
+      <section className="space-y-6">
+        <div className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]">
+          <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+            Project settings
+          </p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            {props.title}
+          </h1>
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            Manage how this project appears inside {props.scopeLabel ?? "this workspace"}.
+          </p>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-              Visibility
-            </p>
-            <p className="mt-2 text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-              {props.visibility}
-            </p>
-          </div>
-          <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-              URL slug
-            </p>
-            <p className="mt-2 font-mono text-sm text-zinc-950 dark:text-zinc-50">{props.slug}</p>
-          </div>
-          <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-              Namespace
-            </p>
-            <p className="mt-2 font-mono text-sm text-zinc-950 dark:text-zinc-50">
-              {props.namespaceKey}
-            </p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
+              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Visibility
+              </p>
+              <p className="mt-2 text-lg font-semibold text-zinc-950 dark:text-zinc-50">
+                {props.visibility}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
+              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                URL slug
+              </p>
+              <p className="mt-2 font-mono text-sm text-zinc-950 dark:text-zinc-50">{props.slug}</p>
+            </div>
+            <div className="rounded-2xl bg-zinc-50/90 px-4 py-4 ring-1 ring-zinc-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
+              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Namespace
+              </p>
+              <p className="mt-2 font-mono text-sm text-zinc-950 dark:text-zinc-50">
+                {props.namespaceKey}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
-      {activeSection === "general" || activeSection === "themes" ? (
-      <form
-        id="general"
-        onSubmit={handleSave}
-        className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]"
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">General</h2>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Update the project label, routing slug, visibility, and default theme layers.
-            </p>
+        {activeSection === "general" || activeSection === "themes" ? (
+        <form
+          id="general"
+          onSubmit={handleSave}
+          className="rounded-[28px] border border-zinc-200/80 bg-white/90 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-zinc-900/90 dark:shadow-[0_24px_60px_rgba(0,0,0,0.2)]"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">General</h2>
+              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                Update the project label, routing slug, visibility, and default theme layers.
+              </p>
+            </div>
+            {savedAt ? (
+              <span className="text-xs text-emerald-600 dark:text-emerald-400">Saved at {savedAt}</span>
+            ) : null}
           </div>
-          {savedAt ? (
-            <span className="text-xs text-emerald-600 dark:text-emerald-400">Saved at {savedAt}</span>
-          ) : null}
-        </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
-            <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
               Project name
             </span>
             <Input
@@ -203,7 +205,7 @@ export function ProjectSettingsPanel(props: ProjectSettingsPanelProps) {
           </label>
 
           <label className="space-y-2">
-            <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
               Slug
             </span>
             <Input
@@ -215,7 +217,7 @@ export function ProjectSettingsPanel(props: ProjectSettingsPanelProps) {
           </label>
 
           <label className="space-y-2 md:col-span-2">
-            <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
               Description
             </span>
             <Textarea
@@ -228,7 +230,7 @@ export function ProjectSettingsPanel(props: ProjectSettingsPanelProps) {
           </label>
 
           <label className="space-y-2">
-            <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
               Visibility
             </span>
             <select
@@ -245,7 +247,7 @@ export function ProjectSettingsPanel(props: ProjectSettingsPanelProps) {
           </label>
 
           <label id="themes" className="space-y-2 md:col-span-2">
-            <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
               Default theme resource refs
             </span>
             <Textarea
@@ -280,37 +282,38 @@ export function ProjectSettingsPanel(props: ProjectSettingsPanelProps) {
             {saving ? "Saving..." : "Save changes"}
           </button>
         </div>
-      </form>
-      ) : null}
+        </form>
+        ) : null}
 
-      {activeSection === "danger" ? (
-      <section
-        id="danger"
-        className="rounded-[28px] border border-red-200/80 bg-red-50/70 p-6 dark:border-red-900/50 dark:bg-red-950/20"
-      >
-        <h2 className="text-lg font-semibold text-red-900 dark:text-red-100">Danger zone</h2>
-        <p className="mt-1 text-sm text-red-700 dark:text-red-300">
-          Deleting a project removes its member links and resource associations, but does not delete the registry resources themselves.
-        </p>
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-red-700/80 dark:text-red-300/80">
-            {props.canDeleteProject
-              ? "Owners and admins can delete this project."
-              : props.isOrgScope
-                ? "Only owners and admins can delete this project."
-                : "Only the project owner can delete this project."}
+        {activeSection === "danger" ? (
+        <section
+          id="danger"
+          className="rounded-[28px] border border-red-200/80 bg-red-50/70 p-6 dark:border-red-900/50 dark:bg-red-950/20"
+        >
+          <h2 className="text-lg font-semibold text-red-900 dark:text-red-100">Danger zone</h2>
+          <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+            Deleting a project removes its member links and resource associations, but does not delete the registry resources themselves.
+          </p>
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-red-700/80 dark:text-red-300/80">
+              {props.canDeleteProject
+                ? "Owners and admins can delete this project."
+                : props.isOrgScope
+                  ? "Only owners and admins can delete this project."
+                  : "Only the project owner can delete this project."}
+            </div>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={!props.canDeleteProject || deleting}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 dark:bg-red-500 dark:hover:bg-red-400"
+            >
+              {deleting ? "Deleting..." : "Delete project"}
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={!props.canDeleteProject || deleting}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 dark:bg-red-500 dark:hover:bg-red-400"
-          >
-            {deleting ? "Deleting..." : "Delete project"}
-          </button>
-        </div>
+        </section>
+        ) : null}
       </section>
-      ) : null}
-    </section>
+    </PageContentShell>
   );
 }

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 
 import { db } from "@/lib/db";
@@ -7,6 +7,21 @@ import { registryProjectMembers, registryProjects } from "@/lib/db/schema";
 export type ProjectRole = "owner" | "admin" | "editor" | "viewer";
 
 export type RegistryProjectRow = InferSelectModel<typeof registryProjects>;
+
+export function activeProjectClause() {
+  return and(
+    eq(registryProjects.status, "active"),
+    isNull(registryProjects.archivedAt),
+    isNull(registryProjects.deletedAt),
+  );
+}
+
+export function archivedProjectClause() {
+  return and(
+    eq(registryProjects.status, "archived"),
+    isNull(registryProjects.deletedAt),
+  );
+}
 
 export async function getUserProjectRole(
   userId: string,
@@ -40,10 +55,25 @@ export async function getProjectIfAccessible(
   userId: string,
   projectId: string,
 ): Promise<RegistryProjectRow | null> {
+  return getProjectIfAccessibleByLifecycle(userId, projectId, { includeArchived: false });
+}
+
+export async function getProjectIfAccessibleByLifecycle(
+  userId: string,
+  projectId: string,
+  options: { includeArchived?: boolean } = {},
+): Promise<RegistryProjectRow | null> {
   const [project] = await db
     .select()
     .from(registryProjects)
-    .where(eq(registryProjects.id, projectId))
+    .where(
+      and(
+        eq(registryProjects.id, projectId),
+        options.includeArchived
+          ? isNull(registryProjects.deletedAt)
+          : activeProjectClause(),
+      ),
+    )
     .limit(1);
   if (!project) return null;
   if (project.ownerUserId === userId) return project;
