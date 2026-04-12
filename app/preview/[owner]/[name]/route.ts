@@ -517,6 +517,39 @@ export async function GET(
           meta: item.meta,
           requestUserId: userId,
         });
+  const shadcnItem = toShadcnRegistryItem(item);
+  const filesArray = shadcnItem?.files ?? [];
+
+  const files: Record<string, string> = {};
+  for (const f of filesArray) {
+    files[f.path] = f.content;
+  }
+
+  const explicitRegistryDependencies = mergeRegistryDependencyRefs(
+    (item.registryDependencies ?? []) as string[],
+    collectExplicitRegistryImportRefs(files),
+  );
+  const effectiveRegistryDependencies = mergeRegistryDependenciesWithResolvedThemes(
+    explicitRegistryDependencies,
+    resolvedThemeRelationship.resolvedThemeResourceRefs,
+  );
+  let earlyResolvedThemeCss = "";
+  if (effectiveRegistryDependencies.length > 0 && item.type !== "registry:theme") {
+    try {
+      const resolvedGraph = await resolveRegistryDependencies({
+        owner,
+        projectKey: projectKeyForRelationships,
+        name,
+        version,
+        requestUserId: userId,
+        memo: resolverMemo,
+        extraRootRegistryDependencies: effectiveRegistryDependencies,
+      });
+      earlyResolvedThemeCss = collectThemeCssFromResolvedGraph(resolvedGraph.ordered).css;
+    } catch {
+      earlyResolvedThemeCss = "";
+    }
+  }
   const { selectedStory } = pickPreviewStory(itemMetaForStory, requestedStoryId);
   const resolvedStoryId = selectedStory?.id ?? null;
   const normalizedStoryId = resolvedStoryId ?? "";
@@ -815,6 +848,10 @@ export async function GET(
       artifactCssUrl != null && artifactCssUrl !== ""
         ? `\n    <link rel="stylesheet" href="${escapeHtml(artifactCssUrl)}" />`
         : "";
+    const themeStyles =
+      earlyResolvedThemeCss.trim().length > 0
+        ? `\n    <style>${escapeHtmlCss(earlyResolvedThemeCss)}</style>`
+        : "";
     const preloadHints = buildEsmPreloadHints(devSuffix);
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -823,7 +860,7 @@ export async function GET(
     <title>Component Preview</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     ${preloadHints}
-    ${bundleStyles}
+    ${themeStyles}${bundleStyles}
     <script type="importmap">
 ${importMapJson}
     </script>
@@ -901,23 +938,6 @@ ${versionToolbarHtml}
       },
     });
   }
-
-  const shadcnItem = toShadcnRegistryItem(item);
-  const filesArray = shadcnItem?.files ?? [];
-
-  const files: Record<string, string> = {};
-  for (const f of filesArray) {
-    files[f.path] = f.content;
-  }
-
-  const explicitRegistryDependencies = mergeRegistryDependencyRefs(
-    (item.registryDependencies ?? []) as string[],
-    collectExplicitRegistryImportRefs(files),
-  );
-  const effectiveRegistryDependencies = mergeRegistryDependenciesWithResolvedThemes(
-    explicitRegistryDependencies,
-    resolvedThemeRelationship.resolvedThemeResourceRefs,
-  );
 
   const itemMeta = itemMetaForStory;
   const rawPreviewProps = itemMeta?.previewProps;

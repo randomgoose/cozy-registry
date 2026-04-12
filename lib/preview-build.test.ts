@@ -152,4 +152,45 @@ describe("preview-build", () => {
     expect(result.css).toContain(".bg-red-500");
     expect(result.css).toContain(".p-4");
   });
+
+  it("builds baseline Tailwind utility css for cva variant definitions", async () => {
+    const result = await buildPreviewBundle(
+      {
+        name: "tailwind-cva-button",
+        version: "1.0.0",
+        files: {
+          "index.tsx": `
+            import React from "react";
+            import { cva } from "class-variance-authority";
+
+            const buttonVariants = cva(
+              "inline-flex items-center rounded-md bg-primary px-4 py-2 text-primary-foreground",
+              {
+                variants: {
+                  variant: {
+                    outline: "border border-border bg-background text-foreground",
+                  },
+                },
+              }
+            );
+
+            export default function TailwindCvaButton() {
+              return <button className={buttonVariants({ variant: "outline" })}>Hello</button>;
+            }
+          `,
+        },
+        dependencies: ["class-variance-authority"],
+      },
+      {},
+      { externalizeDependencies: false },
+    );
+
+    if (!result.ok) {
+      throw new Error(result.error.message);
+    }
+    expect(result.css).toContain(".inline-flex");
+    expect(result.css).toContain(".bg-primary");
+    expect(result.css).toContain(".border-border");
+    expect(result.css).toContain(".text-primary-foreground");
+  });
 });

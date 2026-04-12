@@ -45,7 +45,6 @@ export function HomeUserMenu({ fullName, username, avatarUrl }: HomeUserMenuProp
       <DropdownMenuContent
         align="end"
         sideOffset={8}
-        className="w-56 overflow-hidden rounded-2xl border border-white/60 bg-surface-overlay p-2 shadow-[0_20px_40px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl dark:border-white/10 dark:shadow-[0_24px_44px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]"
       >
         <div className="px-2 py-1.5">
           <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
@@ -60,7 +59,6 @@ export function HomeUserMenu({ fullName, username, avatarUrl }: HomeUserMenuProp
           {MENU_ITEMS.map((item) => (
             <DropdownMenuItem
               key={item.href}
-              className="rounded-xl px-3 py-2 text-sm text-zinc-700 focus:bg-black/[0.06] focus:text-zinc-950 dark:text-zinc-300 dark:focus:bg-black/30 dark:focus:text-zinc-50"
               render={<Link href={item.href} />}
             >
               {item.label}
@@ -71,10 +69,6 @@ export function HomeUserMenu({ fullName, username, avatarUrl }: HomeUserMenuProp
         <DropdownMenuSeparator className="mt-2 bg-zinc-200/80 dark:bg-zinc-800/80" />
 
         <DropdownMenuItem
-          className={cn(
-            "mt-2 rounded-xl px-3 py-2 text-sm text-zinc-600 focus:bg-black/[0.06] focus:text-zinc-950 dark:text-zinc-400 dark:focus:bg-black/30 dark:focus:text-zinc-50",
-          )}
-          render={<button type="button" />}
           onClick={async () => {
             await authClient.signOut();
             window.location.href = "/";

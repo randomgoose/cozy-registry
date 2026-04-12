@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { ArtboardToolIcon } from "@hugeicons/core-free-icons";
+import { ArtboardToolIcon, Trash, Trash2 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import Folder from "@/components/Folder";
 import {
@@ -167,16 +167,6 @@ export function ProjectsPortfolioGrid(props: {
               )}
             </ContextMenuTrigger>
             <ContextMenuContent className="w-52">
-              <ContextMenuLabel className="truncate">{c.title}</ContextMenuLabel>
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                onClick={(event) => {
-                  event.stopPropagation();
-                  runMenuAction(() => props.onExpandedProjectCardIdChange(c.id));
-                }}
-              >
-                {isExpanded ? "Preview expanded" : "Expand preview"}
-              </ContextMenuItem>
               {href ? (
                 <ContextMenuItem
                   onClick={(event) => {
@@ -207,6 +197,7 @@ export function ProjectsPortfolioGrid(props: {
                       runMenuAction(() => props.onMoveProjectToTrash?.(c));
                     }}
                   >
+                    <HugeiconsIcon icon={Trash} size={16}/>
                     Move to trash
                   </ContextMenuItem>
                 </>

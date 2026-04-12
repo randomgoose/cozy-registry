@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -35,21 +36,19 @@ export function ProjectTrashDialog(props: {
           <p className="text-sm text-red-600 dark:text-red-400">{props.error}</p>
         ) : null}
         <DialogFooter className="flex flex-row justify-end gap-2 pt-2">
-          <button
-            type="button"
+          <Button
+            variant={"outline"}
             onClick={() => props.onOpenChange(false)}
-            className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             Cancel
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant={"destructive"}
             onClick={props.onConfirm}
             disabled={props.deleting}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50 dark:bg-red-500 dark:hover:bg-red-400"
           >
             {props.deleting ? "Moving..." : "Move to trash"}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -54,7 +54,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-1.5rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-3xl bg-background px-4 pt-[max(1rem,env(safe-area-inset-top,0px))] pb-[max(1rem,env(safe-area-inset-bottom,0px))] text-xs/relaxed ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-1.5rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-3xl bg-surface px-4 pt-[max(1rem,env(safe-area-inset-top,0px))] pb-[max(1rem,env(safe-area-inset-bottom,0px))] text-xs/relaxed ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}
@@ -66,7 +66,7 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-3 right-3 size-9 rounded-full border border-white/65 bg-white/75 text-zinc-700 shadow-[0_12px_28px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl transition duration-200 hover:-translate-y-px hover:bg-white/90 hover:text-zinc-900 hover:shadow-[0_15px_30px_rgba(15,23,42,0.17),inset_0_1px_0_rgba(255,255,255,0.78)] dark:border-white/12 dark:bg-zinc-900/70 dark:text-zinc-200 dark:shadow-[0_12px_28px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.08)] dark:hover:bg-zinc-900/85 dark:hover:text-white dark:hover:shadow-[0_15px_30px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]"
+                className="absolute top-3 right-3 size-9 rounded-full border border-white/65 bg-white/75 shadow-[0_12px_28px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl transition duration-200 hover:-translate-y-px hover:bg-white/90 hover:text-zinc-900 hover:shadow-[0_15px_30px_rgba(15,23,42,0.17),inset_0_1px_0_rgba(255,255,255,0.78)] dark:border-white/12 dark:bg-zinc-900/70 dark:text-zinc-200 dark:shadow-[0_12px_28px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.08)] dark:hover:bg-zinc-900/85 dark:hover:text-white dark:hover:shadow-[0_15px_30px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.1)]"
                 size="icon"
               />
             }
