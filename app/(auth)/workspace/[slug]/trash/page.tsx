@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getCachedAuthSession } from "@/lib/auth-session";
 import { listProjectsForScope } from "@/lib/project-list";
+import { listTrashArchivedResources } from "@/lib/trash-resources";
 import { getCachedWorkspaceRouteAccess } from "@/lib/workspace-route";
 import { TrashProjectsPanel } from "@/app/components/TrashProjectsPanel";
 
@@ -29,17 +30,25 @@ export default async function WorkspaceTrashPage({ params }: { params: Promise<{
   if (!access.org || !access.isMember) notFound();
   const org = access.org;
 
-  const archivedProjects = await listProjectsForScope({
-    userId: session.user.id,
-    activeOrganizationId: org.id,
-    status: "archived",
-  });
+  const [archivedProjects, archivedResources] = await Promise.all([
+    listProjectsForScope({
+      userId: session.user.id,
+      activeOrganizationId: org.id,
+      status: "archived",
+    }),
+    listTrashArchivedResources({
+      userId: session.user.id,
+      activeOrganizationId: org.id,
+    }),
+  ]);
 
   return (
     <TrashProjectsPanel
       initialProjects={archivedProjects}
+      initialResources={archivedResources}
+      registryApiOwner={org.slug}
       heading={`${org.name} trash`}
-      description={`Archived projects from ${org.name} stay here until an owner or admin restores them.`}
+      description={`Archived projects and resources in ${org.name}. Owners and admins can restore or permanently delete projects; organization owners and editors can do the same for archived resources.`}
     />
   );
 }

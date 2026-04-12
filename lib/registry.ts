@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   registryItems,
@@ -1996,6 +1996,94 @@ export async function archiveOrganizationRegistryItem(params: {
     metadata: {
       lifecycleReason: params.lifecycleReason ?? null,
     },
+  });
+
+  return updated;
+}
+
+/**
+ * Un-archive a registry item that belongs to a project (personal or org).
+ * Mirrors archive permissions: personal items require item owner; org items require org write access.
+ */
+export async function restoreRegistryItemInProject(params: {
+  projectId: string;
+  itemId: string;
+  requestUserId: string;
+}) {
+  const [project] = await db
+    .select()
+    .from(registryProjects)
+    .where(
+      and(eq(registryProjects.id, params.projectId), isNull(registryProjects.deletedAt)),
+    )
+    .limit(1);
+  if (!project) {
+    throw new Error("Project not found");
+  }
+
+  const [item] = await db
+    .select()
+    .from(registryItems)
+    .where(
+      and(
+        eq(registryItems.id, params.itemId),
+        eq(registryItems.canonicalProjectId, params.projectId),
+      ),
+    )
+    .limit(1);
+  if (!item) {
+    throw new Error("Resource not found");
+  }
+  if (item.status !== ARCHIVED_REGISTRY_ITEM_STATUS) {
+    throw new Error("Resource is not archived");
+  }
+
+  if (project.organizationId) {
+    const writable = await getWritableOrganizationTargetForUser(
+      params.requestUserId,
+      project.organizationId,
+    );
+    if (!writable) {
+      throw new Error("Only owner or editor can restore the component");
+    }
+    if (item.organizationId !== project.organizationId) {
+      throw new Error("Resource not found");
+    }
+  } else if (project.ownerUserId) {
+    if (item.userId !== params.requestUserId) {
+      throw new Error("Only owner can restore the component");
+    }
+  } else {
+    throw new Error("Invalid project owner");
+  }
+
+  const [updated] = await db
+    .update(registryItems)
+    .set({
+      status: ACTIVE_REGISTRY_ITEM_STATUS,
+      archivedAt: null,
+      archivedBy: null,
+      lifecycleReason: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(registryItems.id, item.id))
+    .returning();
+
+  if (!updated) throw new Error("Failed to restore registry item");
+
+  await recordRegistryItemActivity({
+    item: {
+      id: updated.id,
+      userId: updated.userId,
+      organizationId: updated.organizationId,
+      canonicalProjectId: updated.canonicalProjectId,
+      name: updated.name,
+      type: updated.type,
+      title: updated.title,
+    },
+    eventType: "item.restored",
+    actorUserId: params.requestUserId,
+    metadata: {},
   });
 
   return updated;

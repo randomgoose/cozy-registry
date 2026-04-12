@@ -3,6 +3,7 @@ import { getCachedAuthSession } from "@/lib/auth-session";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
 import { listProjectsForScope } from "@/lib/project-list";
+import { listTrashArchivedResources } from "@/lib/trash-resources";
 import { TrashProjectsPanel } from "@/app/components/TrashProjectsPanel";
 
 export const dynamic = "force-dynamic";
@@ -30,17 +31,25 @@ export default async function PersonalTrashPage() {
     .where(eq(user.id, session.user.id))
     .limit(1);
   const registryOwner = ownerRow?.handle ?? session.user.email?.split("@")[0] ?? "owner";
-  const archivedProjects = await listProjectsForScope({
-    userId: session.user.id,
-    activeOrganizationId: null,
-    status: "archived",
-  });
+  const [archivedProjects, archivedResources] = await Promise.all([
+    listProjectsForScope({
+      userId: session.user.id,
+      activeOrganizationId: null,
+      status: "archived",
+    }),
+    listTrashArchivedResources({
+      userId: session.user.id,
+      activeOrganizationId: null,
+    }),
+  ]);
 
   return (
     <TrashProjectsPanel
       initialProjects={archivedProjects}
+      initialResources={archivedResources}
+      registryApiOwner={registryOwner}
       heading="Personal trash"
-      description={`Archived projects from @${registryOwner} live here until you restore them.`}
+      description={`Archived projects and resources under @${registryOwner}: restore to continue working, or delete permanently when you are sure.`}
     />
   );
 }

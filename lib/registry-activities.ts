@@ -23,6 +23,7 @@ export const REGISTRY_ACTIVITY_EVENT_TYPES = [
   "item.version_published",
   "item.metadata_updated",
   "item.archived",
+  "item.restored",
   "item.deleted",
 ] as const;
 
@@ -279,6 +280,8 @@ export function activityPrimaryLine(item: ActivityListItem, viewerUserId: string
       return `${actor} updated details for ${res}`;
     case "item.archived":
       return `${actor} archived ${res}`;
+    case "item.restored":
+      return `${actor} restored ${res}`;
     case "item.deleted":
       return `${actor} deleted ${res}`;
     default:

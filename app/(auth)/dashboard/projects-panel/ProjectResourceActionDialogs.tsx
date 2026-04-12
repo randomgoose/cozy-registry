@@ -20,7 +20,7 @@ export function ProjectResourceActionDialogs(props: {
   moveTargetProjectId: string;
   onMoveTargetProjectIdChange: (value: string) => void;
   itemActionError: string | null;
-  itemActionPending: "remove" | "move" | "set-default-theme-ref" | null;
+  itemActionPending: "remove" | "move" | "set-default-theme-ref" | "permanent-remove" | null;
   onMoveConfirm: () => void;
   onRemoveConfirm: () => void;
 }) {
@@ -76,6 +76,7 @@ export function ProjectResourceActionDialogs(props: {
               onClick={props.onMoveConfirm}
               disabled={
                 props.itemActionPending === "move" ||
+                props.itemActionPending === "permanent-remove" ||
                 !props.moveTargetProjectId ||
                 props.moveTargetProjects.length === 0
               }
@@ -114,7 +115,9 @@ export function ProjectResourceActionDialogs(props: {
             <button
               type="button"
               onClick={props.onRemoveConfirm}
-              disabled={props.itemActionPending === "remove"}
+              disabled={
+                props.itemActionPending === "remove" || props.itemActionPending === "permanent-remove"
+              }
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50 dark:bg-red-500 dark:hover:bg-red-400"
             >
               {props.itemActionPending === "remove" ? "Deleting..." : "Delete resource"}

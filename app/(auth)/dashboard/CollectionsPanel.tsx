@@ -92,7 +92,7 @@ export function ProjectsPanel(props: {
   const [removeOpen, setRemoveOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [itemActionPending, setItemActionPending] = useState<
-    "remove" | "move" | "set-default-theme-ref" | null
+    "remove" | "move" | "set-default-theme-ref" | "permanent-remove" | null
   >(null);
   const [itemActionError, setItemActionError] = useState<string | null>(null);
   const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
@@ -628,6 +628,58 @@ export function ProjectsPanel(props: {
     }
   }
 
+  async function handlePermanentRemoveItem(itemId: string) {
+    if (!selectedId || !currentProjectNamespaceKey) return;
+    const removedItem = projectItems.find((item) => item.itemId === itemId) ?? null;
+    if (!removedItem) return;
+
+    selectProjectItem(itemId);
+
+    const ok = window.confirm(
+      "「永久删除」会先将资源移出项目（归档），再彻底删除所有版本，且无法恢复。确定继续？",
+    );
+    if (!ok) return;
+
+    const projectKey = currentProjectNamespaceKey;
+    const itemName = removedItem.name;
+    const ownerSeg = props.registryOwner.replace(/^@/, "");
+
+    setItemActionPending("permanent-remove");
+    setItemActionError(null);
+    try {
+      const archiveRes = await fetch(`/api/projects/${selectedId}/items/${itemId}`, {
+        method: "DELETE",
+      });
+      if (!archiveRes.ok) {
+        const data = (await archiveRes.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error ?? "无法将资源移入回收站");
+      }
+
+      removeItemFromCurrentProjectState(itemId);
+      invalidateClientCachedValue(`project-items:${selectedId}`);
+      invalidateClientCachedValue("projects:");
+      setRemoveOpen(false);
+      void refreshProjects({ force: true });
+
+      const permRes = await fetch(
+        `/api/registry/${encodeURIComponent(ownerSeg)}/${encodeURIComponent(itemName)}?project=${encodeURIComponent(projectKey)}&permanent=true`,
+        { method: "DELETE" },
+      );
+      if (!permRes.ok) {
+        const data = (await permRes.json().catch(() => null)) as { error?: string } | null;
+        const msg = data?.error ?? `永久删除失败（${permRes.status}）`;
+        window.alert(
+          `资源已从项目中移除，但永久删除未完成：${msg}。请打开侧栏「回收站」，在「资源」标签中对该项重试永久删除。`,
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "永久删除失败";
+      setItemActionError(message);
+    } finally {
+      setItemActionPending(null);
+    }
+  }
+
   async function handleMoveSelectedItem() {
     if (!selectedId || !selectedItemId || !moveTargetProjectId) return;
     const movedItemId = selectedItemId;
@@ -841,6 +893,7 @@ export function ProjectsPanel(props: {
               onSelectProjectItem={selectProjectItem}
               onOpenMoveDialog={openMoveDialogForItem}
               onOpenRemoveDialog={openRemoveDialogForItem}
+              onPermanentRemoveItem={(id) => void handlePermanentRemoveItem(id)}
               onSetProjectDefaultThemeRef={handleSetProjectDefaultThemeRef}
               detailByItemId={detailByItemId}
               artifactStatusByItemId={artifactStatusByItemId}

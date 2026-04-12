@@ -286,6 +286,36 @@ describe("registry-preview-smoke", () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
 
+  it("passes a real @base-ui/react slider component without hook dispatcher errors", async () => {
+    const dependencyDecisions = evaluateThirdPartyDependencies({
+      discovered: ["@base-ui/react/slider"],
+      declared: [{ name: "@base-ui/react", version: "1.3.0" }],
+    });
+    const tmpRoot = await primeProviderCacheForSmoke(dependencyDecisions);
+    const result = await runRegistryPreviewSmokeTest({
+      name: "slider",
+      dependencyDecisions,
+      files: {
+        "index.tsx": `
+          "use client";
+          import * as React from "react";
+          import { Slider } from "@base-ui/react/slider";
+
+          export default function SliderPreview() {
+            return <Slider value={[25]} onValueChange={() => {}} />;
+          }
+        `,
+      },
+    });
+
+    if (!result.ok) {
+      await fs.rm(tmpRoot, { recursive: true, force: true });
+      throw new Error(`${result.code}: ${result.message}`);
+    }
+    expect(result.ok).toBe(true);
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
   it("treats @/ bundle aliases as local files instead of third-party deps", async () => {
     const result = await runRegistryPreviewSmokeTest({
       name: "alias-card",

@@ -458,14 +458,16 @@ function createSmokeVmContext(modulePath: string) {
 }
 
 async function loadHostReactRuntime(appRequire: NodeJS.Require) {
-  const ReactModule = await Promise.resolve(loadHostReactModule(appRequire));
+  const renderer = await loadHostReactDomServer(appRequire);
+  const runtimeRequireBase = renderer.runtimeRequire ?? appRequire;
+  const ReactModule = await Promise.resolve(loadHostReactModule(runtimeRequireBase));
   const React = pickReactObject(ReactModule) as {
     createElement: (type: unknown, props: unknown) => unknown;
     Fragment?: unknown;
   };
-  const ReactRequire = await Promise.resolve(loadHostReactRequire(appRequire));
-  const { renderToString } = await loadHostReactDomServer(appRequire);
-  const jsxRuntime = await Promise.resolve(loadHostJsxRuntime(appRequire));
+  const ReactRequire = await Promise.resolve(loadHostReactRequire(runtimeRequireBase));
+  const { renderToString } = renderer;
+  const jsxRuntime = await Promise.resolve(loadHostJsxRuntime(runtimeRequireBase));
   return { React, ReactRequire, jsxRuntime, renderToString };
 }
 
@@ -516,15 +518,23 @@ async function loadHostReactDomServer(appRequire: NodeJS.Require) {
   ] as const;
   for (const spec of requireCandidates) {
     try {
+      const resolvedPath = appRequire.resolve(spec);
+      const runtimeRequire = Module.createRequire(resolvedPath);
       const mod = appRequire(spec) as {
         renderToString?: (node: unknown) => string;
         renderToStaticMarkup?: (node: unknown) => string;
       };
       if (typeof mod.renderToString === "function") {
-        return { renderToString: mod.renderToString as SmokeRenderToString };
+        return {
+          renderToString: mod.renderToString as SmokeRenderToString,
+          runtimeRequire,
+        };
       }
       if (typeof mod.renderToStaticMarkup === "function") {
-        return { renderToString: mod.renderToStaticMarkup as SmokeRenderToString };
+        return {
+          renderToString: mod.renderToStaticMarkup as SmokeRenderToString,
+          runtimeRequire,
+        };
       }
     } catch {
       continue;
@@ -569,15 +579,22 @@ async function loadHostReactDomServer(appRequire: NodeJS.Require) {
     for (const rel of directCandidates) {
       try {
         const abs = path.join(reactDomRoot, rel);
+        const runtimeRequire = Module.createRequire(abs);
         const mod = appRequire(abs) as {
           renderToString?: (node: unknown) => string;
           renderToStaticMarkup?: (node: unknown) => string;
         };
         if (typeof mod.renderToString === "function") {
-          return { renderToString: mod.renderToString as SmokeRenderToString };
+          return {
+            renderToString: mod.renderToString as SmokeRenderToString,
+            runtimeRequire,
+          };
         }
         if (typeof mod.renderToStaticMarkup === "function") {
-          return { renderToString: mod.renderToStaticMarkup as SmokeRenderToString };
+          return {
+            renderToString: mod.renderToStaticMarkup as SmokeRenderToString,
+            runtimeRequire,
+          };
         }
       } catch {
         continue;
@@ -593,6 +610,7 @@ async function loadHostReactDomServer(appRequire: NodeJS.Require) {
     };
     if (typeof mod.renderToReadableStream === "function") {
       return {
+        runtimeRequire: appRequire,
         async renderToString(node: unknown): Promise<string> {
           const stream = await mod.renderToReadableStream?.(node);
           if (!stream) return "";

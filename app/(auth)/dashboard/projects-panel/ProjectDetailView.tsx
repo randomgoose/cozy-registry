@@ -62,6 +62,8 @@ type ProjectDetailViewProps = {
   onSelectProjectItem: (itemId: string) => void;
   onOpenMoveDialog: (itemId: string) => void;
   onOpenRemoveDialog: (itemId: string) => void;
+  /** Archive then permanently delete all versions (cannot undo). */
+  onPermanentRemoveItem: (itemId: string) => void;
   onSetProjectDefaultThemeRef: (item: ProjectItemRow) => void;
   detailByItemId: Record<string, ProjectItemDetailData>;
   artifactStatusByItemId: Record<string, PreviewArtifactStatusPayload | null>;
@@ -79,7 +81,7 @@ type ProjectDetailViewProps = {
   previewSlotsToRender: WarmPreviewSlot[];
   itemDetailLoadingId: string | null;
   itemDetailError: string | null;
-  itemActionPending: "remove" | "move" | "set-default-theme-ref" | null;
+  itemActionPending: "remove" | "move" | "set-default-theme-ref" | "permanent-remove" | null;
   itemActionError: string | null;
 };
 
@@ -236,6 +238,13 @@ export function ProjectDetailView(props: ProjectDetailViewProps) {
                     >
                       Delete resource
                     </ContextMenuItem>
+                    <ContextMenuItem
+                      variant="destructive"
+                      disabled={!props.canEditProject || props.itemActionPending !== null}
+                      onClick={() => props.onPermanentRemoveItem(item.itemId)}
+                    >
+                      永久删除
+                    </ContextMenuItem>
                     {isThemeResource ? (
                       <>
                         <ContextMenuSeparator />
@@ -332,16 +341,28 @@ export function ProjectDetailView(props: ProjectDetailViewProps) {
                       <button
                         type="button"
                         onClick={() => props.onOpenMoveDialog(selectedItem.itemId)}
-                        className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        disabled={props.itemActionPending !== null}
+                        className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
                       >
                         Move
                       </button>
                       <button
                         type="button"
                         onClick={() => props.onOpenRemoveDialog(selectedItem.itemId)}
-                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/60"
+                        disabled={props.itemActionPending !== null}
+                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-50 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/60"
                       >
                         Delete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => props.onPermanentRemoveItem(selectedItem.itemId)}
+                        disabled={props.itemActionPending !== null}
+                        className="rounded-lg border border-red-800/40 bg-red-700 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-800 disabled:opacity-50 dark:border-red-950 dark:bg-red-800 dark:hover:bg-red-700"
+                      >
+                        {props.itemActionPending === "permanent-remove"
+                          ? "删除中…"
+                          : "永久删除"}
                       </button>
                     </>
                   ) : null}
