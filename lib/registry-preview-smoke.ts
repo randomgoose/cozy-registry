@@ -463,9 +463,9 @@ async function loadHostReactRuntime(appRequire: NodeJS.Require) {
     createElement: (type: unknown, props: unknown) => unknown;
     Fragment?: unknown;
   };
-  const ReactRequire = toRequireCompatibleReact(ReactModule, React);
+  const ReactRequire = await Promise.resolve(loadHostReactRequire(appRequire));
   const { renderToString } = await loadHostReactDomServer(appRequire);
-  const jsxRuntime = createJsxRuntimeShim(React);
+  const jsxRuntime = await Promise.resolve(loadHostJsxRuntime(appRequire));
   return { React, ReactRequire, jsxRuntime, renderToString };
 }
 
@@ -476,6 +476,22 @@ function loadHostReactModule(appRequire: NodeJS.Require) {
     // Fall back to ESM import for environments where require is unavailable.
   }
   return import("react");
+}
+
+function loadHostReactRequire(appRequire: NodeJS.Require) {
+  try {
+    return appRequire("react");
+  } catch {
+    return loadHostReactModule(appRequire);
+  }
+}
+
+function loadHostJsxRuntime(appRequire: NodeJS.Require) {
+  try {
+    return appRequire("react/jsx-runtime");
+  } catch {
+    return import("react/jsx-runtime");
+  }
 }
 
 type SmokeRenderToString = (node: unknown) => string | Promise<string>;
@@ -489,26 +505,6 @@ function pickReactObject(mod: unknown) {
     return d;
   }
   throw new Error("Unable to load React runtime object for preview smoke test");
-}
-
-function toRequireCompatibleReact(mod: unknown, fallbackReact: unknown) {
-  const m = mod as { default?: unknown } | null | undefined;
-  const d = m?.default;
-  const candidate =
-    d && typeof d === "object" && "useState" in (d as Record<string, unknown>)
-      ? (d as Record<string, unknown>)
-      : mod && typeof mod === "object" && "useState" in (mod as Record<string, unknown>)
-        ? (mod as Record<string, unknown>)
-        : (fallbackReact as Record<string, unknown>);
-
-  if (!("default" in candidate)) {
-    Object.defineProperty(candidate, "default", {
-      value: candidate,
-      enumerable: false,
-      configurable: true,
-    });
-  }
-  return candidate;
 }
 
 async function loadHostReactDomServer(appRequire: NodeJS.Require) {
@@ -685,24 +681,6 @@ export const __previewSmokeInternals = {
   withTimeout,
   withSmokeFailureHint,
 };
-
-function createJsxRuntimeShim(React: {
-  createElement: (type: unknown, props: unknown) => unknown;
-  Fragment?: unknown;
-}) {
-  const makeElement = (type: unknown, props: Record<string, unknown> | null, key?: unknown) => {
-    const nextProps =
-      key === undefined ? props : { ...(props ?? {}), key };
-    return React.createElement(type, nextProps ?? {});
-  };
-
-  return {
-    Fragment: React.Fragment ?? "fragment",
-    jsx: makeElement,
-    jsxs: makeElement,
-    jsxDEV: makeElement,
-  };
-}
 
 function isRenderablePreviewExport(value: unknown) {
   if (value == null) return false;

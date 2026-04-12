@@ -125,6 +125,7 @@ Source of truth: yes
 - [Activities Feature Spec](../20-engineering/activities-feature-spec.md)：定义按当前 personal / workspace / project context 自动收缩范围的资源活动流，以及 sidebar 入口、事件模型和第一阶段事件范围。
 - [Component Style Organization Model Spec](../20-engineering/component-style-organization-model-spec.md)：定义组件局部样式与 design-context style 的正式分层，并评估 Tailwind、同目录 CSS、mixed mode、CSS Modules 等在本项目中的实际支持度。
 - [Preview And Project Style Closure Checklist](../20-engineering/preview-and-project-style-closure-checklist.md)：将“preview 构建动态决策”和“project/theme 样式上下文”两条主线压成收尾清单，便于后续 agent 继续收口阶段性桥接与剩余缺口。
+- [Preview And Starter Known Issues Retrospective](../20-engineering/preview-and-starter-known-issues-retrospective.md)：沉淀最近几轮 starter、preview artifact、thumbnail、smoke runtime 与 project identity 相关问题的真实症状、误判路径与最终修法。
 - [Live Style Preview And Committed Artifact Spec](../20-engineering/live-style-preview-and-committed-artifact-spec.md)：将 runtime 样式覆盖与 committed artifact 重建拆成两条协同链路，服务轻量调样式体验。
 - [Vercel React Best Practices For My App](../20-engineering/vercel-react-best-practices-for-my-app.md)：将 Vercel React/Next.js 性能规则映射到当前仓库的具体文件与优化动作。
 - [Preview Delivery And CDN Plan](../20-engineering/preview-delivery-and-cdn-plan.md)：梳理 preview artifact 当前的对象存储 / CDN 分发现状、剩余瓶颈与后续提速方向。

@@ -109,6 +109,27 @@ describe("registry-preview-smoke", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("passes a client component using React.useMemo", async () => {
+    const result = await runRegistryPreviewSmokeTest({
+      name: "memo-card",
+      files: {
+        "index.tsx": `
+          "use client";
+          import * as React from "react";
+          export default function MemoCard() {
+            const value = React.useMemo(() => "ok", []);
+            return <div>{value}</div>;
+          }
+        `,
+      },
+    });
+
+    if (!result.ok) {
+      throw new Error(`${result.code}: ${result.message}`);
+    }
+    expect(result.ok).toBe(true);
+  });
+
   it("fails when the component renders an undefined child", async () => {
     const result = await runRegistryPreviewSmokeTest({
       name: "kpi-card",
